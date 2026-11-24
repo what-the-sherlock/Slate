@@ -82,7 +82,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
-addopts = "-ra --strict-markers --disable-socket --allow-unix-socket"
+addopts = "-ra --strict-markers --allow-hosts=127.0.0.1,::1"  # loopback only (asyncio on Windows needs a local socketpair)
 markers = [
     "integration: needs DATABASE_URL pointing at a Neon test branch (network allowed)",
     "contract: API/event contract snapshots",
