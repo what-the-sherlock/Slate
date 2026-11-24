@@ -15,6 +15,7 @@ from core.domain.documents import (
 from core.domain.errors import NotFound
 from core.domain.ids import ChunkId, DocumentId, GenerationId, WorkspaceId
 from core.domain.principals import Principals
+from core.ports.storage import PresignedUpload
 from tests.fakes.system import SequentialIds
 
 
@@ -191,6 +192,7 @@ def _cosine(a: Vector, b: Vector) -> float:
 class InMemoryBlobStore:
     def __init__(self) -> None:
         self.blobs: dict[str, tuple[bytes, str]] = {}
+        self.upload_policies: dict[str, tuple[str, int]] = {}
 
     async def put(self, key: str, data: bytes, content_type: str) -> str:
         self.blobs[key] = (data, content_type)
@@ -203,6 +205,20 @@ class InMemoryBlobStore:
 
     async def delete(self, ref: str) -> None:
         self.blobs.pop(ref, None)
+
+    async def presigned_upload(
+        self, key: str, *, content_type: str, max_bytes: int, expires_in: int = 600
+    ) -> PresignedUpload:
+        self.upload_policies[key] = (content_type, max_bytes)
+        return PresignedUpload(url="https://blobs.test/upload", fields={"key": key})
+
+    async def size_of(self, key: str) -> int | None:
+        return len(self.blobs[key][0]) if key in self.blobs else None
+
+    async def read_head(self, key: str, n: int) -> bytes:
+        if key not in self.blobs:
+            raise NotFound("blob not found")
+        return self.blobs[key][0][:n]
 
     async def presigned_url(self, ref: str, *, expires_in: int = 300) -> str:
         if ref not in self.blobs:

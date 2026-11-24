@@ -21,6 +21,7 @@ from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from core.domain.errors import NotFound, UpstreamUnavailable
+from core.ports.storage import PresignedUpload
 
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
@@ -77,9 +78,53 @@ class S3BlobStore:
         expires = max(1, min(expires_in, MAX_PRESIGN_SECONDS))
         return await self._call(
             lambda: self._client.generate_presigned_url(
-                "get_object", Params={"Bucket": self._bucket, "Key": ref}, ExpiresIn=expires
+                "get_object",
+                Params={
+                    "Bucket": self._bucket,
+                    "Key": ref,
+                    # Always a download, never rendered: an uploaded HTML file must not run
+                    # as a page on the storage origin (security review).
+                    "ResponseContentDisposition": "attachment",
+                    "ResponseContentType": "application/octet-stream",
+                },
+                ExpiresIn=expires,
             )
         )
+
+    async def presigned_upload(
+        self, key: str, *, content_type: str, max_bytes: int, expires_in: int = 600
+    ) -> PresignedUpload:
+        # A POST policy (unlike a presigned PUT) lets the bucket itself enforce the size limit.
+        post = await self._call(
+            lambda: self._client.generate_presigned_post(
+                Bucket=self._bucket,
+                Key=key,
+                Fields={"Content-Type": content_type},
+                Conditions=[
+                    {"Content-Type": content_type},
+                    ["content-length-range", 1, max_bytes],
+                ],
+                ExpiresIn=max(1, min(expires_in, MAX_PRESIGN_SECONDS)),
+            )
+        )
+        fields = {k: str(v) for k, v in post["fields"].items()}
+        return PresignedUpload(url=post["url"], fields=fields)
+
+    async def size_of(self, key: str) -> int | None:
+        try:
+            head = await self._call(
+                lambda: self._client.head_object(Bucket=self._bucket, Key=key), missing=key
+            )
+        except NotFound:
+            return None
+        return int(head["ContentLength"])
+
+    async def read_head(self, key: str, n: int) -> bytes:
+        def read() -> bytes:
+            obj = self._client.get_object(Bucket=self._bucket, Key=key, Range=f"bytes=0-{n - 1}")
+            return obj["Body"].read()
+
+        return await self._call(read, missing=key)
 
     async def _call[T](self, fn: Callable[[], T], *, missing: str | None = None) -> T:
         try:

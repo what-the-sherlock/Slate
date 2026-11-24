@@ -1,6 +1,167 @@
 {
   "components": {
     "schemas": {
+      "BeginUploadBody": {
+        "properties": {
+          "filename": {
+            "examples": [
+              "handbook.pdf"
+            ],
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Filename",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "Hex SHA-256 of the file, computed in the browser.",
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes, as reported by the browser.",
+            "examples": [
+              183244
+            ],
+            "minimum": 0.0,
+            "title": "Size",
+            "type": "integer"
+          },
+          "visibility": {
+            "default": "only_me",
+            "enum": [
+              "only_me",
+              "workspace",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "size",
+          "sha256"
+        ],
+        "title": "BeginUploadBody",
+        "type": "object"
+      },
+      "BeginUploadResponse": {
+        "properties": {
+          "document_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "upload",
+              "duplicate",
+              "processing",
+              "visibility_differs"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "upload": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PresignedPost"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "upload_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upload Token"
+          }
+        },
+        "required": [
+          "status",
+          "filename"
+        ],
+        "title": "BeginUploadResponse",
+        "type": "object"
+      },
+      "CompleteUploadBody": {
+        "properties": {
+          "upload_token": {
+            "maxLength": 4096,
+            "minLength": 10,
+            "title": "Upload Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_token"
+        ],
+        "title": "CompleteUploadBody",
+        "type": "object"
+      },
+      "CompleteUploadResponse": {
+        "properties": {
+          "document_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "status": {
+            "enum": [
+              "upload",
+              "duplicate",
+              "processing",
+              "visibility_differs"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "CompleteUploadResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -117,6 +278,28 @@
           "name"
         ],
         "title": "MeUser",
+        "type": "object"
+      },
+      "PresignedPost": {
+        "properties": {
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Send these form fields first, then the file.",
+            "title": "Fields",
+            "type": "object"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "fields"
+        ],
+        "title": "PresignedPost",
         "type": "object"
       },
       "ReadinessResponse": {
@@ -512,6 +695,88 @@
         "summary": "Readiness",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/uploads": {
+      "post": {
+        "operationId": "begin_upload_api_v1_uploads_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BeginUploadBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BeginUploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start an upload: returns a direct-to-storage form, or says it's a duplicate",
+        "tags": [
+          "uploads"
+        ]
+      }
+    },
+    "/api/v1/uploads/complete": {
+      "post": {
+        "operationId": "complete_upload_api_v1_uploads_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteUploadBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteUploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish an upload after the file reached storage: checks it and queues processing",
+        "tags": [
+          "uploads"
         ]
       }
     }

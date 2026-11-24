@@ -181,7 +181,7 @@ Connectors declare their capabilities by which protocols they implement. A conne
 
 | Connector | Capabilities | Notes |
 | --- | --- | --- |
-| `upload` | FullLoad | API stores the file in BlobStore, then enqueues `process_batch` (inline if small) |
+| `upload` | (API-driven) | Direct-to-storage, two steps (ADR-0016): `POST /uploads` checks role, size, type and duplicates and returns a size-limited presigned POST plus a signed upload token; the browser sends the file straight to the bucket; `POST /uploads/complete` checks size and sniffs the first 8 KB, then enqueues `process_upload`. The worker re-verifies the sha256 |
 | `github` | FullLoad, Poll, SlimList, WebhookReceiver | Code via shallow `git clone`/`fetch` in the worker (no API quota); issues and PRs via REST with `since`; GitHub App or fine-grained PAT; 5,000 req/h budget |
 | `discord` | FullLoad, Poll | Bot with Message Content intent; page with `after=<snowflake>`; group messages by thread or 30-min window into one document |
 | `gmail_mbox` | FullLoad | Import of a Google Takeout `.mbox` uploaded to BlobStore; one document per thread; visibility `user:<owner>` |
@@ -229,7 +229,7 @@ sequenceDiagram
 
 ## 9. API surface (v1, initial)
 
-`POST /api/v1/auth/login|logout`, `GET /api/v1/me`, `GET|POST /api/v1/sources`, `POST /api/v1/sources/{id}/sync`, `GET /api/v1/sources/{id}/runs`, `POST /api/v1/uploads`, `GET /api/v1/documents/{id}` (preview, ACL-checked), `POST /api/v1/search`, `POST /api/v1/chat` (SSE), `GET /api/v1/chat/sessions`, `POST /api/v1/messages/{id}/feedback`, `POST /api/v1/webhooks/{connector}`, `GET /healthz`, `GET /readyz`.
+`POST /api/v1/auth/login|logout`, `GET /api/v1/me`, `GET|POST /api/v1/sources`, `POST /api/v1/sources/{id}/sync`, `GET /api/v1/sources/{id}/runs`, `POST /api/v1/uploads`, `POST /api/v1/uploads/complete`, `GET /api/v1/auth/status`, `POST /api/v1/auth/setup|guest`, `GET /api/v1/documents/{id}` (preview, ACL-checked), `POST /api/v1/search`, `POST /api/v1/chat` (SSE), `GET /api/v1/chat/sessions`, `POST /api/v1/messages/{id}/feedback`, `POST /api/v1/webhooks/{connector}`, `GET /healthz`, `GET /readyz`.
 
 Errors use RFC 9457 `application/problem+json` with a stable `type` URI per domain error. List endpoints use cursor pagination.
 

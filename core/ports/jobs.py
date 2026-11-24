@@ -49,6 +49,8 @@ class JobQueue(Protocol):
         """Raises NotFound."""
         ...
 
+    async def find_by_key(self, idempotency_key: str) -> Job | None: ...
+
 
 class WorkerTrigger(Protocol):
     async def trigger(self, reason: str) -> None:

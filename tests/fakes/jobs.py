@@ -115,6 +115,9 @@ class FakeJobQueue:
                 n += 1
         return n
 
+    async def find_by_key(self, idempotency_key: str) -> Job | None:
+        return next((j for j in self.jobs.values() if j.idempotency_key == idempotency_key), None)
+
     async def get(self, job_id: JobId) -> Job:
         job = self.jobs.get(job_id)
         if job is None:

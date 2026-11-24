@@ -203,6 +203,15 @@ class PostgresJobQueue:
             )
             return len(result.all())
 
+    async def find_by_key(self, idempotency_key: str) -> Job | None:
+        async with self._uow() as s:
+            result = await s.execute(
+                text(f"SELECT {_COLUMNS} FROM jobs WHERE idempotency_key = :k"),  # noqa: S608
+                {"k": idempotency_key},
+            )
+            row = result.mappings().first()
+        return None if row is None else _to_job(row)
+
     async def get(self, job_id: JobId) -> Job:
         async with self._uow() as s:
             row = (

@@ -146,10 +146,101 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start an upload: returns a direct-to-storage form, or says it's a duplicate */
+        post: operations["begin_upload_api_v1_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finish an upload after the file reached storage: checks it and queues processing */
+        post: operations["complete_upload_api_v1_uploads_complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** BeginUploadBody */
+        BeginUploadBody: {
+            /**
+             * Filename
+             * @example handbook.pdf
+             */
+            filename: string;
+            /**
+             * Sha256
+             * @description Hex SHA-256 of the file, computed in the browser.
+             */
+            sha256: string;
+            /**
+             * Size
+             * @description Bytes, as reported by the browser.
+             * @example 183244
+             */
+            size: number;
+            /**
+             * Visibility
+             * @default only_me
+             * @enum {string}
+             */
+            visibility: "only_me" | "workspace" | "public";
+        };
+        /** BeginUploadResponse */
+        BeginUploadResponse: {
+            /** Document Id */
+            document_id?: string | null;
+            /** Filename */
+            filename: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "upload" | "duplicate" | "processing" | "visibility_differs";
+            upload?: components["schemas"]["PresignedPost"] | null;
+            /** Upload Token */
+            upload_token?: string | null;
+        };
+        /** CompleteUploadBody */
+        CompleteUploadBody: {
+            /** Upload Token */
+            upload_token: string;
+        };
+        /** CompleteUploadResponse */
+        CompleteUploadResponse: {
+            /** Document Id */
+            document_id?: string | null;
+            /** Job Id */
+            job_id?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "upload" | "duplicate" | "processing" | "visibility_differs";
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -206,6 +297,18 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+        };
+        /** PresignedPost */
+        PresignedPost: {
+            /**
+             * Fields
+             * @description Send these form fields first, then the file.
+             */
+            fields: {
+                [key: string]: string;
+            };
+            /** Url */
+            url: string;
         };
         /** ReadinessResponse */
         ReadinessResponse: {
@@ -475,6 +578,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadinessResponse"];
+                };
+            };
+        };
+    };
+    begin_upload_api_v1_uploads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BeginUploadBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BeginUploadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_upload_api_v1_uploads_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteUploadBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompleteUploadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status:** Milestone 1 in progress (slice 1 of 6 done: accounts and sessions). M0 complete except the deferred Vercel + SSE spike.
+**Status:** Milestone 1 in progress (slices 1–3 of 6 done: accounts, storage adapter, upload API). M0 complete except the deferred Vercel + SSE spike.
 
 Update this line and tick items as work completes. Only the current milestone is in scope.
 
@@ -20,7 +20,9 @@ Update this line and tick items as work completes. Only the current milestone is
 
 ### M1 — Ingest uploads (days 3–5)
 - [x] First-run setup (owner + guest, SETUP_TOKEN), login/logout, sessions + CSRF, atomic login throttling (security-reviewed)
-- [ ] Upload API → BlobStore → job → parse → chunk → embed (OpenAI) → store; checksum dedup; ingestion runs and errors
+- [x] Upload API: direct-to-storage presigned POST, byte sniffing, checksum dedup, queued job (ADR-0016)
+- [ ] Pipeline: parse → chunk → embed (OpenAI) → store; ingestion runs and errors. **Must** re-verify SHA-256 and fully validate the downloaded bytes (ADR-0016 amendment)
+- [ ] Worker sweep: delete upload objects that never completed (older than the token TTL, no job or document)
 - [ ] Worker CLI + `sync.yml` (dispatch + hourly cron, concurrency group); inline processing for small uploads
 - [ ] Sources page showing status and run history (skeleton UI)
 - Done when: an uploaded PDF is searchable within a minute; re-upload of the same file is a no-op

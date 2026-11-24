@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Protocol
 
 from core.domain.documents import (
@@ -66,6 +67,14 @@ class SearchIndex(Protocol):
     ) -> list[ScoredChunk]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class PresignedUpload:
+    """POST ``fields`` plus the file (as the last form field) to ``url``."""
+
+    url: str
+    fields: dict[str, str]
+
+
 class BlobStore(Protocol):
     async def put(self, key: str, data: bytes, content_type: str) -> str:
         """Store bytes and return a reference for ``get``/``delete``."""
@@ -81,4 +90,18 @@ class BlobStore(Protocol):
 
     async def presigned_url(self, ref: str, *, expires_in: int = 300) -> str:
         """A short-lived URL that lets a browser download this blob without credentials."""
+        ...
+
+    async def presigned_upload(
+        self, key: str, *, content_type: str, max_bytes: int, expires_in: int = 600
+    ) -> PresignedUpload:
+        """A browser form upload straight to storage, enforcing size limits server-side."""
+        ...
+
+    async def size_of(self, key: str) -> int | None:
+        """Object size in bytes, or None if it doesn't exist (cheap HEAD)."""
+        ...
+
+    async def read_head(self, key: str, n: int) -> bytes:
+        """The first ``n`` bytes (ranged GET), for sniffing without a full download."""
         ...
