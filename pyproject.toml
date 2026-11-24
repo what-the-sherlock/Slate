@@ -44,7 +44,10 @@ extend-exclude = ["web", "docs", "*.md", "migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC", "S", "PT", "RUF", "TID", "N", "C4", "PTH"]
-ignore = ["S101"]  # assert is fine; tests use it and runtime code doesn't rely on it
+ignore = [
+    "S101",  # assert is fine; tests use it and runtime code does not rely on it
+    "N818",  # error names follow CONVENTIONS.md (NotFound, PermissionDenied...), not *Error
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S105", "S106", "S311"]  # fake secrets and non-crypto randomness are fine in tests
