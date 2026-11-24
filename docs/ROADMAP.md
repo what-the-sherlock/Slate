@@ -1,21 +1,21 @@
 # Roadmap
 
-**Status:** Milestone 0 (Phase 0) — not started.
+**Status:** Milestone 0 (Phase 0) — in progress. Waiting on the owner's schema decision (A1–A4) for migration 0001.
 
 Update this line and tick items as work completes. Only the current milestone is in scope.
 
 ## Milestones (3-week interview demo, full-time)
 
 ### M0 — Foundations (days 1–2)
-- [ ] Monorepo: `web/`, `api/`, `core/`, `worker/`, `evals/`, `migrations/`, `tests/`, `docs/`
-- [ ] Tooling: uv, ruff, pyright, import-linter contracts, pytest (+ pytest-socket), pnpm, ESLint, Vitest; `.env.example`; `.gitignore`; pre-commit
-- [ ] `core/config.py`, structured logging, error hierarchy + problem+json handler, request ID middleware
-- [ ] Ports with in-memory fakes; Postgres session factory (pooled + direct)
+- [x] Monorepo: `web/`, `api/`, `core/`, `worker/`, `evals/`, `migrations/`, `tests/`, `docs/`
+- [x] Tooling: uv, ruff, pyright, import-linter contracts, pytest (+ pytest-socket), pnpm, ESLint, Vitest; `.env.example`; `.gitignore`; pre-commit
+- [x] `core/config.py`, structured logging, error hierarchy + problem+json handler, request ID middleware
+- [x] Ports with in-memory fakes; Postgres session factory (pooled + direct)
 - [ ] Alembic migration 0001: full schema from `ARCHITECTURE.md` §4 (incl. pgvector, citext)
-- [ ] `/healthz`, `/readyz`; Next.js skeleton with `/api/*` rewrite; generated API client
+- [x] `/healthz`, `/readyz`; Next.js skeleton with `/api/*` rewrite; generated API client
 - [ ] CI workflow; Neon test branch for integration tests; Dependabot
 - [ ] ~~Vercel projects `web` and `api` deployed; spike: SSE streams through the rewrite~~ **Deferred (owner, 2026-11-24): Vercel setup waits until an MVP exists. The SSE spike must run before M3 streaming work; ADR-0010 stays Proposed until then.**
-- [ ] Spike: verify Neon's pgvector version supports `halfvec` and iterative scans
+- [x] Spike: verify Neon's pgvector version supports `halfvec` and iterative scans (ADR-0011: Postgres 18.7, pgvector 0.8.7)
 - Done when: both apps run locally, CI is green, migrations apply to the Neon `test` branch, the pgvector spike is recorded
 
 ### M1 — Ingest uploads (days 3–5)
