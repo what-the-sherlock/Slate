@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from core.domain.documents import (
@@ -40,6 +41,21 @@ class DocumentStore(Protocol):
 
         Raises NotFound both when it doesn't exist and when access is denied, so
         callers can't probe for documents they may not see.
+        """
+        ...
+
+    async def write_document(
+        self,
+        ws: WorkspaceId,
+        doc: DocumentUpsert,
+        chunks: Sequence[NewChunk],
+        embeddings: Mapping[GenerationId, Sequence[Vector]],
+        *,
+        data_class: str,
+    ) -> tuple[DocumentId, bool]:
+        """Upsert the document and replace its chunks and embeddings in ONE transaction.
+
+        Returns (document id, changed). An unchanged checksum is a no-op (changed=False).
         """
         ...
 
@@ -104,4 +120,12 @@ class BlobStore(Protocol):
 
     async def read_head(self, key: str, n: int) -> bytes:
         """The first ``n`` bytes (ranged GET), for sniffing without a full download."""
+        ...
+
+    async def list_older_than(self, prefix: str, age_seconds: int, limit: int) -> list[str]:
+        """Keys under ``prefix`` last modified more than ``age_seconds`` ago."""
+        ...
+
+    async def modified_at(self, key: str) -> datetime | None:
+        """Last-modified time (cheap HEAD), or None if the object doesn't exist."""
         ...

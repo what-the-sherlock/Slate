@@ -22,7 +22,7 @@ class PresignedPost(BaseModel):
     fields: dict[str, str] = Field(description="Send these form fields first, then the file.")
 
 
-UploadStatusName = Literal["upload", "duplicate", "processing", "visibility_differs"]
+UploadStatusName = Literal["upload", "duplicate", "processing", "visibility_differs", "indexed"]
 
 
 class BeginUploadResponse(BaseModel):

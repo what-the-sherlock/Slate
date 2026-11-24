@@ -57,13 +57,13 @@ async def _seed(index: InMemoryIndex, embedder: FakeEmbedder) -> None:
         ("private-doc", "deploy secrets live in vault", (user_principal(OWNER),)),
     ]:
         doc_id = await index.upsert_document(WS, _doc(ext, acl))
-        vecs = await embedder.embed_documents([text])
+        vecs = (await embedder.embed_documents([text])).vectors
         await index.replace_chunks(WS, doc_id, [NewChunk(0, text, 5)], {GEN: vecs})
 
 
 async def test_embedder_is_deterministic_and_normalised() -> None:
     e = FakeEmbedder(dims=16)
-    a, b = await e.embed_documents(["hello", "hello"])
+    a, b = (await e.embed_documents(["hello", "hello"])).vectors
     assert a == b
     assert len(a) == 16
     assert abs(sum(x * x for x in a) - 1.0) < 1e-9

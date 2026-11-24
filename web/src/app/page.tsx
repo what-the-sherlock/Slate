@@ -1,15 +1,26 @@
-import { StatusPanel } from "./status-panel";
+"use client";
 
-export const metadata = { title: "Status" };
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { Spinner } from "@/components/ui/button";
+import { useMe, useSetupStatus } from "@/lib/api/hooks";
 
-// M0 skeleton: proves web -> /api rewrite -> FastAPI -> Neon works end to end.
-// The real UI follows docs/UI_DESIGN.md from M1 on.
-export default function StatusPage() {
+/** Entry: first run -> setup; signed out -> sign in; otherwise -> the app. */
+export default function Home() {
+  const router = useRouter();
+  const status = useSetupStatus();
+  const me = useMe();
+
+  useEffect(() => {
+    if (status.data && !status.data.set_up) router.replace("/setup");
+    else if (me.data === null) router.replace("/sign-in");
+    else if (me.data) router.replace("/sources");
+  }, [status.data, me.data, router]);
+
   return (
-    <main className="mx-auto w-full max-w-xl px-4 py-16">
-      <h1 className="text-[22px] leading-7 font-medium tracking-[-0.03em] text-fg">Slate</h1>
-      <p className="mt-1 mb-6 text-fg-subtle">System status</p>
-      <StatusPanel />
+    <main id="main" className="flex flex-1 items-center justify-center" aria-busy="true">
+      <Spinner className="size-5 text-fg-subtle" />
+      <span className="sr-only">Loading</span>
     </main>
   );
 }

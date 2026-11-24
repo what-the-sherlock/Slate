@@ -19,6 +19,12 @@ dependencies = [
     "uvicorn>=0.32",
     "argon2-cffi>=23.1",
     "boto3>=1.35",
+    "pypdfium2>=4.30",
+    "python-docx>=1.1",
+    "markdown-it-py>=3.0",
+    "beautifulsoup4>=4.12",
+    "tiktoken>=0.8",
+    "openai>=1.55",
 ]
 
 [dependency-groups]
@@ -54,11 +60,13 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S105", "S106", "S311"]  # fake secrets and non-crypto randomness are fine in tests
+"tests/integration/**" = ["E501"]  # long SQL literals read better unwrapped
 "scripts/**" = ["S311"]
 # Rule 6: each vendor SDK is allowed only inside its own adapter (and that adapter's tests).
 "core/adapters/s3/**" = ["TID251"]
 "core/adapters/openai/**" = ["TID251"]
 "tests/unit/core/adapters/s3/**" = ["TID251", "S105", "S106"]
+"tests/unit/core/adapters/test_openai_embedder.py" = ["TID251"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 # Rule 6: vendor SDKs live only in adapters (adapters re-allow via per-file-ignores when added).

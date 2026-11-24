@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import boto3
@@ -125,6 +126,32 @@ class S3BlobStore:
             return obj["Body"].read()
 
         return await self._call(read, missing=key)
+
+    async def list_older_than(self, prefix: str, age_seconds: int, limit: int) -> list[str]:
+        cutoff = datetime.now(UTC) - timedelta(seconds=age_seconds)
+
+        def scan() -> list[str]:
+            keys: list[str] = []
+            paginator = self._client.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+                for obj in page.get("Contents", []):
+                    modified, key = obj.get("LastModified"), obj.get("Key")
+                    if modified is not None and key is not None and modified < cutoff:
+                        keys.append(key)
+                        if len(keys) >= limit:
+                            return keys
+            return keys
+
+        return await self._call(scan)
+
+    async def modified_at(self, key: str) -> datetime | None:
+        try:
+            head = await self._call(
+                lambda: self._client.head_object(Bucket=self._bucket, Key=key), missing=key
+            )
+        except NotFound:
+            return None
+        return head["LastModified"]
 
     async def _call[T](self, fn: Callable[[], T], *, missing: str | None = None) -> T:
         try:

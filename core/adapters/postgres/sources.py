@@ -84,3 +84,64 @@ class PostgresSourceStore:
                 )
             ).scalar_one()
         return RunId(rid)
+
+    async def finish_run(
+        self,
+        run_id: RunId,
+        *,
+        status: str,
+        seen: int,
+        changed: int,
+        failed: int,
+        error_summary: str | None = None,
+    ) -> None:
+        async with self._uow() as s:
+            await s.execute(
+                text(
+                    "UPDATE ingestion_runs SET status = :st, finished_at = now(),"
+                    " docs_seen = :seen, docs_changed = :ch, docs_failed = :f,"
+                    " error_summary = :err WHERE id = :id"
+                ),
+                {
+                    "st": status,
+                    "seen": seen,
+                    "ch": changed,
+                    "f": failed,
+                    "err": error_summary,
+                    "id": run_id,
+                },
+            )
+            if status in {"succeeded", "partial"}:
+                await s.execute(
+                    text(
+                        "UPDATE sources SET last_synced_at = now() WHERE id ="
+                        " (SELECT source_id FROM ingestion_runs WHERE id = :id)"
+                    ),
+                    {"id": run_id},
+                )
+
+    async def record_error(
+        self, run_id: RunId, *, external_id: str | None, stage: str, message: str, retryable: bool
+    ) -> None:
+        async with self._uow() as s:
+            await s.execute(
+                text(
+                    "INSERT INTO ingestion_errors (run_id, external_id, stage, message, retryable)"
+                    " VALUES (:r, :e, :st, :m, :rt)"
+                ),
+                {"r": run_id, "e": external_id, "st": stage, "m": message, "rt": retryable},
+            )
+
+    async def blob_in_use(self, blob_key: str) -> bool:
+        async with self._uow() as s:
+            used = (
+                await s.execute(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM documents WHERE metadata->>'blob_key' = :k)"
+                        " OR EXISTS (SELECT 1 FROM jobs WHERE payload->>'blob_key' = :k"
+                        "   AND status IN ('queued', 'running', 'failed'))"
+                    ),
+                    {"k": blob_key},
+                )
+            ).scalar_one()
+        return bool(used)

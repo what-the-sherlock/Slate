@@ -68,6 +68,7 @@ uv run alembic upgrade head               migrations (direct, non-pooled URL)
 uv run python -m api.dev --reload         API at :8000 (Windows-safe; = uvicorn api.main:app)
 uv run python scripts/export_openapi.py   regenerate openapi.json after API changes
 uv run python -m worker run               drain runnable jobs locally, then exit (--once: one job)
+                                          (processing uploads calls OpenAI: only when you mean to spend)
 uv run python -m evals.run --embedder openai
 pnpm -C web install | dev | lint | typecheck | test | gen:api
 ```

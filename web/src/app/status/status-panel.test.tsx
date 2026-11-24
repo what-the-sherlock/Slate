@@ -2,7 +2,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiProblem } from "@/lib/api/client";
-import { makeQueryClient } from "./providers";
+import { makeQueryClient } from "../providers";
 import { StatusPanel } from "./status-panel";
 
 function json(body: unknown, status = 200): Response {

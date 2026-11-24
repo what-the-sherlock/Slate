@@ -70,7 +70,8 @@
               "upload",
               "duplicate",
               "processing",
-              "visibility_differs"
+              "visibility_differs",
+              "indexed"
             ],
             "title": "Status",
             "type": "string"
@@ -150,7 +151,8 @@
               "upload",
               "duplicate",
               "processing",
-              "visibility_differs"
+              "visibility_differs",
+              "indexed"
             ],
             "title": "Status",
             "type": "string"
@@ -195,6 +197,61 @@
           "version"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "JobOut": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "dead"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "attempts",
+          "error",
+          "filename"
+        ],
+        "title": "JobOut",
         "type": "object"
       },
       "LoginBody": {
@@ -359,6 +416,114 @@
         "title": "ReadinessResponse",
         "type": "object"
       },
+      "RunErrorOut": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "message",
+          "retryable"
+        ],
+        "title": "RunErrorOut",
+        "type": "object"
+      },
+      "RunOut": {
+        "properties": {
+          "docs_changed": {
+            "title": "Docs Changed",
+            "type": "integer"
+          },
+          "docs_failed": {
+            "title": "Docs Failed",
+            "type": "integer"
+          },
+          "docs_seen": {
+            "title": "Docs Seen",
+            "type": "integer"
+          },
+          "error_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Summary"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/RunErrorOut"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "started_at",
+          "finished_at",
+          "docs_seen",
+          "docs_changed",
+          "docs_failed",
+          "error_summary",
+          "errors"
+        ],
+        "title": "RunOut",
+        "type": "object"
+      },
       "SetupBody": {
         "properties": {
           "email": {
@@ -434,6 +599,93 @@
           "requires_setup_token"
         ],
         "title": "SetupStatus",
+        "type": "object"
+      },
+      "SourceOut": {
+        "properties": {
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "data_class": {
+            "enum": [
+              "public",
+              "private"
+            ],
+            "title": "Data Class",
+            "type": "string"
+          },
+          "documents": {
+            "title": "Documents",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "synced",
+              "syncing",
+              "queued",
+              "failed",
+              "never",
+              "paused"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "visibility": {
+            "enum": [
+              "only_me",
+              "workspace",
+              "public",
+              "mixed"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "connector",
+          "visibility",
+          "data_class",
+          "status",
+          "documents",
+          "last_synced_at",
+          "last_error"
+        ],
+        "title": "SourceOut",
         "type": "object"
       },
       "ValidationError": {
@@ -645,6 +897,49 @@
         ]
       }
     },
+    "/api/v1/jobs/{job_id}": {
+      "get": {
+        "operationId": "get_job_api_v1_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Processing status of one of your uploads",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
     "/api/v1/me": {
       "get": {
         "operationId": "me_api_v1_me_get",
@@ -695,6 +990,90 @@
         "summary": "Readiness",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/sources": {
+      "get": {
+        "operationId": "list_sources_api_v1_sources_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SourceOut"
+                  },
+                  "title": "Response List Sources Api V1 Sources Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sources you can see, with status",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/sources/{source_id}/runs": {
+      "get": {
+        "operationId": "list_runs_api_v1_sources__source_id__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunOut"
+                  },
+                  "title": "Response List Runs Api V1 Sources  Source Id  Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recent ingestion runs and their errors",
+        "tags": [
+          "sources"
         ]
       }
     },

@@ -206,9 +206,11 @@ sequenceDiagram
   W->>DB: ingestion_runs / ingestion_errors updated
 ```
 
-- **Parse:** a `ParsedDocument` holds ordered sections, each with a heading path and text. Tables become Markdown. Code files are parsed with language-aware splitting (tree-sitter later; regex on def/class boundaries first).
+- **Verify (uploads):** the worker downloads the object once (capped at 25 MB) and checks its SHA-256 and type on those exact bytes before parsing them (ADR-0016). Unchanged uploads (same SHA-256 already indexed) skip download and embedding.
+- **Parse:** a `ParsedDocument` holds ordered sections, each with a heading path and text. Parsers: pypdfium2 (PDF, text only; scans need OCR later), python-docx (with zip-bomb checks), markdown-it, BeautifulSoup, csv. Tables become Markdown. Code files are parsed with language-aware splitting (tree-sitter later; regex on def/class boundaries first).
 - **Chunk:** about 512 tokens (`tiktoken` `cl100k_base`), split on section boundaries first, with a 64-token overlap only inside long sections. Each chunk gets a title + heading-path prefix *for embedding*; the stored content stays clean.
-- **Embed:** batches of up to 96 inputs. Record cost to `usage_ledger`. Embed only for `present` and `future` generations.
+- **Embed:** batches of up to 96 inputs. Record cost and data class to `usage_ledger`. The budget guard runs before the first paid call. The first embedding registers the `present` generation and its HNSW index.
+- **Inline path:** uploads up to 1 MB are processed inside the `complete` request by claiming that exact job (`claim_by_id`); retryable failures fall back to the worker.
 - **Prune:** `prune_source` compares `SlimList` IDs with stored IDs and soft-deletes missing documents (`deleted_at`). A nightly job hard-deletes after 7 days.
 - **Failure policy:** errors are per document, so one bad file never fails a run. Job retries use exponential backoff with jitter. After `max_attempts` a job is `dead` and shown in the admin UI. A job whose heartbeat is older than 10 min is reclaimed.
 

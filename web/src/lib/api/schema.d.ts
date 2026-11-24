@@ -109,6 +109,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Processing status of one of your uploads */
+        get: operations["get_job_api_v1_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -138,6 +155,40 @@ export interface paths {
          * @description The database answers and its schema is at this build's migration head.
          */
         get: operations["readyz_api_v1_readyz_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sources you can see, with status */
+        get: operations["list_sources_api_v1_sources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/{source_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent ingestion runs and their errors */
+        get: operations["list_runs_api_v1_sources__source_id__runs_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -219,7 +270,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "upload" | "duplicate" | "processing" | "visibility_differs";
+            status: "upload" | "duplicate" | "processing" | "visibility_differs" | "indexed";
             upload?: components["schemas"]["PresignedPost"] | null;
             /** Upload Token */
             upload_token?: string | null;
@@ -239,7 +290,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "upload" | "duplicate" | "processing" | "visibility_differs";
+            status: "upload" | "duplicate" | "processing" | "visibility_differs" | "indexed";
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -259,6 +310,25 @@ export interface components {
              * @example 0.1.0
              */
             version: string;
+        };
+        /** JobOut */
+        JobOut: {
+            /** Attempts */
+            attempts: number;
+            /** Error */
+            error: string | null;
+            /** Filename */
+            filename: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "dead";
         };
         /** LoginBody */
         LoginBody: {
@@ -332,6 +402,41 @@ export interface components {
              */
             status: "ready" | "not_ready";
         };
+        /** RunErrorOut */
+        RunErrorOut: {
+            /** Message */
+            message: string;
+            /** Retryable */
+            retryable: boolean;
+            /** Stage */
+            stage: string;
+        };
+        /** RunOut */
+        RunOut: {
+            /** Docs Changed */
+            docs_changed: number;
+            /** Docs Failed */
+            docs_failed: number;
+            /** Docs Seen */
+            docs_seen: number;
+            /** Error Summary */
+            error_summary: string | null;
+            /** Errors */
+            errors: components["schemas"]["RunErrorOut"][];
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Started At */
+            started_at: string | null;
+            /** Status */
+            status: string;
+        };
         /** SetupBody */
         SetupBody: {
             /**
@@ -366,6 +471,39 @@ export interface components {
              * @description False until the first owner has created the workspace.
              */
             set_up: boolean;
+        };
+        /** SourceOut */
+        SourceOut: {
+            /** Connector */
+            connector: string;
+            /**
+             * Data Class
+             * @enum {string}
+             */
+            data_class: "public" | "private";
+            /** Documents */
+            documents: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Error */
+            last_error: string | null;
+            /** Last Synced At */
+            last_synced_at: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "synced" | "syncing" | "queued" | "failed" | "never" | "paused";
+            /**
+             * Visibility
+             * @enum {string}
+             */
+            visibility: "only_me" | "workspace" | "public" | "mixed";
         };
         /** ValidationError */
         ValidationError: {
@@ -533,6 +671,37 @@ export interface operations {
             };
         };
     };
+    get_job_api_v1_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     me_api_v1_me_get: {
         parameters: {
             query?: never;
@@ -578,6 +747,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadinessResponse"];
+                };
+            };
+        };
+    };
+    list_sources_api_v1_sources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOut"][];
+                };
+            };
+        };
+    };
+    list_runs_api_v1_sources__source_id__runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

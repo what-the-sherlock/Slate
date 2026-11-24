@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { ApiProblem } from "@/lib/api/client";
 
 export function makeQueryClient(): QueryClient {
@@ -20,5 +21,9 @@ export function makeQueryClient(): QueryClient {
 export function Providers({ children }: { children: ReactNode }) {
   // One client per browser session: not per render, and never shared across server requests.
   const [client] = useState(makeQueryClient);
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      <TooltipProvider delayDuration={400}>{children}</TooltipProvider>
+    </QueryClientProvider>
+  );
 }

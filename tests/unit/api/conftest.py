@@ -10,8 +10,10 @@ from api.deps import Container, get_container
 from api.main import create_app
 from core.config import Settings
 from core.services.auth import AuthService
+from core.services.catalog import CatalogService
 from core.services.uploads import UploadService
 from tests.fakes.auth import FakeHasher, InMemoryAccounts, InMemorySessions, InMemoryThrottle
+from tests.fakes.catalog import InMemoryCatalog
 from tests.fakes.jobs import FakeJobQueue
 from tests.fakes.rate_limit import InMemoryRateLimiter
 from tests.fakes.sources import InMemorySources
@@ -56,13 +58,21 @@ def uploads(blobs: InMemoryBlobStore) -> UploadService:
 
 
 @pytest.fixture
-def app(probe: FakeHealthProbe, auth: AuthService, uploads: UploadService) -> FastAPI:
+def catalog() -> InMemoryCatalog:
+    return InMemoryCatalog()
+
+
+@pytest.fixture
+def app(
+    probe: FakeHealthProbe, auth: AuthService, uploads: UploadService, catalog: InMemoryCatalog
+) -> FastAPI:
     application = create_app()
     container = Container(
         settings=Settings(_env_file=None),  # type: ignore[call-arg]
         health=probe,
         expected_revision="0001",
         auth=auth,
+        catalog=CatalogService(catalog),
         uploads=uploads,
     )
     application.dependency_overrides[get_container] = lambda: container

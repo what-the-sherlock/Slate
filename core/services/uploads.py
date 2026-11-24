@@ -77,6 +77,7 @@ class CompleteResult:
     status: UploadStatus
     job_id: JobId | None = None
     document_id: DocumentId | None = None
+    size: int = 0
 
 
 def derive_key(root_secret: bytes, purpose: str) -> bytes:
@@ -220,7 +221,7 @@ class UploadService:
             },
             job_key,
         )
-        return CompleteResult(UploadStatus.UPLOAD, job_id=job)
+        return CompleteResult(UploadStatus.UPLOAD, job_id=job, size=size)
 
     async def _existing(
         self, identity: Identity, sha256: str, visibility: Visibility

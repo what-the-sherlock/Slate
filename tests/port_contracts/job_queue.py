@@ -129,3 +129,11 @@ class JobQueueContract:
     async def test_get_unknown_job_raises_not_found(self, queue: JobQueue) -> None:
         with pytest.raises(NotFound):
             await queue.get(JobId(uuid4()))
+
+    async def test_claim_by_id_takes_that_job_once(self, queue: JobQueue, ws: WorkspaceId) -> None:
+        job_id = await queue.enqueue(ws, self.kind, {}, _key(), run_after=PAST)
+        first = await queue.claim_by_id(job_id, "api")
+        assert first is not None
+        assert first.status is JobStatus.RUNNING
+        assert await queue.claim_by_id(job_id, "worker") is None  # already held
+        assert await queue.claim("worker", [self.kind]) is None

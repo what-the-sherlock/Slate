@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
+from dataclasses import dataclass
 from typing import Protocol
 
 from core.domain.chat import ChatDelta, ChatMessage, Usage
 from core.domain.documents import Vector
+
+
+@dataclass(frozen=True, slots=True)
+class Embeddings:
+    vectors: list[Vector]
+    tokens: int
+
+
+class Tokenizer(Protocol):
+    def count(self, text: str) -> int: ...
 
 
 class Embedder(Protocol):
@@ -16,7 +27,7 @@ class Embedder(Protocol):
     @property
     def dims(self) -> int: ...
 
-    async def embed_documents(self, texts: Sequence[str]) -> list[Vector]:
+    async def embed_documents(self, texts: Sequence[str]) -> Embeddings:
         """One vector per input, in order. Raises UpstreamUnavailable/RateLimited."""
         ...
 

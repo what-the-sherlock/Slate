@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status:** Milestone 1 in progress (slices 1–3 of 6 done: accounts, storage adapter, upload API). M0 complete except the deferred Vercel + SSE spike.
+**Status:** Milestone 1 code complete locally (owner to verify a real OpenAI embed). Next: M2 hybrid search. M0 complete except the deferred Vercel + SSE spike.
 
 Update this line and tick items as work completes. Only the current milestone is in scope.
 
@@ -21,10 +21,10 @@ Update this line and tick items as work completes. Only the current milestone is
 ### M1 — Ingest uploads (days 3–5)
 - [x] First-run setup (owner + guest, SETUP_TOKEN), login/logout, sessions + CSRF, atomic login throttling (security-reviewed)
 - [x] Upload API: direct-to-storage presigned POST, byte sniffing, checksum dedup, queued job (ADR-0016)
-- [ ] Pipeline: parse → chunk → embed (OpenAI) → store; ingestion runs and errors. **Must** re-verify SHA-256 and fully validate the downloaded bytes (ADR-0016 amendment)
-- [ ] Worker sweep: delete upload objects that never completed (older than the token TTL, no job or document)
-- [ ] Worker CLI + `sync.yml` (dispatch + hourly cron, concurrency group); inline processing for small uploads
-- [ ] Sources page showing status and run history (skeleton UI)
+- [x] Pipeline: download once → verify SHA-256 + sniff → parse (pypdfium2, python-docx, Markdown, HTML, CSV, text) → chunk (~512 tokens) → embed (OpenAI, 1024-d) → store in one transaction; runs, errors, usage ledger, budget guard
+- [x] Worker sweep of abandoned upload objects (older than a day, unreferenced)
+- [x] Worker CLI + `sync.yml` (hourly cron, concurrency group); inline processing for uploads up to 1 MB. On-demand dispatch is deferred (owner decision: no GitHub token yet)
+- [x] First screens to UI_DESIGN.md: first-run setup, sign-in (+ guest), app shell, Sources table, upload dialog with progress, source detail with run history and errors
 - Done when: an uploaded PDF is searchable within a minute; re-upload of the same file is a no-op
 
 ### M2 — Hybrid search + evals (days 6–8)

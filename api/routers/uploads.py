@@ -11,11 +11,13 @@ from api.schemas.uploads import (
     CompleteUploadBody,
     CompleteUploadResponse,
     PresignedPost,
+    UploadStatusName,
 )
 from api.security import MutatingIdentity
 from core.domain.errors import UpstreamUnavailable
 from core.domain.uploads import Visibility
-from core.services.uploads import UploadService
+from core.services.inline import INLINE_MAX_BYTES, InlineOutcome
+from core.services.uploads import UploadService, UploadStatus
 
 router = APIRouter(tags=["uploads"])
 
@@ -61,9 +63,27 @@ async def begin_upload(
     response_model=CompleteUploadResponse,
 )
 async def complete_upload(
-    body: CompleteUploadBody, identity: MutatingIdentity, uploads: Uploads
+    body: CompleteUploadBody,
+    identity: MutatingIdentity,
+    uploads: Uploads,
+    container: Annotated[Container, Depends(get_container)],
 ) -> CompleteUploadResponse:
     result = await uploads.complete(identity, body.upload_token)
+    status: UploadStatusName = result.status.value
+    # Small files are processed right now, so they're searchable in this response;
+    # bigger ones (or a busy/unavailable pipeline) are left for the worker.
+    run_inline = (
+        result.status is UploadStatus.UPLOAD
+        and result.job_id is not None
+        and container.inline is not None
+        and result.size <= INLINE_MAX_BYTES
+    )
+    if run_inline and container.inline and result.job_id:
+        outcome = await container.inline.run(result.job_id)
+        if outcome is InlineOutcome.DONE:
+            status = "indexed"
     return CompleteUploadResponse(
-        status=result.status.value, job_id=result.job_id, document_id=result.document_id
+        status=status,
+        job_id=result.job_id,
+        document_id=result.document_id,
     )

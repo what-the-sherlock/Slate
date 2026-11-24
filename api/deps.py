@@ -13,23 +13,26 @@ from pathlib import Path
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
+from core.adapters.factories import ingest_service, s3_blob_store
 from core.adapters.postgres.auth import (
     PostgresAccountStore,
     PostgresLoginThrottle,
     PostgresSessionStore,
 )
+from core.adapters.postgres.catalog import PostgresCatalog
 from core.adapters.postgres.engine import EngineKind, create_engine, create_session_factory
 from core.adapters.postgres.health import PostgresHealthProbe
 from core.adapters.postgres.jobs import PostgresJobQueue
 from core.adapters.postgres.rate_limit import PostgresRateLimiter
 from core.adapters.postgres.sources import PostgresSourceStore
 from core.adapters.postgres.uow import UnitOfWork, make_uow
-from core.adapters.s3.blob_store import S3BlobStore, S3Settings
 from core.adapters.security.argon2_hasher import Argon2Hasher
 from core.adapters.system import SystemClock
 from core.config import Settings, get_settings
 from core.ports.system import HealthProbe
 from core.services.auth import AuthService
+from core.services.catalog import CatalogService
+from core.services.inline import InlineRunner
 from core.services.uploads import UploadService
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -41,7 +44,9 @@ class Container:
     health: HealthProbe
     expected_revision: str | None
     auth: AuthService
+    catalog: CatalogService
     uploads: UploadService | None = None  # None when storage isn't configured
+    inline: InlineRunner | None = None  # None without storage + OpenAI key
 
 
 @lru_cache(maxsize=1)
@@ -70,33 +75,28 @@ def get_container() -> Container:
             setup_token=settings.setup_token.get_secret_value() if settings.setup_token else None,
             setup_token_required=settings.env == "prod",
         ),
+        catalog=CatalogService(PostgresCatalog(uow)),
         uploads=_upload_service(settings, uow),
+        inline=_inline_runner(settings, uow),
     )
 
 
 def _upload_service(settings: Settings, uow: UnitOfWork) -> UploadService | None:
-    s = settings
-    if not (
-        s.aws_endpoint_url_s3
-        and s.aws_access_key_id
-        and s.aws_secret_access_key
-        and s.session_secret
-    ):
+    blobs = s3_blob_store(settings)
+    if blobs is None or settings.session_secret is None:
         return None
-    blobs = S3BlobStore(
-        S3Settings(
-            endpoint_url=s.aws_endpoint_url_s3,
-            region=s.aws_region or "us-east-1",
-            access_key_id=s.aws_access_key_id,
-            secret_access_key=s.aws_secret_access_key.get_secret_value(),
-            bucket=s.uploads_bucket,
-        )
-    )
     return UploadService(
         blobs,
         PostgresSourceStore(uow),
         PostgresJobQueue(uow),
         PostgresRateLimiter(uow),
         SystemClock(),
-        root_secret=s.session_secret.get_secret_value().encode(),
+        root_secret=settings.session_secret.get_secret_value().encode(),
     )
+
+
+def _inline_runner(settings: Settings, uow: UnitOfWork) -> InlineRunner | None:
+    ingest = ingest_service(settings, uow)
+    if ingest is None:
+        return None
+    return InlineRunner(PostgresJobQueue(uow), ingest.process_upload, runner_id="api-inline")

@@ -52,6 +52,18 @@ RETURNING {_COLUMNS}
 """  # noqa: S608 (column list is a module constant)
 
 
+_CLAIM_ONE = f"""
+UPDATE jobs SET status = 'running', attempts = attempts + 1, locked_by = :worker,
+    locked_at = now(), heartbeat_at = now()
+WHERE id = (
+    SELECT id FROM jobs WHERE id = :id AND status IN ('queued', 'failed')
+      AND run_after <= now() AND attempts < max_attempts
+    FOR UPDATE SKIP LOCKED
+)
+RETURNING {_COLUMNS}
+"""  # noqa: S608 (column list is a module constant)
+
+
 def _to_job(row: RowMapping) -> Job:
     payload: Any = row["payload"]  # reason: jsonb decodes to arbitrary JSON
     return Job(
@@ -202,6 +214,12 @@ class PostgresJobQueue:
                 {"secs": older_than.total_seconds()},
             )
             return len(result.all())
+
+    async def claim_by_id(self, job_id: JobId, worker_id: str) -> Job | None:
+        async with self._uow() as s:
+            result = await s.execute(text(_CLAIM_ONE), {"id": job_id, "worker": worker_id})
+            row = result.mappings().first()
+        return None if row is None else _to_job(row)
 
     async def find_by_key(self, idempotency_key: str) -> Job | None:
         async with self._uow() as s:

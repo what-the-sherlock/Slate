@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Sequence
 
 from core.domain.chat import ChatDelta, ChatMessage, Usage
 from core.domain.documents import Vector
+from core.ports.models import Embeddings
 
 
 class FakeEmbedder:
@@ -39,12 +40,22 @@ class FakeEmbedder:
         norm = math.sqrt(sum(x * x for x in vec)) or 1.0
         return [x / norm for x in vec]
 
-    async def embed_documents(self, texts: Sequence[str]) -> list[Vector]:
+    async def embed_documents(self, texts: Sequence[str]) -> Embeddings:
         self.calls.append(len(texts))
-        return [self._vector(t) for t in texts]
+        return Embeddings(
+            vectors=[self._vector(t) for t in texts],
+            tokens=sum(len(t.split()) for t in texts),
+        )
 
     async def embed_query(self, text: str) -> Vector:
         return self._vector(text)
+
+
+class WordTokenizer:
+    """Deterministic, offline token counting for tests: one token per word."""
+
+    def count(self, text: str) -> int:
+        return len(text.split())
 
 
 class FakeChatModel:

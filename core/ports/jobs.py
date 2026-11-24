@@ -51,6 +51,11 @@ class JobQueue(Protocol):
 
     async def find_by_key(self, idempotency_key: str) -> Job | None: ...
 
+    async def claim_by_id(self, job_id: JobId, worker_id: str) -> Job | None:
+        """Claim this specific job if it is runnable now (queued/failed, due, attempts
+        left); None if someone else holds it or it isn't runnable."""
+        ...
+
 
 class WorkerTrigger(Protocol):
     async def trigger(self, reason: str) -> None:

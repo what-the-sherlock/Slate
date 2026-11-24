@@ -19,6 +19,7 @@ import uuid
 
 import structlog
 
+from core.adapters.factories import ingest_service, s3_blob_store
 from core.adapters.postgres.engine import (
     EngineKind,
     create_engine,
@@ -26,15 +27,37 @@ from core.adapters.postgres.engine import (
     use_selector_loop_on_windows,
 )
 from core.adapters.postgres.jobs import PostgresJobQueue
-from core.adapters.postgres.uow import make_uow
-from core.config import get_settings
+from core.adapters.postgres.sources import PostgresSourceStore
+from core.adapters.postgres.uow import UnitOfWork, make_uow
+from core.config import Settings, get_settings
 from core.logs import configure_logging
+from core.services.maintenance import sweep_abandoned_uploads
+from core.services.uploads import PROCESS_UPLOAD
 from worker.handlers import NOOP, noop
 from worker.runner import Handler, RunLimits, RunSummary, Worker
 
 log = structlog.get_logger("worker")
 
-HANDLERS: dict[str, Handler] = {NOOP: noop}
+
+def build_handlers(settings: Settings, uow: UnitOfWork) -> dict[str, Handler]:
+    handlers: dict[str, Handler] = {NOOP: noop}
+    ingest = ingest_service(settings, uow)
+    if ingest is not None:
+        handlers[PROCESS_UPLOAD] = ingest.process_upload
+    else:
+        # Jobs of that kind simply wait in the queue until the config is fixed.
+        log.warning("upload_pipeline_disabled", reason="storage or OPENAI_API_KEY not configured")
+    return handlers
+
+
+async def housekeeping(settings: Settings, uow: UnitOfWork) -> None:
+    blobs = s3_blob_store(settings)
+    if blobs is None:
+        return
+    try:
+        await sweep_abandoned_uploads(blobs, PostgresSourceStore(uow))
+    except Exception as e:  # housekeeping must never stop real work
+        log.warning("sweep_failed", error_type=type(e).__name__)
 
 
 def _worker_id(configured: str | None) -> str:
@@ -54,8 +77,10 @@ async def run(limits: RunLimits) -> RunSummary:
     settings = get_settings()
     engine = create_engine(settings.require_database_url(direct=True), EngineKind.DIRECT)
     try:
-        queue = PostgresJobQueue(make_uow(create_session_factory(engine)))
-        worker = Worker(queue, HANDLERS, _worker_id(settings.worker_id))
+        uow = make_uow(create_session_factory(engine))
+        await housekeeping(settings, uow)
+        queue = PostgresJobQueue(uow)
+        worker = Worker(queue, build_handlers(settings, uow), _worker_id(settings.worker_id))
         _install_signal_handlers(worker)
         return await worker.run(limits)
     finally:

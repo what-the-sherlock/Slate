@@ -1,4 +1,4 @@
-import createClient from "openapi-fetch";
+import createClient, { type Middleware } from "openapi-fetch";
 import { z } from "zod";
 import type { paths } from "./schema";
 
@@ -14,7 +14,37 @@ export const api = createClient<paths>({
   baseUrl: typeof window === "undefined" ? "" : window.location.origin,
   // Resolve fetch per call (not once at import) so instrumentation and test mocks apply.
   fetch: (request: Request) => globalThis.fetch(request),
+  credentials: "same-origin",
 });
+
+const CSRF_COOKIES = ["slate_csrf", "__Host-slate_csrf"];
+
+export function readCsrfToken(
+  cookieString: string = typeof document === "undefined" ? "" : document.cookie,
+): string {
+  for (const part of cookieString.split(";")) {
+    const [name, ...rest] = part.trim().split("=");
+    if (name && CSRF_COOKIES.includes(name)) return decodeURIComponent(rest.join("="));
+  }
+  return "";
+}
+
+/**
+ * Security headers the API requires (docs/SECURITY.md):
+ * - X-Requested-With on every request (pre-login CSRF defence);
+ * - X-CSRF-Token, copied from the readable CSRF cookie, on every state-changing request.
+ */
+export const securityHeaders: Middleware = {
+  onRequest({ request }) {
+    request.headers.set("x-requested-with", "slate");
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+      const token = readCsrfToken();
+      if (token) request.headers.set("x-csrf-token", token);
+    }
+    return request;
+  },
+};
+api.use(securityHeaders);
 
 const problemSchema = z.object({
   type: z.string(),
@@ -23,6 +53,8 @@ const problemSchema = z.object({
   detail: z.string().optional(),
   instance: z.string().optional(),
   request_id: z.string().nullable().optional(),
+  fields: z.record(z.string(), z.string()).optional(),
+  retry_after_s: z.number().optional(),
 });
 
 export type Problem = z.infer<typeof problemSchema>;
@@ -44,21 +76,33 @@ export class ApiProblem extends Error {
   get isClientError(): boolean {
     return this.status >= 400 && this.status < 500;
   }
+
+  /** Field-level messages (e.g. {email: "Enter an email like…"}), if any. */
+  get fields(): Record<string, string> {
+    return this.problem.fields ?? {};
+  }
 }
 
 /** Turn an unknown error body into an ApiProblem (bodies are untrusted, so validate). */
 export function toApiProblem(body: unknown, status: number): ApiProblem {
   const parsed = problemSchema.safeParse(body);
   if (parsed.success) return new ApiProblem(parsed.data);
-  return new ApiProblem({
-    type: "/problems/unknown",
-    title: "Unexpected response",
-    status,
-  });
+  return new ApiProblem({ type: "/problems/unknown", title: "Unexpected response", status });
 }
 
 /** Unwrap an openapi-fetch result: return data or throw an ApiProblem. */
 export function unwrap<T>(result: { data?: T; error?: unknown; response: Response }): T {
   if (result.data !== undefined) return result.data;
   throw toApiProblem(result.error, result.response.status);
+}
+
+/** A short, user-facing message for any error (never internals). */
+export function errorMessage(error: unknown): string {
+  if (error instanceof ApiProblem) {
+    const { detail, title, request_id, status } = error.problem;
+    const text = detail ?? title;
+    return status >= 500 && request_id ? `${text} Reference: ${request_id}` : text;
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return "Couldn't reach the server. Check your connection and try again.";
 }

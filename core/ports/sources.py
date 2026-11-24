@@ -31,3 +31,22 @@ class SourceStore(Protocol):
     async def create_run(self, source_id: SourceId, kind: str) -> RunId:
         """Record an ingestion run (the worker does this when it starts processing)."""
         ...
+
+    async def finish_run(
+        self,
+        run_id: RunId,
+        *,
+        status: str,
+        seen: int,
+        changed: int,
+        failed: int,
+        error_summary: str | None = None,
+    ) -> None: ...
+
+    async def record_error(
+        self, run_id: RunId, *, external_id: str | None, stage: str, message: str, retryable: bool
+    ) -> None: ...
+
+    async def blob_in_use(self, blob_key: str) -> bool:
+        """True if a document or an unfinished job still references this object."""
+        ...

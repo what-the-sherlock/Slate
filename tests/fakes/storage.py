@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 
 from core.domain.documents import (
     Document,
@@ -40,6 +41,7 @@ class InMemoryIndex:
         self._docs: dict[DocumentId, tuple[WorkspaceId, Document]] = {}
         self._by_key: dict[tuple[object, str], DocumentId] = {}
         self._chunks: list[_StoredChunk] = []
+        self.data_classes: dict[DocumentId, str] = {}
         self._next_chunk = 0
 
     # ---- DocumentStore
@@ -84,6 +86,24 @@ class InMemoryIndex:
         )
         self._by_key[key] = doc_id
         return doc_id
+
+    async def write_document(
+        self,
+        ws: WorkspaceId,
+        doc: DocumentUpsert,
+        chunks: Sequence[NewChunk],
+        embeddings: Mapping[GenerationId, Sequence[Vector]],
+        *,
+        data_class: str,
+    ) -> tuple[DocumentId, bool]:
+        key = (doc.source_id, doc.external_id)
+        existing = self._by_key.get(key)
+        if existing is not None and self._docs[existing][1].checksum == doc.checksum:
+            return existing, False
+        doc_id = await self.upsert_document(ws, doc)
+        await self.replace_chunks(ws, doc_id, chunks, embeddings)
+        self.data_classes[doc_id] = data_class
+        return doc_id, True
 
     async def replace_chunks(
         self,
@@ -193,6 +213,7 @@ class InMemoryBlobStore:
     def __init__(self) -> None:
         self.blobs: dict[str, tuple[bytes, str]] = {}
         self.upload_policies: dict[str, tuple[str, int]] = {}
+        self.old_keys: set[str] = set()  # keys the sweeper should consider stale
 
     async def put(self, key: str, data: bytes, content_type: str) -> str:
         self.blobs[key] = (data, content_type)
@@ -219,6 +240,14 @@ class InMemoryBlobStore:
         if key not in self.blobs:
             raise NotFound("blob not found")
         return self.blobs[key][0][:n]
+
+    async def list_older_than(self, prefix: str, age_seconds: int, limit: int) -> list[str]:
+        return [k for k in self.blobs if k.startswith(prefix) and k in self.old_keys][:limit]
+
+    async def modified_at(self, key: str) -> datetime | None:
+        if key not in self.blobs:
+            return None
+        return datetime(2000, 1, 1, tzinfo=UTC) if key in self.old_keys else datetime.now(UTC)
 
     async def presigned_url(self, ref: str, *, expires_in: int = 300) -> str:
         if ref not in self.blobs:

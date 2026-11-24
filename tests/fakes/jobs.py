@@ -115,6 +115,25 @@ class FakeJobQueue:
                 n += 1
         return n
 
+    async def claim_by_id(self, job_id: JobId, worker_id: str) -> Job | None:
+        job = self.jobs.get(job_id)
+        if (
+            job is None
+            or job.status not in _RUNNABLE
+            or job.run_after > self.clock.now()
+            or job.attempts >= job.max_attempts
+        ):
+            return None
+        claimed = replace(
+            job,
+            status=JobStatus.RUNNING,
+            attempts=job.attempts + 1,
+            locked_by=worker_id,
+            heartbeat_at=self.clock.now(),
+        )
+        self.jobs[job_id] = claimed
+        return claimed
+
     async def find_by_key(self, idempotency_key: str) -> Job | None:
         return next((j for j in self.jobs.values() if j.idempotency_key == idempotency_key), None)
 
