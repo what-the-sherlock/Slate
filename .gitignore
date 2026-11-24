@@ -34,3 +34,4 @@ Thumbs.db
 # generated
 /openapi.json.tmp
 evals/results/*.tmp
+.neon

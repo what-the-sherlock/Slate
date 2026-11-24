@@ -9,7 +9,9 @@ from fastapi.testclient import TestClient
 from api.deps import Container, get_container
 from api.main import create_app
 from core.config import Settings
-from tests.fakes.system import FakeHealthProbe
+from core.services.auth import AuthService
+from tests.fakes.auth import FakeHasher, InMemoryAccounts, InMemorySessions, InMemoryThrottle
+from tests.fakes.system import FakeClock, FakeHealthProbe
 
 
 @pytest.fixture
@@ -18,13 +20,28 @@ def probe() -> FakeHealthProbe:
 
 
 @pytest.fixture
-def app(probe: FakeHealthProbe) -> FastAPI:
+def auth() -> AuthService:
+    clock = FakeClock()
+    accounts = InMemoryAccounts()
+    return AuthService(
+        accounts,
+        InMemorySessions(accounts, clock),
+        InMemoryThrottle(clock),
+        FakeHasher(),
+        clock,
+    )
+
+
+@pytest.fixture
+def app(probe: FakeHealthProbe, auth: AuthService) -> FastAPI:
     application = create_app()
-    application.dependency_overrides[get_container] = lambda: Container(
+    container = Container(
         settings=Settings(_env_file=None),  # type: ignore[call-arg]
         health=probe,
         expected_revision="0001",
+        auth=auth,
     )
+    application.dependency_overrides[get_container] = lambda: container
     return application
 
 

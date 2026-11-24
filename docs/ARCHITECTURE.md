@@ -16,7 +16,7 @@ flowchart LR
   A[Scripts / MCP clients] --> API
   W -- "rewrite /api/* (same origin)" --> API[Vercel: api<br/>FastAPI functions]
   API --> PG[(Neon Postgres<br/>pgvector + FTS + ACLs + jobs)]
-  API --> BS[(Supabase Storage<br/>uploaded originals)]
+  API --> BS[(Neon Object Storage<br/>uploaded originals)]
   API --> EMB[Embedding APIs<br/>OpenAI, Workers AI]
   API --> LLM[LLM APIs<br/>OpenAI, Gemini, Groq]
   API -- repository_dispatch --> GH[GitHub Actions<br/>worker]
@@ -43,7 +43,7 @@ flowchart TB
   services[core/services<br/>ingest, search, answer, sources, auth]
   ports[core/ports<br/>Protocols]
   domain[core/domain<br/>types, rules, errors]
-  adapters[core/adapters<br/>postgres, openai, workersai, supabase, connectors]
+  adapters[core/adapters<br/>postgres, openai, workersai, s3, connectors]
   api --> services
   worker --> services
   evals --> services
@@ -63,7 +63,7 @@ Composition roots (`api/deps.py`, `worker/main.py`, `evals/run.py`) are the only
 | `SearchIndex` | `vector_search`, `keyword_search` (ACL- and workspace-filtered) | Postgres (pgvector + FTS) |
 | `Embedder` | `embed_documents`, `embed_query`; exposes `model`, `dims` | OpenAI, Workers AI (BGE-M3) |
 | `ChatModel` | streamed completion with usage reporting | OpenAI; Gemini/Groq for rewrite only |
-| `BlobStore` | put/get/delete original files | Supabase Storage (fake in tests) |
+| `BlobStore` | put/get/delete original files | Neon Object Storage via S3 API (fake in tests) |
 | `JobQueue` | enqueue, claim (`SKIP LOCKED`), heartbeat, complete, fail | Postgres |
 | `WorkerTrigger` | ask the worker to run now | GitHub `repository_dispatch` |
 | `Parser` | bytes + mime → normalised `ParsedDocument` (sections with heading paths) | pypdfium2/Docling (chosen in Phase 0), python-docx, markdown |
@@ -235,7 +235,7 @@ Errors use RFC 9457 `application/problem+json` with a stable `type` URI per doma
 
 ## 10. Configuration (env vars, all read in `core/config.py`)
 
-`ENV` (`dev|test|prod`), `DATABASE_URL` (pooled), `DATABASE_URL_DIRECT`, `SESSION_SECRET`, `CREDENTIALS_FERNET_KEY`, `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL`, `OPENAI_EMBED_MODEL`, `EMBED_DIMS=1024`, `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_BUCKET`, `GITHUB_DISPATCH_TOKEN`, `GITHUB_REPO`, `GITHUB_APP_*` or `GITHUB_TOKEN`, `DISCORD_BOT_TOKEN`, `MONTHLY_LLM_BUDGET_USD=5`, `SENTRY_DSN`, `LOG_LEVEL`.
+`ENV` (`dev|test|prod`), `DATABASE_URL` (pooled), `DATABASE_URL_DIRECT`, `SESSION_SECRET`, `CREDENTIALS_FERNET_KEY`, `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL`, `OPENAI_EMBED_MODEL`, `EMBED_DIMS=1024`, `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `UPLOADS_BUCKET` (Neon Object Storage, ADR-0014), `GITHUB_DISPATCH_TOKEN`, `GITHUB_REPO`, `GITHUB_APP_*` or `GITHUB_TOKEN`, `DISCORD_BOT_TOKEN`, `MONTHLY_LLM_BUDGET_USD=5`, `SENTRY_DSN`, `LOG_LEVEL`.
 
 `.env.example` lists them all with comments. The app refuses to start in `prod` if a required one is missing.
 

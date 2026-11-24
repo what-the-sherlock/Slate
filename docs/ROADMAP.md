@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status:** Milestone 0 (Phase 0) — code complete locally; waiting on the owner's commit/push and GitHub secrets for the first CI run. Vercel + SSE spike deferred to the MVP.
+**Status:** Milestone 1 in progress (slice 1 of 6 done: accounts and sessions). M0 complete except the deferred Vercel + SSE spike.
 
 Update this line and tick items as work completes. Only the current milestone is in scope.
 
@@ -19,7 +19,7 @@ Update this line and tick items as work completes. Only the current milestone is
 - Done when: both apps run locally, CI is green, migrations apply to the Neon `test` branch, the pgvector spike is recorded
 
 ### M1 — Ingest uploads (days 3–5)
-- [ ] Owner bootstrap and guest user seed; login/logout; sessions + CSRF
+- [x] First-run setup (owner + guest, SETUP_TOKEN), login/logout, sessions + CSRF, atomic login throttling (security-reviewed)
 - [ ] Upload API → BlobStore → job → parse → chunk → embed (OpenAI) → store; checksum dedup; ingestion runs and errors
 - [ ] Worker CLI + `sync.yml` (dispatch + hourly cron, concurrency group); inline processing for small uploads
 - [ ] Sources page showing status and run history (skeleton UI)
@@ -44,7 +44,7 @@ Update this line and tick items as work completes. Only the current milestone is
 - [ ] Bot, backfill, incremental with `after=`, thread/window grouping, channel visibility
 
 ### M6 — Gmail + guest demo (days 16–17)
-- [ ] Takeout `.mbox` import (thread = document, private); guest login on the landing page
+- [ ] Gmail OAuth connector, Internal Workspace app (ADR-0015; thread = document, always private); guest login on the landing page
 
 ### M7 — Polish (days 18–21)
 - [ ] Filters (source, date), sync status, ingestion history; README with diagram and eval table; demo video; buffer

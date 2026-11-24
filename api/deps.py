@@ -13,11 +13,19 @@ from pathlib import Path
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
+from core.adapters.postgres.auth import (
+    PostgresAccountStore,
+    PostgresLoginThrottle,
+    PostgresSessionStore,
+)
 from core.adapters.postgres.engine import EngineKind, create_engine, create_session_factory
 from core.adapters.postgres.health import PostgresHealthProbe
 from core.adapters.postgres.uow import make_uow
+from core.adapters.security.argon2_hasher import Argon2Hasher
+from core.adapters.system import SystemClock
 from core.config import Settings, get_settings
 from core.ports.system import HealthProbe
+from core.services.auth import AuthService
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -27,6 +35,7 @@ class Container:
     settings: Settings
     health: HealthProbe
     expected_revision: str | None
+    auth: AuthService
 
 
 @lru_cache(maxsize=1)
@@ -46,4 +55,13 @@ def get_container() -> Container:
         settings=settings,
         health=PostgresHealthProbe(uow),
         expected_revision=expected_migration_head(),
+        auth=AuthService(
+            PostgresAccountStore(uow),
+            PostgresSessionStore(uow),
+            PostgresLoginThrottle(uow),
+            Argon2Hasher(),
+            SystemClock(),
+            setup_token=settings.setup_token.get_secret_value() if settings.setup_token else None,
+            setup_token_required=settings.env == "prod",
+        ),
     )

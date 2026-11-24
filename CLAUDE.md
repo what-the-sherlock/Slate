@@ -18,7 +18,7 @@ A permission-aware enterprise knowledge assistant, inspired by Onyx and Glean. I
 
 ## Hard constraints (do not violate; ask if a task seems to need it)
 
-- **$0 hosting, no credit card.** Vercel Hobby (web + API), Neon Postgres Free (1 GB), GitHub Actions on a public repo (worker), Supabase Storage (1 GB, uploads), Cloudflare Workers AI (free, second embedder). OpenAI is capped at about **$5/month**.
+- **$0 hosting, no credit card.** Vercel Hobby (web + API), Neon Postgres Free (1 GB), GitHub Actions on a public repo (worker), Neon Object Storage (5 GB, uploads; ADR-0014), Cloudflare Workers AI (free, second embedder). OpenAI is capped at about **$5/month**.
 - **No Docker anywhere.** The dev laptop has under 10 GB free. No local Postgres and no local ML models. Develop against Neon branches.
 - **Vercel functions have a 300 s maximum.** The API does nothing long-running. Heavy work goes to the worker (GitHub Actions) through the `jobs` table.
 - **Neon compute budget is 100 CU-hours a month.** Don't add anything that keeps the database awake: no tight polling, and hourly cron by default.
@@ -40,7 +40,7 @@ api/              FastAPI entry point + HTTP layer only (Vercel project "api")
 core/             Python package with all business logic (see layering below)
   domain/         pure types and rules, no I/O
   ports/          Protocols: Embedder, LLM, BlobStore, DocumentStore, SearchIndex, JobQueue, Connector...
-  adapters/       implementations: postgres/, openai/, workersai/, supabase/, connectors/...
+  adapters/       implementations: postgres/, openai/, workersai/, s3/, connectors/...
   services/       use cases: ingest, search, answer, sources, auth
   config.py       the only place that reads environment variables
 worker/           CLI run by GitHub Actions: `uv run python -m worker run`

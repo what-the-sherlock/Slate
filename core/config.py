@@ -56,9 +56,12 @@ class Settings(BaseSettings):
     groq_api_key: SecretStr | None = None
     monthly_llm_budget_usd: float = Field(default=5.0, ge=0)
 
-    supabase_url: str | None = None
-    supabase_service_key: SecretStr | None = None
-    supabase_bucket: str = "uploads"
+    # Neon Object Storage (ADR-0014): AWS-standard names, injected by `neon deploy`.
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: SecretStr | None = None
+    aws_endpoint_url_s3: str | None = None
+    aws_region: str | None = None
+    uploads_bucket: str = "uploads"
 
     github_dispatch_token: SecretStr | None = None
     github_repo: str | None = None
@@ -69,6 +72,12 @@ class Settings(BaseSettings):
 
     # Identifies this worker process in jobs.locked_by (sync.yml sets it from the run id).
     worker_id: str | None = None
+
+    # First-run setup code. In prod, setup is refused unless this is set (security review).
+    setup_token: SecretStr | None = None
+    # Header the hosting platform sets to the real client IP, e.g. "x-vercel-forwarded-for".
+    # Unset: use the socket peer. Never trust a header the client itself can set.
+    trusted_ip_header: str | None = None
 
     @field_validator("log_level")
     @classmethod

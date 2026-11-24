@@ -89,3 +89,20 @@ Format: number, title, status, context, decision, consequences. Add new ADRs at 
 **Context:** Exactly one embedding generation may be `present` (served by search) and at most one `future` (being built). Options: an application check (racy), a singleton pointer row (atomic flip, but `future`/`past` still need tracking), or database-enforced uniqueness.
 **Decision:** Keep the `status` column and add partial unique indexes `UNIQUE (status) WHERE status = 'present'` and the same for `'future'`. A flip is two statements in one transaction: demote the old `present` to `past`, then promote the `future`.
 **Consequences:** The database makes two present generations impossible, with no race. Readers see the switch atomically at commit. History stays in the same table.
+
+## ADR-0014: Uploads in Neon Object Storage instead of Supabase Storage
+**Status:** Accepted (2026-11-24). Supersedes the storage part of ADR-0003.
+**Context:** The owner asked to keep everything on Neon. Neon Object Storage is S3-compatible, free on the Free plan (5 GB per project, no card, limits block rather than bill) and available in our region (aws-us-east-1). Buckets branch with the database, so a test branch gets its own copy of the files its rows point at.
+**Decision:** Store uploaded originals in a private `uploads` bucket declared in `neon.ts` and provisioned with `neon deploy`. The `BlobStore` port gets an S3 adapter (path-style addressing, SigV4) configured from the AWS-standard env vars Neon injects (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`). Downloads go through short-lived presigned URLs. Supabase is dropped from the stack.
+**Consequences:**
+- One provider, one credential system, one CLI. No Supabase account is needed.
+- **Egress risk:** object downloads count toward the Free plan's 5 GB/month public network transfer, which is shared with Postgres. Exceeding it suspends the database until the next billing period. The worker should download each upload once per processing run, and previews serve extracted text from Postgres rather than the original file.
+- Storage is 5 GB per project, so the 25 MB per-file upload limit stays.
+- `neon deploy` and `neon env pull` overwrite `DATABASE_URL` in `.env` with the linked branch's URL. Integration tests now refuse to run when `DATABASE_URL` and `DATABASE_URL_DIRECT` point at different Neon endpoints.
+- The bucket exists on `production`. Branches created *afterwards* inherit it; the pre-existing `test` branch needs `neon deploy` against it before blob integration tests run.
+
+## ADR-0015: Gmail via an Internal Google Workspace OAuth app
+**Status:** Accepted (2026-11-24). Supersedes ADR-0009.
+**Context:** The owner wants a "Connect Gmail" button like major platforms, not a Takeout upload. ADR-0009's objections apply to *External* OAuth apps: unverified apps in testing mode get refresh tokens that expire after 7 days, and restricted Gmail scopes need Google's security assessment. An app whose user type is **Internal** to a Google Workspace organisation is exempt from verification and the 7-day expiry, for users inside that organisation.
+**Decision:** The Gmail connector (M6) uses OAuth 2.0 with an Internal app in the owner's Google Workspace, scope `gmail.readonly`, offline access (refresh token). The refresh token is stored Fernet-encrypted in `credentials`. Sync uses the Gmail API history endpoint for incremental polling. Gmail sources stay `private` (ADR-0012, enforced by a DB CHECK).
+**Consequences:** Only accounts in the owner's Workspace can connect, not personal @gmail.com accounts; the UI says so. The connector needs a stable OAuth redirect URL, so local development uses `http://localhost` (allowed by Google) until the app is deployed. The Takeout `.mbox` import may return later as a fallback for non-Workspace accounts. Needs `CREDENTIALS_FERNET_KEY` and the Google OAuth client id and secret in env.

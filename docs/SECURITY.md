@@ -23,9 +23,14 @@ This is a personal project that indexes **private mail and code**, and it has a 
 - The repo is **public** (for free Actions minutes). Assume everything committed is world-readable: no real emails, tokens or private repo content in fixtures. Generate synthetic fixtures.
 - The worker logs must not print document content, because Actions logs on public repos are public. Log IDs and counts only.
 - The guest account is read-only. Its role is `viewer`, it has no upload or source management, and it is excluded from `workspace:<id>`.
-- Gmail data: import only from a Takeout export that you upload yourself. Keep raw `.mbox` files private in Supabase Storage (private bucket, signed URLs, short TTL). Never commit them.
+- Gmail data: import only from a Takeout export that you upload yourself. Keep raw `.mbox` files private in Neon Object Storage (private bucket, presigned URLs, short TTL). Never commit them.
 - Deleting a source deletes its documents, chunks, embeddings and blobs (hard delete after a 7-day soft-delete window).
 - Security-relevant changes (auth, ACL, retrieval SQL, prompt templates, upload handling) must be reviewed by the `code-reviewer` subagent before commit.
 - ACLs and data classes are enforced across rows by the database (ADR-0012): child rows inherit `workspace_id` and `data_class` through composite foreign keys, and `chunks.acl` is maintained by trigger. Application code must still write ACLs through one service path, but a bug there can't widen access.
 - API keys: the auth service must check that the key's user is still a member of the key's workspace on every request (the schema doesn't enforce it).
 - `tests/integration/migrations/test_roundtrip.py` drops all tables; it runs only with `SLATE_ALLOW_DESTRUCTIVE_TESTS=1`, which is set only in CI for the dedicated test branch.
+- **Accounts (M1, reviewed 2026-11-24):** first-run setup requires `SETUP_TOKEN` (setup is refused in prod without it). Login throttling is atomic (attempt recorded before the password check under advisory locks) with limits per (email, IP) 5, per IP 20 and per email 100 per 15 minutes, so a stranger can't lock the owner out. An unknown client IP shares one bucket. Guest sessions are capped at 500 active.
+- **Client IP behind a proxy:** set `TRUSTED_IP_HEADER` to the header the platform overwrites (`x-vercel-forwarded-for` on Vercel). Never trust `X-Forwarded-For` from the client. Values are validated.
+- **CSRF:** mutating routes need `X-CSRF-Token` matching both the CSRF cookie and the session's stored secret. Pre-login POSTs (setup, login, guest) need `X-Requested-With: slate` plus a JSON body. Outside dev, cookies use the `__Host-` prefix.
+- **Guests are read-only by default:** routes use `MutatingIdentity`, which refuses guests. Only logout uses `SessionMutatingIdentity`.
+- **To do when password change or user disable ships:** delete all of that user's sessions (`SessionStore.delete_for_user`), and rehash passwords on login when `needs_rehash` says so.
