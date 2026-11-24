@@ -39,10 +39,10 @@ export function AddSourceDialog({
     >
       <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
-          <DialogTitle className="text-[18px] font-semibold tracking-[-0.025em]">
+          <DialogTitle className="text-dialog font-semibold tracking-[-0.015em]">
             {view === "pick" ? "Add a source" : "Upload files"}
           </DialogTitle>
-          <DialogDescription className="text-sm text-fg-muted">
+          <DialogDescription className="text-body text-fg-muted">
             {view === "pick"
               ? "Choose what Slate should search."
               : "Files go straight to private storage, then they're processed and indexed."}
@@ -60,20 +60,20 @@ export function AddSourceDialog({
                     type="button"
                     disabled={!c.ready}
                     onClick={() => c.key === "upload" && setView("upload")}
-                    className="flex h-full w-full flex-col gap-3 rounded-lg border border-border bg-bg p-4 text-left transition-[background-color,border-color,transform] hover:border-border-strong hover:bg-subtle active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-border disabled:hover:bg-bg motion-reduce:active:scale-100"
+                    className="flex h-full w-full flex-col gap-3 rounded-lg border border-border bg-bg p-4 text-left shadow-xs transition-[background-color,border-color,transform] hover:border-border-strong hover:bg-subtle active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-border disabled:hover:bg-bg motion-reduce:active:scale-100"
                   >
                     <LogoTile connector={c.key} />
                     <span>
-                      <span className="block text-[15px] font-medium text-fg">{c.name}</span>
-                      <span className="mt-0.5 block text-[13px] text-fg-subtle">{c.description}</span>
+                      <span className="block text-ui font-medium text-fg">{c.name}</span>
+                      <span className="mt-0.5 block text-caption text-fg-subtle">{c.description}</span>
                     </span>
-                    {!c.ready ? <span className="text-[12px] font-medium text-fg-subtle">Arrives in a later milestone</span> : null}
+                    {!c.ready ? <span className="text-data font-medium text-fg-subtle">Arrives in a later milestone</span> : null}
                   </button>
                 </li>
               ))}
             </ul>
             <section aria-labelledby="later">
-              <h3 id="later" className="mb-2 text-[12px] font-medium text-fg-subtle">
+              <h3 id="later" className="mb-2 text-data font-medium text-fg-subtle">
                 Coming later
               </h3>
               <ul className="grid gap-3 sm:grid-cols-2">
@@ -81,10 +81,10 @@ export function AddSourceDialog({
                   <li key={c.key} aria-label={`${c.name}, planned for a later release`} className="relative flex items-center gap-3 rounded-lg border border-border bg-subtle p-3">
                     <LogoTile connector={c.key} size={32} />
                     <span className="min-w-0">
-                      <span className="block text-sm font-medium text-fg-muted">{c.name}</span>
-                      <span className="block truncate text-[12px] text-fg-subtle">{c.description}</span>
+                      <span className="block text-body font-medium text-fg-muted">{c.name}</span>
+                      <span className="block truncate text-data text-fg-subtle">{c.description}</span>
                     </span>
-                    <span className="ml-auto rounded-sm border border-brand-border px-2 py-0.5 text-[12px] font-medium text-brand-strong">
+                    <span className="ml-auto rounded-sm border border-brand-border px-2 py-0.5 text-data font-medium text-brand-strong">
                       Later
                     </span>
                   </li>

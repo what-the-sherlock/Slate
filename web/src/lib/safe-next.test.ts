@@ -20,6 +20,6 @@ describe("safeNext", () => {
     "",
     null,
   ])("rejects %s", (raw) => {
-    expect(safeNext(raw, ORIGIN)).toBe("/sources");
+    expect(safeNext(raw, ORIGIN)).toBe("/home");
   });
 });

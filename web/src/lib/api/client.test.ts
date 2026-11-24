@@ -18,6 +18,7 @@ describe("toApiProblem", () => {
     expect(p.status).toBe(502);
     expect(p.problem.type).toBe("/problems/unknown");
     expect(p.isClientError).toBe(false);
+    expect(p.message).toContain("HTTP 502");
   });
 });
 

@@ -9,4 +9,4 @@ pnpm gen:api        # regenerate src/lib/api/schema.d.ts from ../openapi.json
 pnpm lint && pnpm typecheck && pnpm test
 ```
 
-Fonts: Inter Tight (SIL OFL, see `src/fonts/OFL.txt`) and Geist Mono.
+Fonts: Inter and JetBrains Mono (both SIL OFL, see `src/fonts/OFL.txt`), self-hosted with `next/font/local`. The font files and `public/brand/noise.png` (the hero's film grain) come unchanged from the Seekworthy codebase (MIT). The Slate logo (`components/brand.tsx` `LogoMark`, `app/icon.svg`) is the owner's artwork, traced to SVG. Integration logos come from Simple Icons (CC0); the trademarks belong to their owners and are shown only to name integrations. The thinking orb is `thinking-orbs` (MIT, © Jakub Antalik).

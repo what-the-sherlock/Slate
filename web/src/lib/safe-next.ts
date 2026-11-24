@@ -3,7 +3,7 @@
  * allowed: "//evil.com", "/\\evil.com", "https://evil.com" and "javascript:" all fall back
  * (security review: open redirect).
  */
-export function safeNext(raw: string | null | undefined, origin: string, fallback = "/sources"): string {
+export function safeNext(raw: string | null | undefined, origin: string, fallback = "/home"): string {
   if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return fallback;
   try {
     const url = new URL(raw, origin);

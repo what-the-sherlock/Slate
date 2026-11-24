@@ -1,11 +1,12 @@
 # UI design
 
-Status: approved direction (2026-11-24). This is the source of truth for every screen, component, state and string in `web/`. If a screen needs something this document doesn't cover, extend this document first, then build it.
+Status: approved direction (2026-11-24), **revised by ADR-0017** (Seekworthy design language: warm stone neutrals, role type scale, panel grammar). This is the source of truth for every screen, component, state and string in `web/`. If a screen needs something this document doesn't cover, extend this document first, then build it.
 
 **References**
 
 | Reference | What we take | What we don't take |
 | --- | --- | --- |
+| **Seekworthy** (owner-supplied codebase, MIT), primary since ADR-0017 | Warm stone neutral ramp, role type scale (10–14 px UI, 20 px page title), full-bleed panel grammar with hairlines, KPI strip, 200/60 px collapsible sidebar, `/join` auth card (badge, headline, icon-prefixed fields, live password hints, perks list) | Its name, logo, copy, marketing palette and assets. Its 1.4:1 input borders (we keep WCAG 1.4.11) and its password composition rules (we follow NIST, `core/domain/auth.py`) |
 | **Answerline** (Framer template by firdavs.xyz) | Palette, type (Inter Tight), radii, hairline borders, buttons, status pills, the "live feed" table, the cited-answer block (numbered badge + source chip), accordion, the pulse dot, motion timings | Its images, copy, client wordmarks, logo mark and marketing layout. The template is sold for $49 (free under a launch offer at the time of writing). The owner should claim it so the design language is licensed |
 | **Trakkr sign-up screen** (owner's screenshot) | Sign-in layout: a large rounded gradient panel, a centred display headline, an inline input bar with the button inside it, a row of check-mark reassurances, and a "what happens next" card overlapping the panel's bottom edge | Its green palette (we use our blue) and its copy |
 | **Beautiful UI** (beautifului.dev, MIT, © 2026 Shane Levine) | Patterns: task rows, chat composer / prompt bar, streaming text, sidebar nav with a gliding hover, command search, records table | Nothing is copied verbatim. If code is ever copied, keep its MIT notice in the file header |
@@ -24,7 +25,7 @@ Status: approved direction (2026-11-24). This is the source of truth for every s
 
 | Asset in the zip | Use | Goes to |
 | --- | --- | --- |
-| Inter Tight `.woff2` files in `fonts.gstatic.com/s/intertight/v9/`: `…mjDw-qW…` = 400, `…mjPQ-qW…` = 500, `…mj0QiqW…` = 600 | **The app's font**, self-hosted with `next/font/local` (exactly the three weights in §2.2). Inter Tight is SIL OFL, so self-hosting is allowed; ship `OFL.txt` alongside | `web/src/fonts/inter-tight-{400,500,600}.woff2` |
+| Inter Tight `.woff2` files in `fonts.gstatic.com/s/intertight/v9/`: `…mjDw-qW…` = 400, `…mjPQ-qW…` = 500, `…mj0QiqW…` = 600 | Was the app's font until ADR-0017 (now Inter). The files were removed from the repo | — |
 | Colour tokens, type presets, radii, shadow, spacing, motion config (inside `index.html` and the site modules) | Already transcribed into §2 and Appendix A | `web/src/styles/tokens.css` |
 | AI-provider marks in `framerusercontent.com/images/`: OpenAI (`c4lGZvEW…svg`) and Gemini (`Fwu7qT1m…svg`) | Provider column of the Usage table (§4.6), at 16 px | `web/src/components/brand-icons/` |
 | Answerline's inline UI icons (menu, arrow, check, plus/minus, crosshair): 24 px grid, round caps, stroke 1.6–2 | Not copied (only ~6 icons). Their stroke weight sets ours: Lucide at stroke 1.6 (§2.6). The crosshair is redrawn for the sign-in rails | — |
@@ -61,31 +62,31 @@ What "not vibe-coded" means here, concretely: no gradient text, no glassmorphism
 
 All colours are CSS custom properties in `web/src/styles/tokens.css`, mapped onto shadcn/ui's variable names (§2.8) so the primitives pick them up. **Never use a raw hex in a component.** The token column notes which Answerline token each value comes from (first 8 hex characters of its id).
 
-**Neutrals**
+**Neutrals** (warm stone since ADR-0017; the Answerline column records where each role came from, not its value)
 
 | Token | Hex | Answerline | Use |
 | --- | --- | --- | --- |
 | `--bg` | `#FFFFFF` | `02ea51c7` | Page canvas, cards, inputs, menus |
-| `--bg-subtle` | `#FAFAFB` | `e58286b7` | Row hover, question bar, featured surfaces, code blocks |
-| `--bg-muted` | `#F1F2F4` | `4c9e3a74` | Selected row, kbd, skeleton base, sidebar active item |
-| `--bg-emphasis` | `#EEF0F2` | `a25c931b` | Neutral pill fill, secondary button hover, avatar fill |
-| `--border` | `#E4E6EA` | `6ff1d9b2` | Default hairline: cards, panels, dividers, icon-button ring |
-| `--border-subtle` | `#EEF0F2` | `5f2cf5ca` | Dividers inside tables and lists |
-| `--border-strong` | `#D5D8DD` | `af844af9` | Secondary button border, outline pills, dropzone |
-| `--border-input` | `#8F949C` | *new* | Input, checkbox, radio and select borders (3.05:1 on white, needed for WCAG 1.4.11) |
-| `--fg` | `#0D0F12` | `fc6ea28d` | Headings, primary text, titles, tooltips' background |
-| `--fg-body` | `#2A2D31` | `aef431cf` | Long-form text: answers, previews, descriptions |
-| `--fg-muted` | `#4A4E55` | `17df2dac` | Secondary text, table cells, labels on `--bg-muted` |
-| `--fg-subtle` | `#6B7078` | `4e2d5370` | Meta text, timestamps, placeholders, captions. **Only on `--bg` or `--bg-subtle`** (4.4:1 on `--bg-muted`, which fails) |
-| `--fg-disabled` | `#A0A5AD` | `2c04ed3c` | Disabled text and decorative marks only (2.5:1, never for readable text) |
+| `--bg-subtle` | `#FAFAF9` | `e58286b7` | Row hover, question bar, featured surfaces, code blocks |
+| `--bg-muted` | `#F5F5F4` | `4c9e3a74` | Selected row, kbd, skeleton base, sidebar active item |
+| `--bg-emphasis` | `#E7E5E4` | `a25c931b` | Neutral pill fill, secondary button hover, avatar fill |
+| `--border` | `#E7E5E4` | `6ff1d9b2` | Default hairline: cards, panels, dividers, icon-button ring |
+| `--border-subtle` | `#F5F5F4` | `5f2cf5ca` | Dividers inside tables and lists |
+| `--border-strong` | `#D6D3D1` | `af844af9` | Secondary button border, outline pills, dropzone |
+| `--border-input` | `#8F8A85` | *new* | Input, checkbox, radio and select borders (3.4:1 on white, needed for WCAG 1.4.11) |
+| `--fg` | `#1C1917` | `fc6ea28d` | Headings, primary text, titles, tooltips' background |
+| `--fg-body` | `#292524` | `aef431cf` | Long-form text: answers, previews, descriptions |
+| `--fg-muted` | `#57534E` | `17df2dac` | Secondary text, table cells, labels on `--bg-muted` |
+| `--fg-subtle` | `#78716C` | `4e2d5370` | Meta text, timestamps, placeholders, captions. **Only on `--bg` or `--bg-subtle`** (4.4:1 on `--bg-muted`, which fails) |
+| `--fg-disabled` | `#A8A29E` | `2c04ed3c` | Disabled text and decorative marks only (2.5:1, never for readable text) |
 
 **Accent (blue)**
 
 | Token | Hex | Answerline | Use |
 | --- | --- | --- | --- |
 | `--accent` | `#3050F0` | `5a57e92e` | Primary buttons, citation badges, links, focus ring, active indicators, progress |
-| `--accent-strong` | `#2440D8` | `0412aeed` | Accent text on tinted backgrounds (chips, tags) |
-| `--accent-subtle` | `#E8ECFF` | `4dccf669` | Citation chip background, cited-passage highlight, selected filter chip, drag-over |
+| `--accent-strong` | `#2A45D6` | `0412aeed` | Accent text on tinted backgrounds (chips, tags) |
+| `--accent-subtle` | `#EEF2FE` | `4dccf669` | Citation chip background, cited-passage highlight, selected filter chip, drag-over |
 | `--accent-border` | `#C9D2FF` | `f6b2275f` | Tag borders, accent-tinted card borders |
 | `--accent-fg` | `#FFFFFF` | `13fec117` | Text and icons on `--accent` |
 
@@ -106,51 +107,49 @@ All colours are CSS custom properties in `web/src/styles/tokens.css`, mapped ont
 | `--overlay` | `rgb(13 15 18 / 0.40)` | Dialog and sheet backdrop. No blur |
 | `--hover-wash` | `rgb(255 255 255 / 0.14)` | Overlay that wipes in on hover over accent and solid buttons (Answerline technique) |
 
-**Contrast (checked):** `--fg` on white 19.6:1, `--fg-body` 14:1, `--fg-muted` 8.6:1, `--fg-subtle` 4.98:1, white on `--accent` 5.95:1, `--accent-strong` on `--accent-subtle` 6.3:1, `--accent` on `--accent-subtle` 5.0:1, every semantic text on its fill ≥ 5.2:1.
+**Contrast (checked, ADR-0017 values):** `--fg-muted` on white 7.6:1, `--fg-subtle` 4.8:1 on white and 4.6:1 on `--bg-subtle` (4.4:1 on `--bg-muted`, so never there), `--border-input` 3.4:1, white on `--accent` 5.95:1, `--accent` on `--accent-subtle` 5.3:1, every semantic text on its fill ≥ 5.2:1.
 
 ### 2.2 Typography
 
-**Families** (both SIL OFL, `display: swap`):
+**Families** (both SIL OFL, `display: swap`, self-hosted with `next/font/local` from `web/src/fonts/`, the same Latin-subset files Seekworthy ships):
 
-- **Inter Tight** (Answerline's face), weights 400, 500 and 600, loaded with `next/font/local` from the `.woff2` files taken from the Answerline export (see the asset table above). `--font-sans`.
-- **Geist Mono**, weights 400 and 500, loaded with `next/font/google` (self-hosted at build time, subset `latin`). `--font-mono`. For code, file paths, IDs, request references and kbd.
+- **Inter**, variable weight 100–900 with italic, `--font-sans` (ADR-0017; replaces Inter Tight).
+- **JetBrains Mono**, variable weight, `--font-mono` (replaces Geist Mono). For code, file paths, IDs, counters, request references and kbd.
 
-Fallback stack: `"Inter Tight", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`. Use `font-feature-settings: "cv11", "ss01"` only if they hold up in review. Always use `font-variant-numeric: tabular-nums` for numbers in tables, counts, times and badges.
+Always use `tabular-nums` for numbers in tables, counts, times and badges.
 
-**Scale.** Answerline is a marketing site with 16–52 px text. The app needs denser sizes, so the small end is new. Tracking is tighter as size grows. Inter Tight is already narrow, so small text gets less negative tracking than Answerline uses.
+**Scale (ADR-0017).** Each step is named for its job and is a Tailwind utility (`text-caption`, `text-page`…), defined in `globals.css`. Line height is a flat 1.5 except where noted. Nothing is bolder than 600.
 
-| Role | Size / line height | Weight | Tracking | Colour | Where |
-| --- | --- | --- | --- | --- | --- |
-| `display` | 52/56 (mobile 36/40) | 500 | −0.04em | `--fg` | Sign-in headline only |
-| `h1` | 30/36 | 500 | −0.035em | `--fg` | Empty-state headline ("What do you want to know?") |
-| `h2` | 22/28 | 500 | −0.03em | `--fg` | Page titles (Sources, Search, Settings) |
-| `h3` | 18/24 | 600 | −0.025em | `--fg` | Dialog titles, section headings, card titles |
-| `body-lg` | 18/28 | 400 | −0.02em | `--fg-body` | Sign-in subtitle |
-| `prose` | 15/26 | 400 | −0.01em | `--fg-body` | Answers and document previews |
-| `body` | 14/20 | 400 | −0.01em | `--fg-muted` / `--fg` | Default UI text |
-| `label` | 14/20 | 500 | −0.01em | `--fg` | Buttons, nav items, row titles, form labels |
-| `small` | 13/18 | 400 / 500 | 0 | `--fg-subtle` | Meta, hints, table headers, pills |
-| `caption` | 12/16 | 500 | 0 | `--fg-subtle` | Section labels in the sidebar, timestamps in dense rows, badge numbers |
-| `code` | 13/20 | 400 | 0 | `--fg-body` | Code blocks and inline code |
+| Role | Size | Weight | Where |
+| --- | --- | --- | --- |
+| `label` | 10 | 600, uppercase, `tracking-wider` | Panel eyebrows (`PanelLabel`), KPI labels, table headers, "Soon" tags |
+| `data` | 11 | 400 / 500 | Dense meta, pills, table sub-lines, KPI captions |
+| `caption` | 12 | 400 / 500 | **Default for controls:** buttons, inputs, nav items, table cells, form labels |
+| `body` | 13 | 400 / 500 | Body text (the `<body>` default), row titles, descriptions |
+| `ui` | 14 | 600 | Section and empty-state headings, large buttons |
+| `dialog` | 15 | 600 | Dialog titles |
+| `page` | 20 / 1.4 | 600, −0.02em | The one page title, in the page bar |
+| `metric` | 24 / 1.2 | 600, `tracking-tight` | KPI figures |
+| `display` | 36 / 1.2 (26 phone, 30 tablet) | 600, −0.025em | Auth headline only |
+| `prose` | 15 / 26 | 400 | Answers and document previews (M3) |
 
-Rules: sentence case everywhere (including buttons and titles). Never use weight 700. Never set body text below 13 px; 12 px is for labels and meta only. Prose measure is 60–75 characters (max width 720 px). Inputs are 16 px on touch devices (`pointer: coarse`) to stop iOS zooming in.
+Rules: sentence case everywhere (including buttons and titles). Never use weight 700. Body text is 13 px; 12 px is for controls, and 10–11 px is for labels and meta only. Prose measure is 60–75 characters (max width 720 px). Inputs are 16 px on touch devices (`pointer: coarse`) to stop iOS zooming in.
 
 ### 2.3 Spacing and layout
 
 - 4 px base, using Tailwind's default scale. Common steps: 4, 6, 8, 10, 12, 16, 20, 24, 32, 40, 56. Answerline uses exactly these.
 - **Component padding:** buttons 12–20 px horizontal; pills 4×10; tags 3×9; cards and dialogs 24; table cells 12×16; page gutters 32 desktop, 24 tablet, 16 phone.
-- **Content widths:** chat column 720 px max; page content 1120 px max; sign-in rails 1248 px max (Answerline's rail width).
+- **Content widths:** chat column 720 px max; auth card 440 px; auth bar content 1120 px max. App pages are full-bleed (panel grammar, §4.8).
 - **Grid lines.** Answerline frames its pages with hairline vertical "rails" and small crosshair marks where lines meet. We use rails on the sign-in page only. Inside the app, structure comes from hairline borders between regions (sidebar | main | panel), never from shadows.
 
 ### 2.4 Radius
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `--radius-xs` | 4 px | Citation badge, kbd, checkbox |
-| `--radius-sm` | 6 px | Pills, tags, chips, menu items, tooltips |
-| `--radius-md` | 8 px | Buttons, inputs, icon buttons, small cards, nav items (Answerline's main radius) |
-| `--radius-lg` | 12 px | Cards, popovers, toasts, dialogs, dropzone, composer |
-| `--radius-xl` | 24 px | Sign-in hero panel (20 px on phone) |
+| `--radius-xs` / `--radius-sm` | 4 px | Citation badge, kbd, pills, nav items |
+| `--radius-md` | 6 px | Buttons, inputs, icon buttons, menu items |
+| `--radius-lg` | 8 px | Auth card, popovers, toasts, dropzone, status list |
+| `--radius-xl` | 12 px | Dialogs |
 | `--radius-full` | 9999 px | Avatars, dots, progress bars, switches |
 
 Nested radii: inner radius = outer radius − padding (for example, the button inside the 12 px composer with 6 px padding is 6 px).
@@ -181,7 +180,7 @@ Z-index scale: `sidebar 20`, `sticky 30`, `overlay 40`, `dialog 50`, `popover 60
 | Gmail | Official multicolour "M" | Label it "Gmail (Takeout import)" so no one expects a live connection |
 | Slack, Notion, Google Drive, Confluence | Official marks | "Coming later" tiles only |
 
-- A README "Credits" section lists Inter Tight, Geist Mono, Lucide, Thinking Orbs, Beautiful UI and the brand trademark notice.
+- A README "Credits" section lists Inter, Geist Mono, Lucide, Thinking Orbs, Beautiful UI and the brand trademark notice.
 
 ### 2.7 Motion
 
@@ -209,7 +208,9 @@ Values come from Answerline's Framer config: a spring with bounce 0.2 and durati
 7. **Arrow nudge:** links and buttons ending in `→` move the arrow 2 px right on hover.
 8. **Copy confirm:** the copy icon morphs to a check for 1.5 s. The label is announced as "Copied".
 
-**Reduced motion** (`prefers-reduced-motion: reduce`): remove every transform and spring, keep opacity fades at 150 ms or less, make the caret and pulse dot static, stop skeleton pulsing, and render orbs as a static frame (the library does this itself). Nothing may rely on motion to communicate.
+9. **Illustration loops** (auth "How it works" only, §4.1): built from `lib/motion.ts` (`useCycle`, `useTypewriter`, `useCountUp`, `useInView`) and CSS transitions; entrances use `REVEAL` + `delay()` from `lib/reveal.ts`. Loops pause on hover/focus, offscreen and in hidden tabs.
+
+**Reduced motion** (`prefers-reduced-motion: reduce`): illustration loops render their finished frame; remove every transform and spring, keep opacity fades at 150 ms or less, make the caret and pulse dot static, stop skeleton pulsing, and render orbs as a static frame (the library does this itself). Nothing may rely on motion to communicate.
 
 ### 2.8 Implementation mapping (Tailwind v4 + shadcn/ui)
 
@@ -341,7 +342,7 @@ Built on Answerline's "live feed" table and Beautiful UI's records table and tas
 
 **Sidebar** (Beautiful UI pattern):
 
-- 248 px expanded, 56 px collapsed (icons only, with tooltips), toggled with `Ctrl/⌘ B` or the collapse button. The state persists in `localStorage`. `--bg-subtle` background with a 1 px `--border` on the right.
+- 200 px expanded, 60 px collapsed (icons only, labelled), toggled with the collapse button (`Ctrl/⌘ B` is planned). The state persists in `localStorage`. `--bg` background with a 1 px `--border` on the right (ADR-0017, §4.2).
 - **Top:** the workspace block (24 px logo tile plus workspace name 14/500). There's a single workspace, so it isn't a switcher and has no chevron. Below it, a **New chat** button (`secondary`, full width, `square-pen` icon, kbd hint `Ctrl/⌘ Shift O`).
 - **Primary nav** (items 32 px, `--radius-md`, 16 px icon, 14/500 label, the gliding highlight from §2.7): Chat, Search, Sources, Settings. Settings shows only for owners and admins. The active item has a `--bg` fill, a 1 px `--border` and `--fg` text. Inactive items use `--fg-muted`.
 - **Recent chats:** a section label in `caption` style ("Today", "Yesterday", "Previous 7 days", "Older"), then items 32 px, single line with ellipsis. The current chat is highlighted. The list loads 30, then more on scroll (cursor pagination). Rename and delete wait until the API supports them; don't show a ⋯ menu that does nothing.
@@ -371,7 +372,7 @@ This adapts Answerline's "What do clients say" answer block.
 
 - 24 px (lists, sidebar) and 32 px (settings). Circle, `--bg-emphasis` fill, initials in 12/600 `--fg-muted` (one or two letters). The guest avatar is a dashed 1 px `--border-strong` outline with a `user` icon.
 - **Product name:** **Slate**, in UI copy, the page `<title>` ("Search · Slate"), metadata and the favicon.
-- **Logo (placeholder until the owner supplies one):** a 32 px tile with `--accent-subtle` fill, `--radius-md`, and an "S" monogram in Inter Tight 600, `--accent-strong`, matching the tinted-square mark in the Trakkr screenshot. Wordmark: "Slate" in 15/600, −0.02em. Build the logo as one `<Logo />` component (with `mark` and `full` variants), so swapping in the real artwork is a one-file change.
+- **Logo (owner-supplied, ADR-0017):** the Slate mark, traced by hand from the owner's PNG into one SVG path (`LogoMark`, 524 × 432 viewBox, even-odd fill, `currentColor`). `<Logo />` puts it in white at 62% width on a solid `--accent` tile (`--radius-md`, `--shadow-xs`, 24 px in the app, 28 px on the auth bar) beside the "Slate" wordmark in `ui` 600, −0.02em. The favicon (`app/icon.svg`) is the same tile.
 
 ---
 
@@ -379,50 +380,56 @@ This adapts Answerline's "What do clients say" answer block.
 
 Build order follows `ROADMAP.md`. Each screen lists layout, states and behaviour.
 
-### 4.1 Sign in (M1; guest entry finished in M6)
+### 4.1 Sign in and Setup (M1; guest entry finished in M6; Seekworthy hero since ADR-0017)
 
-Layout from the owner's Trakkr screenshot, in our palette.
+Both screens share one frame (`web/src/app/(auth)/auth-frame.tsx`), modelled on Seekworthy's onboarding hero. Slate has **no open sign-up** (owner decision, ADR-0017): Setup creates the one-time owner account, teammates join through invite links (M7), and visitors use the read-only demo.
 
 ```text
-┌──────────────────────────────────────────────────────────────────────┐
-│ [S] Slate                                         [GitHub] Source ↗ │  64 px bar
-│ ╭──────────────────────────────────────────────────────────────────╮ │
-│ │                  (soft blue gradient + fine grain)               │ │
-│ │                 Ask your knowledge.                              │ │  display
-│ │                 Get answers you can check.                       │ │
-│ │    Search documents, code, chat and email, with every answer     │ │  body-lg
-│ │    cited to the passage it came from.                            │ │
-│ │          ┌────────────────────────────────────────────┐          │ │
-│ │          │ ✉  you@company.com            [Continue →] │          │ │  input bar
-│ │          └────────────────────────────────────────────┘          │ │
-│ │       ✓ Cited answers   ✓ Permission-aware   ✓ Read-only demo   │ │
-│ │              No account?  Try the demo as a guest →              │ │
-│ │     ┌──────────────────────────────────────────────────────┐     │ │
-│ │     │ How it works                    Built on free tiers  │     │ │  overlapping card
-│ │     │ 1 Connect sources │ 2 Ask a question │ 3 Check it    │     │ │
-│ ╰─────┴──────────────────────────────────────────────────────┴─────╯ │
-└──────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ [S] Slate                                     [GitHub] Source on GitHub ↗ │  white bar, 56/64 px
+│ ╭────────────────────────────────────────────────────────────────╮ │
+│ │            (blue gradient + film grain, radius 24/28)          │ │
+│ │                  Ask your knowledge.                           │ │  white 32/42/50, 600
+│ │                  Get answers you can check.                    │ │
+│ │      Search documents, code, chat and email, with every …      │ │  white 15/16
+│ │        ╭──────────────────────────────────────────────╮        │ │
+│ │        │ ✉  you@company.com              [Continue →] │        │ │  pill bar, rounded-2xl
+│ │        ╰──────────────────────────────────────────────╯        │ │
+│ │        ✓ Cited answers  ✓ Permission-aware  ✓ Read-only demo   │ │  white 13
+│ │              No account? Explore the live demo →               │ │
+│ │     ┌──────────────────────────────────────────────────────┐   │ │
+│ │     │ How it works          Built on free-tier infrastructure│   │ │  overlaps the bottom edge
+│ │     │ 1 Connect sources │ 2 Ask a question │ 3 Check the answer│ │ │
+╰─────┴──────────────────────────────────────────────────────┴─────╯
 ```
 
-- **Top bar** (64 px, page gutters 32): logo and wordmark on the left. On the right, a `ghost` link "Source on GitHub ↗" with the GitHub mark (this is a portfolio piece, so the code is a feature).
-- **Hero panel:** inset 24 px from the viewport edges (12 on phone), `--radius-xl`, minimum height `calc(100svh - 88px)`. Background: a soft mesh of `#E8ECFF`, `#C9D2FF` and `#8EA0FF`, with one low-opacity `--accent` bloom bottom right. Over it sits a fine grain overlay: an inline SVG `feTurbulence` data URI at 7% opacity. The panel is static, with no animated gradient. Headline in `display`, colour `#1A2150` (a deep accent ink, 13:1 on the lightest part of the gradient). Subtitle in `body-lg`, `--fg-body`, max width 560.
-- **Input bar** (the Trakkr pattern): width 560, height 56, `--bg`, 1 px `--accent-border`, `--radius-lg`, `--shadow-sm`. A leading 16 px `mail` icon, a 16 px input, and a `tinted` "Continue →" button inset 6 px (height 44, `--radius-md`).
-  - **Two-step reveal:** after "Continue", the bar grows with `spring` into a card: the email shown read-only with a "Change" link, a password field (autofocused), and a full-width `primary` `lg` "Sign in" button. It's one `<form>` throughout. The email input keeps `autocomplete="username"` (visually hidden in step 2, not removed), and the password uses `autocomplete="current-password"`, so password managers work. Enter on step 1 continues; Enter on step 2 signs in. Pasting a full credential set from a manager submits normally.
-  - **Errors:** an invalid email format shows inline under the bar on Continue. Failed login always shows the **same** message, "Email or password is incorrect.", whichever part was wrong (`SECURITY.md`: generic errors). Rate limited: "Too many attempts. Try again in 5 minutes." with a live countdown. The button is in its loading state while the request runs.
-  - **Mobile:** the bar becomes full width; the Continue button stays inside it, icon-only (`arrow-right`, labelled), below 400 px.
-- **Reassurance row:** three items, 14 `--fg-muted`, each with a 14 px check icon in `--accent-strong`, 24 px apart. Wraps to two lines on phone.
-- **Guest entry:** "No account? **Try the demo as a guest →**" in 15 px, the link in `--accent` with the arrow nudge. It signs in as the guest immediately (loading state on the link) and lands on Chat with the guest banner. This is the most important link on the page for portfolio visitors, so it must not be hidden behind the form.
-- **"How it works" card:** white, 1 px `--border`, top corners `--radius-lg`, width 1120 max, overlapping the panel's bottom edge by 40 px. A header row (48 px): "How it works" 14/500 on the left, "Built on free-tier infrastructure" 13 `--fg-subtle` on the right. Three columns divided by hairlines, padding 24:
-  1. **Connect sources:** a row of full-colour logo tiles (GitHub, Discord, Gmail, Upload).
-  2. **Ask a question:** a static mini question bar showing a 20 px orb (`searching`) and "Searching 4 sources".
-  3. **Check the answer:** one sentence with a citation badge and a source chip.
-  The illustrations are `aria-hidden`; each column has a real text heading and one sentence of description.
-- Scroll-reveal on this page only: elements fade and rise 16 px once (Answerline's reveal), 40 ms apart. Disabled under reduced motion.
-- **Already signed in:** redirect to Chat. **Session expired** (redirected here with `?reason=expired`): an info banner above the bar, "Your session expired. Sign in again to continue.", and return to the original URL after sign-in.
+- **One screen, always (owner requirement).** The frame is exactly the viewport tall (`h-svh`, no page scroll at 1366×768, 1440×900, 1536×864, 1920×1080 or a phone). Spacing scales with height via `clamp()`; spare height is split 2:3 above and below the hero, so the form never floats at the top of a tall screen. The subtitle hides below 680 px tall and the card below 640 px; the form never hides. The card is ~250 px tall and runs off the panel's bottom edge, as in Seekworthy.
+- **Panel (`GrainPanel`):** inset 12 px (20 from `sm`), radius 24 (28). Background: an 8% white radial wash top-left over `linear-gradient(180deg, --hero-deep 0%, --hero-mid 55%, --hero-light 100%)` (`#3050F0` → `#4260F1` → `#8396F6`). **Grain:** Seekworthy's `noise.png` (an opaque mid-grey tile) at 160 px with `mix-blend-overlay`, in two layers: the base at `--grain-base` 0.45, and a second, offset copy at `--grain-boost` 0.4 masked to fade out from top to bottom. Overlay grain is ~2.5× weaker on dark blue than on light, so the second layer makes the texture read evenly from top to bottom. Mid-grey averages to no change under overlay, so the average colour and contrast are unaffected. **Contrast:** white on `--hero-mid` is 5.05:1 and on `--hero-deep` 5.95:1; no white text may sit below the 55% stop.
+- **Entrance:** headline, then subtitle (+80 ms), then form (+160 ms), each fading up 8 px; the card slides up 24 px (+320 ms). Off under reduced motion.
+- **Sign-in bar:** a white `rounded-2xl` pill with a white ring and a deep blue shadow; on focus the ring widens to 4 px of white/45. Inside: a 20 px `mail` icon, a 16 px input, and Continue. **Continue is tinted (`--accent-subtle`) until the email looks valid, then solid `--accent` with a glow** (`data-state="idle|ready"`). It still submits while tinted, so an invalid email gets a message, never a dead button. On phones its label is visually hidden and the arrow remains.
+- **Two steps, one `<form>`:** after Continue the pill grows into a white card (fade + scale from 0.98): the email read-only with "Change", the password (autofocused) and a full-width "Sign in". The email input stays mounted (`autocomplete="username"`), and the password uses `current-password`. A failed login always says "Email or password is incorrect." (`SECURITY.md`).
+- **Below the bar:** an email-format error replaces the trust row as a white pill (`role=alert`). Otherwise the trust row reads "Cited answers · Permission-aware · Read-only demo". Then "No account? **Explore the live demo →**", which signs in as the guest and lands on Home.
+- **Session expired** (`?reason=expired`): a white pill above the bar.
+- **Setup: steps in the pill bar** (owner decision). The same bar as sign-in shows one question at a time: Name your workspace → What's your name? → Your work email → Create a password → Enter the setup code (only when the server requires one). Above the bar, "Step N of M" in mono; below it, the live password rules (on the password step), else the step's hint, else its question, all in white; then a Back link and progress dots (the current one stretched). Enter continues. Each step is checked locally (`stepProblem`) before moving on, and Continue is tinted until the step is valid. It's one `<form>`: answered inputs stay mounted (visually hidden, `tabIndex=-1`, `aria-hidden`) with their `autocomplete`, so autofill and password managers work. A server field error jumps back to the step that owns it, with the message as a white pill. "Already set up? Sign in" sits in the top bar (`AuthFrame aside`).
+
+**How it works** (`(auth)/how-it-works/`): a white card, `rounded-t-2xl`, max 1060 px, with an upward shadow and a 48 px header ("How it works" / "Built on free-tier infrastructure"). Three columns. Each has a real `h3`, a screen-reader-only sentence and an `aria-hidden` illustration of fixed height (148 px; no layout shift). The columns tell **one story on one clock** (`useClock`, 18 s loop, 50 ms ticks; every beat is a constant in `how-it-works/timeline.ts`): sources are connected → someone asks with @ → Slate thinks → a cited answer streams in.
+
+1. **Connect anything:** an infinite marquee of integration logos in two rows scrolling in opposite directions (40 s and 48 s), edges faded with a mask. Each track holds its list twice and slides by −50%, so the wrap has no seam. Hovering pauses it. Under it, the tagline **"One search box for {tool}"**: the tool name rolls up every 1.5 s in `--accent` (hovering a logo locks it to that tool), then "N tools and counting". The logos are every Simple Icons connector that's plausible for Slate (owner's choice: no Live/Soon labels). Not shown: Slack and Microsoft (not in Simple Icons, never approximated), GitBook and Intercom (too pale on white).
+2. **Ask with @:** a mini composer (placeholder "Ask anything", paperclip, mic, an Enter key in a tinted square). The question types itself out, then "@" opens a source menu: Handbook.pdf · #hr-policies · **Exec notes 🔒 "No access"** (greyed). A pretend pointer glides to Handbook.pdf, highlights and clicks it, and a mono source chip drops in. The Enter key turns solid and pulses, then the question becomes a sent message bubble. Below it, the **thinking orb** (`ThinkingOrb` 20, `searching`) with "Thinking…", and steps appearing one by one along a left rule: Reading Handbook.pdf · Checking who can see it · Ranking passages *24 found* · Writing the answer. When done, the header becomes "Thought for 3 seconds ⌃".
+3. **Get a cited answer:** three overlapping source avatars with "3 sources" slide in, the answer streams word by word with a block caret ("New parents get **16 weeks** of paid leave…"), then an inline mono source chip pops in with a slight overshoot, followed by the actions row (copy, retry, 👍, 👎) and a follow-up ("↳ How do I request it?"). **Hovering the chip** opens a preview of the cited passage (Handbook.pdf · p. 4) with the `.sl-sweep` highlight.
+
+**Phones (< md):** one column at a time. The header shows 1 · 2 · 3 tabs (`aria-pressed`) that follow the story; tapping one jumps the clock to that column's scene (under reduced motion, it just switches column).
+
+Loop rules (`lib/motion.ts`): the whole card pauses while hovered or focused, while offscreen and in a hidden tab. Under reduced motion every column shows its finished frame. No animation library is used; the orb is the one package (§5).
 
 ### 4.2 App shell
 
-`sidebar (248) | main (fluid) | [panel (400), only on Chat and Search]`. Hairlines between the regions. Main scrolls independently, and the sidebar scrolls its chat list only. **Guest banner** across the top of main for the guest: info variant, "You're exploring as a guest. Answers use public sources only." with a "Sign in" link. It isn't dismissable. Its wording must not suggest how much private content exists.
+`sidebar (200, collapsible to 60) | main (fluid) | [panel (400), only on Chat and Search]`, split by hairlines, with the page on white.
+
+- **Sidebar** (`components/app-shell.tsx`): a 56 px header with the logo, whose hairline lines up with the page bar. Then "New chat", a divider, and the nav: Home, Chat, Search, Sources. Items are `caption` with 15 px icons and radius-sm; the active item has an `--accent-subtle` fill and `--accent` text. The footer holds System status, the account (20 px initials avatar, name, role, sign-out icon button) and the collapse toggle. Collapsed, it's a 60 px icon rail labelled with `title` and `aria-label`. The state is kept in `localStorage` (`slate.sidebar.collapsed`) and read with `useSyncExternalStore`, so the server renders it expanded and hydration never mismatches.
+- **Below `lg` (1024 px):** a 56 px top bar with a menu button opens the same sidebar as a 260 px drawer over an `--overlay` backdrop. Escape or a backdrop click closes it.
+- **Page bar** (`PageHeader`): at least 56 px tall, full-bleed, with a hairline below. Title in `page`, an optional one-line `caption` description, and actions on the right.
+- **Guest banner** across the top of main for the guest: 36 px, `--accent-subtle`, "You're exploring as a guest. Answers use public sources only." with a "Sign in" link. It isn't dismissable. Its wording must not suggest how much private content exists.
 
 ### 4.3 Chat (M3)
 
@@ -550,6 +557,15 @@ The stage label is in an `aria-live="polite"` region; it announces stage changes
 
 ---
 
+### 4.8 Home (M1, ADR-0017)
+
+The landing page after sign-in (`/home`), and the reference implementation of the **panel grammar** (`components/panel.tsx`): full-bleed cells, never floating cards; 1 px hairlines drawn by rows (bottom) and cells (right); `PanelLabel` eyebrows; `tabular-nums` figures. Search and Chat must be built the same way.
+
+- **Page bar:** "Home", with "Welcome back, {first name}" (or "Exploring the public demo" for the guest), and an "Add source" `primary` button for members who can add. It links to `/sources?add=1`, which opens the Add source dialog; closing the dialog clears the parameter.
+- **KPI strip** (`PanelRow cols={4}` of `Kpi`; 2×2 on mobile): Sources ("N need attention" when any failed), Documents, Processing (a live pulse dot while above zero) and Last sync (hover for the absolute time). Every figure comes from `GET /api/v1/sources`. There is **no extra endpoint**, and polling follows the Sources rule: only while something is queued or syncing, and only while the tab is visible.
+- **Row 2:** "Recent sources" (2/3 width) lists the five most recently synced, each with logo tile, name, document count, time and status pill, plus "View all ›". Empty: a dashed `--bg-subtle` call to action, "Add your first source" with "Upload files" (or "Nothing shared with you yet" for viewers and guests). "Get started" (1/3) has three steps: Connect a source (ticked once one exists), Search everything (M2) and Ask with citations (M3), the last two tagged "Soon".
+- **States:** skeletons in place of each figure and row while loading; an inline danger alert with Retry if the list fails.
+
 ## 5. Thinking orbs
 
 - Package: `thinking-orbs` (MIT, zero dependencies, 2D canvas, SSR-safe, pauses offscreen and in hidden tabs, renders a static frame under reduced motion). Wrap it once in `web/src/components/thinking-orb.tsx` (a client component), so the rest of the app never imports the package directly and it can be swapped.
@@ -561,7 +577,7 @@ The stage label is in an `aria-live="polite"` region; it announces stage changes
 | Chat empty state | 64 | `breathing` | The assistant is ready (idle presence) |
 | After sending, before `sources` | 20 | `searching` | Retrieving |
 | After `sources`, before the first token | 20 | `connecting` | Linking passages into an answer |
-| Sign-in "How it works" illustration | 20 | `searching` | Decorative, `aria-hidden` |
+| Sign-in "How it works", column 2, while thinking | 20 | `searching` | Decorative (`decorative` prop), `aria-hidden`, paused with the card |
 
 - Orbs are **never** used for page loads, syncs, uploads or button loading. Those use skeletons, spinners and progress bars. This keeps the orb meaning "the AI is working".
 - Accessibility: each orb has an `aria-label` ("Searching your sources") unless it's decorative. The adjacent text label carries the meaning for screen readers through the live region.
@@ -647,7 +663,7 @@ Single-key shortcuts never fire while focus is in an input.
 - **File layout:** `web/src/styles/tokens.css` (tokens), `web/src/styles/globals.css` (base, `@theme inline`), `web/src/components/ui/` (shadcn primitives restyled to this spec), `web/src/components/brand-icons/`, `web/src/components/` (product components: `citation-badge`, `source-chip`, `composer`, `question-bar`, `thinking-orb`, `status-pill`, `task-row`, `connector-tile`, …), `web/src/app/` (routes).
 - **Restyle, don't fork:** start from shadcn primitives and change classes to match this document. Keep behaviour (Radix) intact.
 - **Variants** through `class-variance-authority` (shadcn's default), with names matching this document (`variant="tinted"`, `size="sm"`).
-- **Fonts:** Inter Tight through `next/font/local` (files from the Answerline export) and Geist Mono through `next/font/google`, exposing `--font-sans` and `--font-mono`.
+- **Fonts:** Inter and JetBrains Mono through `next/font/local` (files in `web/src/fonts/`, see `OFL.txt`; ADR-0017), exposing `--font-sans` and `--font-mono`.
 - **No raw hex values, pixel radii or ad-hoc shadows in components.** Lint for it if it becomes a problem.
 - **Data and streaming:** TanStack Query for requests. The chat stream uses a small SSE client that parses the versioned event schema with zod and feeds a reducer (`idle → searching → reading → streaming → done | error | insufficient`). The UI states in §4.3 are that reducer's states, so they're unit-testable.
 
@@ -676,7 +692,7 @@ The owner approved this list. Each package is added only in the milestone that f
 
 | Package | License | Why | Milestone | Alternative without it |
 | --- | --- | --- | --- | --- |
-| `thinking-orbs` | MIT | Thinking indicator (§5) | M3 | A CSS three-dot pulse (weaker) |
+| `thinking-orbs` | MIT | Thinking indicator (§5) | M1 (sign-in illustration; pulled forward, ADR-0017) | A CSS three-dot pulse (weaker) |
 | `sonner` (via shadcn) | MIT | Toasts (§3.5) | M1 | — (shadcn's recommended toast) |
 | `cmdk` (via shadcn Command) | MIT | Command menu, comboboxes | M2 | Plain listbox |
 | `motion` | MIT | Springs, gliding highlight, layout animation of the sources strip | M3 | CSS transitions plus a measured indicator (more code, no springs) |

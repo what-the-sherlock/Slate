@@ -19,8 +19,20 @@ export function relativeTime(iso: string | null | undefined, now: Date = new Dat
   });
 }
 
+// Intl rejects dateStyle/timeStyle combined with timeZoneName ("Invalid option"),
+// so spell the parts out to keep the zone in the tooltip.
+const ABSOLUTE: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZoneName: "short",
+};
+
+/** "Nov 24, 2026, 7:10 PM GMT+5:30", for tooltips next to relative times. */
 export function absoluteTime(iso: string | null | undefined): string {
-  return iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", timeZoneName: "short" }) : "";
+  return iso ? new Date(iso).toLocaleString(undefined, ABSOLUTE) : "";
 }
 
 export function formatBytes(n: number): string {

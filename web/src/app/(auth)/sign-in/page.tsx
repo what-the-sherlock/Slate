@@ -17,7 +17,7 @@ export default function SignInPage() {
       subtitle="Search documents, code, chat and email, with every answer cited to the passage it came from."
     >
       {/* useSearchParams needs a Suspense boundary when the page is prerendered. */}
-      <Suspense fallback={<div className="h-15 rounded-lg border border-brand-border bg-bg" />}>
+      <Suspense fallback={<div className="h-[58px] rounded-2xl bg-bg" />}>
         <SignInForm />
       </Suspense>
     </AuthFrame>

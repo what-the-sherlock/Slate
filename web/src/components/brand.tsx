@@ -1,37 +1,92 @@
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 import { MessageSquare, Upload } from "lucide-react";
 import {
+  siAirtable,
+  siAsana,
+  siBasecamp,
+  siBitbucket,
+  siBox,
+  siClickup,
+  siCoda,
   siConfluence,
   siDiscord,
+  siDropbox,
+  siFigma,
   siGithub,
+  siGitlab,
   siGmail,
+  siGooglecalendar,
+  siGoogledocs,
   siGoogledrive,
+  siGooglesheets,
+  siHubspot,
+  siJira,
+  siLinear,
+  siLoom,
+  siMiro,
   siNotion,
+  siPagerduty,
+  siSentry,
+  siStackoverflow,
+  siTelegram,
+  siTrello,
+  siZendesk,
+  siZoom,
   type SimpleIcon,
 } from "simple-icons";
 
 /**
- * Brand marks from Simple Icons (CC0), drawn in each brand's colour (UI_DESIGN §2.6).
- * Trademarks belong to their owners and are used only to name the integration.
- * Slack's mark was withdrawn from Simple Icons at Slack's request, so its "coming
- * later" tile uses a neutral icon instead of an approximation.
+ * Brand marks from Simple Icons (CC0), drawn in each brand's own colour, never recoloured
+ * (UI_DESIGN §2.6). Trademarks belong to their owners and are used only to name the
+ * integration. Not available, so never approximated: Slack (withdrawn at Slack's request) and
+ * Microsoft's marks. Too pale to read on a white tile, so left out: GitBook, Intercom.
  */
-const ICONS: Record<string, SimpleIcon> = {
+export const ICONS = {
   github: siGithub,
-  discord: siDiscord,
-  gmail: siGmail,
-  notion: siNotion,
-  googledrive: siGoogledrive,
+  gitlab: siGitlab,
+  bitbucket: siBitbucket,
+  jira: siJira,
+  linear: siLinear,
   confluence: siConfluence,
-};
+  notion: siNotion,
+  discord: siDiscord,
+  telegram: siTelegram,
+  stackoverflow: siStackoverflow,
+  zoom: siZoom,
+  loom: siLoom,
+  gmail: siGmail,
+  googledrive: siGoogledrive,
+  googledocs: siGoogledocs,
+  googlesheets: siGooglesheets,
+  googlecalendar: siGooglecalendar,
+  dropbox: siDropbox,
+  box: siBox,
+  figma: siFigma,
+  miro: siMiro,
+  asana: siAsana,
+  trello: siTrello,
+  clickup: siClickup,
+  hubspot: siHubspot,
+  zendesk: siZendesk,
+  basecamp: siBasecamp,
+  pagerduty: siPagerduty,
+  sentry: siSentry,
+  airtable: siAirtable,
+  coda: siCoda,
+} satisfies Record<string, SimpleIcon>;
 
-export type ConnectorKey = "upload" | "github" | "discord" | "gmail" | "slack" | "notion" | "googledrive" | "confluence";
+export type ConnectorKey = "upload" | "slack" | keyof typeof ICONS;
+
+export function connectorName(connector: string): string {
+  if (connector === "upload") return "Files";
+  return (ICONS as Record<string, SimpleIcon>)[connector]?.title ?? connector;
+}
 
 export function ConnectorIcon({ connector, className }: { connector: ConnectorKey | string; className?: string }) {
   if (connector === "upload") {
     return <Upload className={cn("text-brand-strong", className)} aria-hidden="true" />;
   }
-  const icon = ICONS[connector];
+  const icon = (ICONS as Record<string, SimpleIcon>)[connector];
   if (!icon) return <MessageSquare className={cn("text-fg-muted", className)} aria-hidden="true" />;
   return (
     <svg role="img" viewBox="0 0 24 24" className={className} fill={`#${icon.hex}`} aria-hidden="true">
@@ -41,12 +96,13 @@ export function ConnectorIcon({ connector, className }: { connector: ConnectorKe
 }
 
 /** A logo in a bordered tile so mixed shapes line up (UI_DESIGN §2.6). */
-export function LogoTile({ connector, size = 40 }: { connector: ConnectorKey | string; size?: number }) {
+export function LogoTile({ connector, size = 40, className }: { connector: ConnectorKey | string; size?: number; className?: string }) {
   return (
     <span
       className={cn(
         "inline-flex shrink-0 items-center justify-center rounded-md border border-border",
         connector === "upload" ? "border-brand-border bg-brand-subtle" : "bg-bg",
+        className,
       )}
       style={{ width: size, height: size }}
     >
@@ -55,14 +111,35 @@ export function LogoTile({ connector, size = 40 }: { connector: ConnectorKey | s
   );
 }
 
-/** Placeholder mark until the owner supplies the real logo (UI_DESIGN §3.12). */
-export function Logo({ withWordmark = true }: { withWordmark?: boolean }) {
+/**
+ * The Slate mark, traced by hand from the owner's PNG (1254 px, frame 524 × 432) so it stays
+ * crisp at any size. One black cut (with its two notch lines) splits a solid frame, drawn with
+ * the even-odd rule. Inherits colour through currentColor.
+ */
+export function LogoMark({ className }: { className?: string }) {
   return (
-    <span className="inline-flex items-center gap-2.5">
-      <span className="inline-flex size-8 items-center justify-center rounded-md bg-brand-subtle text-[15px] font-semibold text-brand-strong">
-        S
+    <svg viewBox="0 0 524 432" className={className} fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M0 0H524V432H0Z M281 21H382V275H526V302H368L253 411H138V163H-2V136H158Z"
+      />
+    </svg>
+  );
+}
+
+/** The logo: the white mark on a blue rounded tile, plus the wordmark (UI_DESIGN §3.12). */
+export function Logo({ withWordmark = true, size = 24 }: { withWordmark?: boolean; size?: 24 | 28 }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span
+        className="inline-flex shrink-0 items-center justify-center rounded-md bg-brand text-white shadow-xs"
+        style={{ width: size, height: size }}
+      >
+        <LogoMark className="w-[62%]" />
       </span>
-      {withWordmark ? <span className="text-[15px] font-semibold tracking-[-0.02em] text-fg">Slate</span> : null}
+      {withWordmark ? (
+        <span className={cn("font-semibold tracking-[-0.02em] text-fg", size === 28 ? "text-[17px]" : "text-ui")}>Slate</span>
+      ) : null}
     </span>
   );
 }

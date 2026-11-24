@@ -14,7 +14,7 @@ export default function Home() {
   useEffect(() => {
     if (status.data && !status.data.set_up) router.replace("/setup");
     else if (me.data === null) router.replace("/sign-in");
-    else if (me.data) router.replace("/sources");
+    else if (me.data) router.replace("/home");
   }, [status.data, me.data, router]);
 
   return (

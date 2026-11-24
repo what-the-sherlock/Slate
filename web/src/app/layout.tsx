@@ -1,25 +1,24 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { Providers } from "./providers";
 import "./globals.css";
 
-// Inter Tight (SIL OFL), self-hosted from the Answerline export; see src/fonts/OFL.txt.
-const interTight = localFont({
+// Inter and JetBrains Mono (both SIL OFL), self-hosted from src/fonts, the same files
+// Seekworthy ships (ADR-0017). Variable weight, Latin subset; see src/fonts/OFL.txt.
+const inter = localFont({
   src: [
-    { path: "../fonts/inter-tight-400.woff2", weight: "400", style: "normal" },
-    { path: "../fonts/inter-tight-500.woff2", weight: "500", style: "normal" },
-    { path: "../fonts/inter-tight-600.woff2", weight: "600", style: "normal" },
+    { path: "../fonts/Inter-roman-100-900-latin.woff2", weight: "100 900", style: "normal" },
+    { path: "../fonts/Inter-italic-100-900-latin.woff2", weight: "100 900", style: "italic" },
   ],
-  variable: "--font-inter-tight",
+  variable: "--font-inter",
   display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
+const mono = localFont({
+  src: [{ path: "../fonts/JetBrainsMono-roman-100-800-latin.woff2", weight: "100 800", style: "normal" }],
+  variable: "--font-jetbrains-mono",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -29,7 +28,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${interTight.variable} ${geistMono.variable} h-full`}>
+    <html lang="en" className={`${inter.variable} ${mono.variable} h-full`}>
       <body className="flex min-h-full flex-col">
         <a
           href="#main"

@@ -83,11 +83,18 @@ export class ApiProblem extends Error {
   }
 }
 
+/** Type of a problem synthesized here because the body wasn't one of the API's problems. */
+export const UNKNOWN_PROBLEM = "/problems/unknown";
+
 /** Turn an unknown error body into an ApiProblem (bodies are untrusted, so validate). */
 export function toApiProblem(body: unknown, status: number): ApiProblem {
   const parsed = problemSchema.safeParse(body);
   if (parsed.success) return new ApiProblem(parsed.data);
-  return new ApiProblem({ type: "/problems/unknown", title: "Unexpected response", status });
+  return new ApiProblem({
+    type: UNKNOWN_PROBLEM,
+    title: status >= 500 ? `The server didn't respond properly (HTTP ${status}). Try again shortly.` : "Unexpected response",
+    status,
+  });
 }
 
 /** Unwrap an openapi-fetch result: return data or throw an ApiProblem. */

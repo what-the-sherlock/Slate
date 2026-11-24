@@ -27,7 +27,7 @@ flowchart LR
 ```
 
 - **Same-origin API.** `web` rewrites `/api/:path*` to the `api` deployment, so session cookies stay first-party and no CORS is needed. *Phase 0 must verify that SSE streams unbuffered through the rewrite.* If it doesn't, fall back to an `api.` subdomain with explicit CORS and CSRF (record it in an ADR).
-- **Two DB URLs.** The API uses Neon's **pooled** endpoint, with SQLAlchemy `NullPool` and server-side prepared statements disabled (PgBouncer transaction mode). Alembic and the worker use the **direct** endpoint.
+- **Two DB URLs.** The API uses Neon's **pooled** endpoint with a small SQLAlchemy client pool (2 + 3 overflow, recycled every 120 s, no pre-ping; the UoW retries once on a dead connection) and server-side prepared statements disabled (PgBouncer transaction mode). See ADR-0018. Alembic and the worker use the **direct** endpoint.
 - **Worker = GitHub Actions** in the public repo. Triggers: `repository_dispatch` from the API (on demand), plus an hourly `schedule`. A workflow `concurrency` group keeps one worker run per queue. Each job must finish well inside Actions' 6 h limit; split large work into batches.
 - **Neon budget.** Every worker run wakes the DB (it scales to zero after 5 min idle). Default cron is hourly. Don't add frequent polling.
 

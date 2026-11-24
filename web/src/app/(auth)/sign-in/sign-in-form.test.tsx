@@ -72,4 +72,19 @@ describe("SignInForm", () => {
     expect(document.querySelector('input[autocomplete="username"]')).not.toBeNull();
     expect(document.querySelector('input[autocomplete="current-password"]')).not.toBeNull();
   });
+
+  it("tints Continue until the email looks valid, then makes it solid", async () => {
+    mockApi(401);
+    renderForm();
+    const button = screen.getByRole("button", { name: /continue/i });
+    expect(button).toHaveAttribute("data-state", "idle");
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@acme.dev" } });
+    expect(button).toHaveAttribute("data-state", "ready");
+  });
+
+  it("offers the read-only demo instead of an open sign-up", () => {
+    mockApi(401);
+    renderForm();
+    expect(screen.getByRole("button", { name: /explore the live demo/i })).toBeInTheDocument();
+  });
 });

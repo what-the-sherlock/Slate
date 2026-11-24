@@ -52,11 +52,11 @@ export function StatusPanel() {
   ];
 
   return (
-    <ul className="divide-y divide-border-subtle rounded-lg border border-border" aria-live="polite">
+    <ul className="divide-y divide-border rounded-lg border border-border bg-bg shadow-xs" aria-live="polite">
       {rows.map((row) => (
         <li key={row.label} className="flex items-center justify-between gap-4 px-4 py-3">
-          <span className="font-medium text-fg">{row.label}</span>
-          <span className="flex items-center gap-2 text-[13px] text-fg-subtle">
+          <span className="text-body font-medium text-fg">{row.label}</span>
+          <span className="flex items-center gap-2 text-caption text-fg-subtle">
             <span className="tabular-nums">{row.detail}</span>
             <StatusPill ok={row.ok} />
           </span>
@@ -69,17 +69,17 @@ export function StatusPanel() {
 function StatusPill({ ok }: { ok: boolean | undefined }) {
   if (ok === undefined) {
     return (
-      <span className="rounded-sm bg-emphasis px-2.5 py-1 text-[13px] font-medium text-fg">
+      <span className="rounded-sm bg-muted px-1.5 py-0.5 text-data font-medium text-fg-muted">
         Checking
       </span>
     );
   }
   return ok ? (
-    <span className="rounded-sm bg-success-subtle px-2.5 py-1 text-[13px] font-medium text-success">
+    <span className="rounded-sm bg-success-subtle px-1.5 py-0.5 text-data font-medium text-success">
       OK
     </span>
   ) : (
-    <span className="rounded-sm bg-danger-subtle px-2.5 py-1 text-[13px] font-medium text-danger">
+    <span className="rounded-sm bg-danger-subtle px-1.5 py-0.5 text-data font-medium text-danger">
       Down
     </span>
   );

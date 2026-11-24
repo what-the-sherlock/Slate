@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 import { ArrowLeft, Check, CircleAlert, FileText, UploadCloud } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { toast } from "sonner";
@@ -57,14 +57,14 @@ export function UploadPanel({ canPublish, onBack }: { canPublish: boolean; onBac
   return (
     <div className="flex flex-col gap-5">
       <fieldset className="flex flex-col gap-2">
-        <legend className="mb-2 text-sm font-medium text-fg">Who can see these files?</legend>
+        <legend className="mb-2 text-body font-medium text-fg">Who can see these files?</legend>
         <div className="grid gap-2 sm:grid-cols-3">
           {VISIBILITIES.filter((v) => !v.adminOnly || canPublish).map((v) => (
             <label
               key={v.value}
               className={cn(
                 "flex cursor-pointer flex-col rounded-md border px-3 py-2.5 transition-colors",
-                visibility === v.value ? "border-brand bg-brand-subtle" : "border-border hover:bg-subtle",
+                visibility === v.value ? "border-brand bg-brand-subtle shadow-[0_0_0_3px_var(--sl-accent-subtle)]" : "border-border hover:border-border-strong hover:bg-subtle",
               )}
             >
               <input
@@ -75,8 +75,8 @@ export function UploadPanel({ canPublish, onBack }: { canPublish: boolean; onBac
                 onChange={() => setVisibility(v.value)}
                 className="sr-only"
               />
-              <span className="text-sm font-medium text-fg">{v.label}</span>
-              <span className="text-[12px] text-fg-subtle">{v.hint}</span>
+              <span className="text-body font-medium text-fg">{v.label}</span>
+              <span className="text-data text-fg-subtle">{v.hint}</span>
             </label>
           ))}
         </div>
@@ -99,13 +99,13 @@ export function UploadPanel({ canPublish, onBack }: { canPublish: boolean; onBac
           strokeWidth={1.6}
           aria-hidden="true"
         />
-        <p className="text-sm text-fg">
+        <p className="text-body text-fg">
           Drop files here or{" "}
           <button type="button" className="font-medium text-brand underline-offset-[3px] hover:underline" onClick={() => input.current?.click()}>
             browse
           </button>
         </p>
-        <p className="text-[12px] text-fg-subtle">PDF, Word, Markdown, HTML, CSV or text · up to 25 MB each</p>
+        <p className="text-data text-fg-subtle">PDF, Word, Markdown, HTML, CSV or text · up to 25 MB each</p>
         <input
           ref={input}
           type="file"
@@ -167,27 +167,29 @@ function FileRow({ item, onPhase }: { item: Item; onPhase: (p: UploadPhase) => v
   }, [jobId, item.file.name, onPhase]);
 
   const preError = precheck(item.file);
+  const failure = phase.kind === "failed" ? (preError ?? phase.message) : null;
   return (
     <li className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-subtle">
       <FileText className="size-4 shrink-0 text-fg-subtle" aria-hidden="true" />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm text-fg" title={item.file.name}>
+        <span className="block truncate text-body text-fg" title={item.file.name}>
           {item.file.name}
         </span>
-        <span className="block text-[12px] text-fg-subtle tabular-nums">{formatBytes(item.file.size)}</span>
+        <span className="block text-data text-fg-subtle tabular-nums">{formatBytes(item.file.size)}</span>
         {phase.kind === "uploading" ? (
           <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-emphasis" aria-hidden="true">
             <span className="block h-full rounded-full bg-brand transition-[width]" style={{ width: `${Math.round(phase.progress * 100)}%` }} />
           </span>
         ) : null}
+        {failure ? <span className="mt-0.5 block text-data text-danger">{failure}</span> : null}
       </span>
-      <PhaseLabel phase={preError && phase.kind === "failed" ? { kind: "failed", message: preError } : phase} />
+      <PhaseLabel phase={phase} />
     </li>
   );
 }
 
 function PhaseLabel({ phase }: { phase: UploadPhase }) {
-  const base = "inline-flex shrink-0 items-center gap-1.5 text-[13px]";
+  const base = "inline-flex shrink-0 items-center gap-1.5 text-caption";
   switch (phase.kind) {
     case "hashing":
       return <span className={cn(base, "text-fg-subtle")}><Spinner className="size-3" />Preparing</span>;
@@ -205,9 +207,9 @@ function PhaseLabel({ phase }: { phase: UploadPhase }) {
       return <span className={cn(base, "text-warning")} title="Change who can see it from the source page.">Already shared differently</span>;
     case "failed":
       return (
-        <span className={cn(base, "max-w-[45%] text-danger")} title={phase.message}>
-          <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
-          <span className="truncate">{phase.message}</span>
+        <span className={cn(base, "font-medium text-danger")}>
+          <CircleAlert className="size-3.5" aria-hidden="true" />
+          Failed
         </span>
       );
   }

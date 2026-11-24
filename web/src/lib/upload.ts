@@ -1,4 +1,4 @@
-import { api, unwrap } from "@/lib/api/client";
+import { api, ApiProblem, UNKNOWN_PROBLEM, unwrap } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
 
 /**
@@ -91,9 +91,19 @@ export async function uploadFile(
   await postForm(begun.upload.url, begun.upload.fields, file, (p) => onPhase({ kind: "uploading", progress: p }));
 
   onPhase({ kind: "checking" });
-  const done = unwrap(
-    await api.POST("/api/v1/uploads/complete", { body: { upload_token: begun.upload_token } }),
-  );
+  let done;
+  try {
+    done = unwrap(
+      await api.POST("/api/v1/uploads/complete", { body: { upload_token: begun.upload_token } }),
+    );
+  } catch (err) {
+    // The file is already in storage and the job may be running: a body that isn't one of
+    // our problems came from a proxy/gateway (e.g. it timed out), not from the API.
+    if (err instanceof ApiProblem && err.problem.type === UNKNOWN_PROBLEM && err.status >= 500) {
+      throw new Error("The server took too long to answer. The file may still be indexing; check Sources shortly.");
+    }
+    throw err;
+  }
   if (done.status === "indexed") return onPhase({ kind: "ready" });
   if (done.status === "duplicate") return onPhase({ kind: "duplicate" });
   if (done.job_id) return onPhase({ kind: "processing", jobId: done.job_id });

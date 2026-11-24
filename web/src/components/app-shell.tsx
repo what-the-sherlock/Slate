@@ -1,32 +1,86 @@
 "use client";
 
-import { cn } from "cn";
-import { Info, LogOut, Menu, MessageSquare, Plug, Search, SquarePen } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  Activity,
+  ChevronsLeft,
+  House,
+  Info,
+  LogOut,
+  Menu,
+  MessageSquare,
+  Plug,
+  Search,
+  SquarePen,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Logo } from "@/components/brand";
 import { Button, Spinner } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMe, useSignOut, type Me } from "@/lib/api/hooks";
 
-const NAV = [
+type NavItem = { href: string; label: string; icon: LucideIcon };
+
+const NAV: readonly NavItem[] = [
+  { href: "/home", label: "Home", icon: House },
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/search", label: "Search", icon: Search },
   { href: "/sources", label: "Sources", icon: Plug },
   // Settings (members, usage) arrives in M7; no dead links until then (UI_DESIGN §3.9).
-] as const;
+];
 
-/** Signed-in shell (UI_DESIGN §3.9, §4.2): sidebar + main, guest banner, auth guard. */
+const COLLAPSED_KEY = "slate.sidebar.collapsed";
+
+/**
+ * The rail state lives in localStorage, an external store, so it is read with
+ * useSyncExternalStore. The server snapshot is "expanded", so SSR and hydration agree.
+ */
+const collapsedListeners = new Set<() => void>();
+function subscribeCollapsed(cb: () => void) {
+  collapsedListeners.add(cb);
+  window.addEventListener("storage", cb);
+  return () => {
+    collapsedListeners.delete(cb);
+    window.removeEventListener("storage", cb);
+  };
+}
+function useCollapsed(): [boolean, (next: boolean) => void] {
+  const collapsed = useSyncExternalStore(
+    subscribeCollapsed,
+    () => window.localStorage.getItem(COLLAPSED_KEY) === "1",
+    () => false,
+  );
+  return [
+    collapsed,
+    (next) => {
+      window.localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0");
+      collapsedListeners.forEach((cb) => cb());
+    },
+  ];
+}
+
+/** Signed-in shell (UI_DESIGN §3.9, §4.2): collapsible sidebar + main, guest banner, auth guard. */
 export function AppShell({ children }: { children: ReactNode }) {
   const me = useMe();
   const router = useRouter();
   const pathname = usePathname();
   const [drawer, setDrawer] = useState(false);
+  const [collapsed, setCollapsed] = useCollapsed();
 
   useEffect(() => {
     if (me.data === null) router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`);
   }, [me.data, router, pathname]);
+
+  useEffect(() => {
+    if (!drawer) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setDrawer(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawer]);
 
   if (!me.data) {
     return (
@@ -38,28 +92,47 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-svh">
-      <aside className="sticky top-0 hidden h-svh w-[248px] shrink-0 border-r border-border bg-subtle md:block">
-        <Sidebar me={me.data} />
+    <div className="flex min-h-svh bg-page">
+      <aside
+        className={cn(
+          "sticky top-0 hidden h-svh shrink-0 border-r border-border bg-bg transition-[width] duration-200 ease-[var(--sl-ease-out)] motion-reduce:transition-none lg:block",
+          collapsed ? "w-[60px]" : "w-[200px]",
+        )}
+      >
+        <SidebarContent me={me.data} collapsed={collapsed} onCollapsedChange={setCollapsed} />
       </aside>
+
       {drawer ? (
-        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
+        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
           <button className="absolute inset-0 bg-[var(--sl-overlay)]" aria-label="Close navigation" onClick={() => setDrawer(false)} />
-          <aside className="absolute inset-y-0 left-0 w-[280px] border-r border-border bg-subtle shadow-lg">
-            <Sidebar me={me.data} onNavigate={() => setDrawer(false)} />
+          <aside className="absolute inset-y-0 left-0 w-[260px] border-r border-border bg-bg shadow-lg">
+            <SidebarContent me={me.data} collapsed={false} onNavigate={() => setDrawer(false)} />
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Close navigation"
+              className="absolute top-3.5 right-3"
+              onClick={() => setDrawer(false)}
+            >
+              <X />
+            </Button>
           </aside>
         </div>
       ) : null}
+
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex h-14 items-center gap-2 border-b border-border px-4 md:hidden">
+        <div className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-bg px-3 lg:hidden">
           <Button variant="ghost" size="icon-sm" aria-label="Open navigation" onClick={() => setDrawer(true)}>
             <Menu />
           </Button>
           <Logo />
         </div>
         {me.data.is_guest ? (
-          <div role="status" className="flex h-10 items-center gap-2 border-b border-brand-border bg-brand-subtle px-4 text-[13px] font-medium text-brand-strong sm:px-8">
-            <Info className="size-4 shrink-0" aria-hidden="true" />
+          <div
+            role="status"
+            className="flex h-9 items-center gap-2 border-b border-brand-border bg-brand-subtle px-4 text-caption font-medium text-brand sm:px-8"
+          >
+            <Info className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate">You&apos;re exploring as a guest. Answers use public sources only.</span>
             <Link href="/sign-in" className="ml-auto shrink-0 underline-offset-[3px] hover:underline">
               Sign in
@@ -74,80 +147,92 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 }
 
-function Sidebar({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
+function SidebarContent({
+  me,
+  collapsed,
+  onCollapsedChange,
+  onNavigate,
+}: {
+  me: Me;
+  collapsed: boolean;
+  onCollapsedChange?: (next: boolean) => void;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
-  const items = NAV;
+  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+
   return (
-    <nav className="flex h-full flex-col gap-4 p-3" aria-label="Main">
-      <div className="flex items-center gap-2.5 px-2 pt-1">
-        <Logo />
-      </div>
-      <Button asChild variant="secondary" size="md" className="w-full justify-start">
-        <Link href="/chat" onClick={onNavigate}>
-          <SquarePen className="size-4" aria-hidden="true" />
-          New chat
+    <nav className="flex h-full flex-col" aria-label="Main">
+      {/* h-14 matches the page bar, so the two hairlines line up. */}
+      <div className={cn("flex h-14 shrink-0 items-center border-b border-border", collapsed ? "justify-center px-2" : "px-4")}>
+        <Link href="/home" onClick={onNavigate} aria-label="Slate home" className="rounded-md">
+          <Logo withWordmark={!collapsed} />
         </Link>
-      </Button>
-      <GlidingList>
-        {items.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href || pathname.startsWith(`${href}/`);
-          return (
-            <li key={href}>
-              <Link
-                href={href}
-                onClick={onNavigate}
-                aria-current={active ? "page" : undefined}
-                data-glide
-                className={cn(
-                  "relative z-10 flex h-8 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-colors",
-                  active ? "border border-border bg-bg text-fg" : "text-fg-muted hover:text-fg",
-                )}
-              >
-                <Icon className="size-4" strokeWidth={1.6} aria-hidden="true" />
-                {label}
-              </Link>
-            </li>
-          );
-        })}
-      </GlidingList>
-      <div className="mt-auto">
-        <UserMenu me={me} />
+      </div>
+
+      <div className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
+        <NavLink href="/chat" label="New chat" icon={SquarePen} collapsed={collapsed} onNavigate={onNavigate} emphasis />
+        <div className="-mx-2 my-3 h-px bg-border" />
+        {NAV.map((item) => (
+          <NavLink key={item.href} {...item} active={isActive(item.href)} collapsed={collapsed} onNavigate={onNavigate} />
+        ))}
+      </div>
+
+      <div className="shrink-0 space-y-0.5 border-t border-border px-2 py-3">
+        <NavLink href="/status" label="System status" icon={Activity} active={isActive("/status")} collapsed={collapsed} onNavigate={onNavigate} />
+        <Account me={me} collapsed={collapsed} />
+        {onCollapsedChange ? (
+          <button
+            type="button"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={() => onCollapsedChange(!collapsed)}
+            className="flex w-full items-center justify-center rounded-sm px-2 py-1.5 text-fg-subtle transition-colors hover:bg-muted hover:text-fg-muted"
+          >
+            <ChevronsLeft
+              className={cn("size-4 transition-transform duration-300 motion-reduce:transition-none", collapsed && "rotate-180")}
+              aria-hidden="true"
+            />
+          </button>
+        ) : null}
       </div>
     </nav>
   );
 }
 
-/** One highlight that glides between items on hover/focus (Beautiful UI sidebar). */
-function GlidingList({ children }: { children: ReactNode }) {
-  const ref = useRef<HTMLUListElement>(null);
-  const [box, setBox] = useState<{ top: number; height: number } | null>(null);
-  function track(target: EventTarget | null) {
-    const el = target instanceof HTMLElement ? target.closest<HTMLElement>("[data-glide]") : null;
-    if (!el || !ref.current) return;
-    const list = ref.current.getBoundingClientRect();
-    const rect = el.getBoundingClientRect();
-    setBox({ top: rect.top - list.top, height: rect.height });
-  }
+function NavLink({
+  href,
+  label,
+  icon: Icon,
+  active = false,
+  collapsed,
+  emphasis = false,
+  onNavigate,
+}: NavItem & { active?: boolean; collapsed: boolean; emphasis?: boolean; onNavigate?: () => void }) {
   return (
-    <ul
-      ref={ref}
-      className="relative flex flex-col gap-0.5"
-      onMouseOver={(e) => track(e.target)}
-      onFocus={(e) => track(e.target)}
-      onMouseLeave={() => setBox(null)}
-      onBlur={() => setBox(null)}
+    <Link
+      href={href}
+      onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
+      aria-label={collapsed ? label : undefined}
+      title={collapsed ? label : undefined}
+      className={cn(
+        "flex w-full items-center rounded-sm text-caption transition-colors duration-150",
+        collapsed ? "justify-center px-2 py-2" : "gap-2.5 px-2 py-1.5",
+        active
+          ? "bg-brand-subtle font-medium text-brand"
+          : emphasis
+            ? "font-medium text-fg hover:bg-muted"
+            : "text-fg-muted hover:bg-muted hover:text-fg",
+      )}
     >
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 rounded-md bg-muted transition-[transform,opacity,height] duration-200 ease-[var(--sl-ease-out)] motion-reduce:transition-none"
-        style={{ transform: `translateY(${box?.top ?? 0}px)`, height: box?.height ?? 32, opacity: box ? 1 : 0 }}
-      />
-      {children}
-    </ul>
+      <Icon className="size-[15px] shrink-0" strokeWidth={1.75} aria-hidden="true" />
+      {collapsed ? null : <span className="truncate">{label}</span>}
+    </Link>
   );
 }
 
-function UserMenu({ me }: { me: Me }) {
+function Account({ me, collapsed }: { me: Me; collapsed: boolean }) {
   const router = useRouter();
   const signOut = useSignOut();
   const initials = me.user.name
@@ -156,33 +241,46 @@ function UserMenu({ me }: { me: Me }) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+  const avatar = (
+    <span
+      className={cn(
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold",
+        me.is_guest ? "border border-dashed border-border-strong text-fg-muted" : "bg-brand-subtle text-brand",
+      )}
+      aria-hidden="true"
+    >
+      {me.is_guest ? "G" : initials}
+    </span>
+  );
+  const button = (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      aria-label="Sign out"
+      loading={signOut.isPending}
+      onClick={() => signOut.mutate(undefined, { onSettled: () => router.replace("/sign-in") })}
+    >
+      {signOut.isPending ? null : <LogOut />}
+    </Button>
+  );
+
+  if (collapsed) {
+    return (
+      <div className="flex flex-col items-center gap-1 py-1">
+        <span title={me.user.name}>{avatar}</span>
+        {button}
+      </div>
+    );
+  }
   return (
-    <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5">
-      <span
-        className={cn(
-          "inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold",
-          me.is_guest ? "border border-dashed border-border-strong text-fg-muted" : "bg-emphasis text-fg-muted",
-        )}
-        aria-hidden="true"
-      >
-        {me.is_guest ? "G" : initials}
-      </span>
+    <div className="flex items-center gap-2.5 rounded-sm py-1 pr-0.5 pl-2">
+      {avatar}
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-fg">{me.user.name}</span>
-        <span className="block text-[12px] text-fg-subtle capitalize">{me.is_guest ? "Guest" : me.role}</span>
+        <span className="block truncate text-caption font-medium text-fg">{me.user.name}</span>
+        <span className="block text-data text-fg-subtle capitalize">{me.is_guest ? "Guest" : me.role}</span>
       </span>
       <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Sign out"
-            loading={signOut.isPending}
-            onClick={() => signOut.mutate(undefined, { onSettled: () => router.replace("/sign-in") })}
-          >
-            {signOut.isPending ? null : <LogOut />}
-          </Button>
-        </TooltipTrigger>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
         <TooltipContent>Sign out</TooltipContent>
       </Tooltip>
     </div>

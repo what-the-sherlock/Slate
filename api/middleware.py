@@ -9,6 +9,8 @@ import uuid
 import structlog
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from core.request_metrics import start_connect_stats
+
 REQUEST_ID_HEADER = "x-request-id"
 _SAFE_ID = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
 log = structlog.get_logger("api.access")
@@ -38,6 +40,7 @@ class RequestIdMiddleware:
         scope.setdefault("state", {})["request_id"] = request_id
         structlog.contextvars.bind_contextvars(request_id=request_id)
         started = time.perf_counter()
+        db = start_connect_stats()
         status = 500
 
         async def send_with_id(message: Message) -> None:
@@ -46,6 +49,9 @@ class RequestIdMiddleware:
                 status = message["status"]
                 headers = list(message.get("headers", []))
                 headers.append((REQUEST_ID_HEADER.encode(), request_id.encode()))
+                # Standard header browsers show in DevTools > Network > Timing.
+                timing = f'db-connect;dur={db.total_ms:.1f};desc="{db.count} new"'
+                headers.append((b"server-timing", timing.encode()))
                 message["headers"] = headers
             await send(message)
 
@@ -58,5 +64,7 @@ class RequestIdMiddleware:
                 path=scope.get("path"),
                 status=status,
                 duration_ms=round((time.perf_counter() - started) * 1000, 1),
+                db_connects=db.count,
+                db_connect_ms=round(db.total_ms, 1),
             )
             structlog.contextvars.unbind_contextvars("request_id")

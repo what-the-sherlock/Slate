@@ -1,128 +1,130 @@
+import { cn } from "@/lib/utils";
 import { Check } from "lucide-react";
 import type { ReactNode } from "react";
 import { Logo, LogoTile } from "@/components/brand";
+import { delay, REVEAL } from "@/lib/reveal";
+import { HowItWorks } from "./how-it-works";
 
 /**
- * The sign-in / setup frame (docs/UI_DESIGN.md §4.1): a soft blue mesh-gradient panel
- * with fine grain, a display headline, and a "How it works" card overlapping its foot.
+ * The sign-in / setup frame (docs/UI_DESIGN.md §4.1, ADR-0017), after Seekworthy's onboarding
+ * hero. It always fits one screen: the root is exactly the viewport tall, spacing scales with
+ * viewport height (clamp), spare height is split 2:3 above and below the hero, the subtitle hides below 680 px tall and the card below 640 px.
  */
-const GRAIN =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
-
 export function AuthFrame({
   headline,
   subtitle,
+  aside,
   children,
 }: {
   headline: ReactNode;
   subtitle: ReactNode;
+  /** Right side of the top bar. Defaults to the GitHub link. */
+  aside?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-svh flex-col bg-bg">
-      <header className="flex h-16 items-center justify-between px-4 sm:px-8">
-        <Logo />
-        <a
-          href="https://github.com/what-the-sherlock/Slate"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium text-fg-muted transition-colors hover:bg-muted hover:text-fg"
-        >
-          <LogoTile connector="github" size={20} />
-          Source on GitHub
-          <span aria-hidden="true">↗</span>
-        </a>
+    <div className="flex h-svh flex-col overflow-hidden bg-bg">
+      <header className="flex h-14 shrink-0 items-center justify-between px-5 sm:h-16 lg:px-10">
+        <Logo size={28} />
+        {aside ?? (
+          <a
+            href="https://github.com/what-the-sherlock/Slate"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-body text-fg-muted transition-colors hover:bg-muted hover:text-fg"
+          >
+            <LogoTile connector="github" size={18} />
+            <span className="hidden sm:inline">Source on GitHub</span>
+            <span aria-hidden="true">↗</span>
+          </a>
+        )}
       </header>
 
-      <main
-        id="main"
-        className="relative mx-3 mb-6 flex min-h-[calc(100svh-88px)] flex-col items-center overflow-hidden rounded-[20px] px-4 pt-16 pb-0 sm:mx-6 sm:rounded-xl sm:pt-24"
-        style={{
-          background:
-            "radial-gradient(60% 55% at 15% 20%, #e8ecff 0%, transparent 70%), radial-gradient(55% 60% at 85% 30%, #c9d2ff 0%, transparent 70%), radial-gradient(50% 50% at 50% 100%, #8ea0ff 0%, transparent 75%), radial-gradient(35% 35% at 95% 95%, rgb(48 80 240 / 0.35) 0%, transparent 70%), #f4f6ff",
-        }}
-      >
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-[0.07]" style={{ backgroundImage: GRAIN }} />
-        <div className="relative z-10 flex w-full max-w-[640px] flex-col items-center text-center">
-          <h1 className="text-[36px] leading-[40px] font-medium tracking-[-0.04em] text-[#1a2150] sm:text-[52px] sm:leading-[56px]">
+      <GrainPanel className="mx-3 mb-3 flex min-h-0 flex-1 flex-col items-center rounded-[24px] px-4 pt-[clamp(16px,4vh,48px)] sm:mx-5 sm:mb-5 sm:rounded-[28px]">
+        <div className="min-h-0 flex-[2]" />
+        <main id="main" className="relative flex w-full shrink-0 flex-col items-center text-center">
+          <h1
+            className={cn(
+              "text-[clamp(28px,4.6vh,50px)] leading-[1.05] font-semibold tracking-[-0.03em] text-balance text-white",
+              "[text-shadow:0_2px_24px_rgb(16_24_90/0.25)]",
+              REVEAL,
+            )}
+          >
             {headline}
           </h1>
-          <p className="mt-4 max-w-[560px] text-[18px] leading-7 tracking-[-0.02em] text-fg-body">{subtitle}</p>
-          <div className="mt-9 w-full max-w-[560px]">{children}</div>
-          <ul className="mt-5 flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm text-fg-muted">
-            {["Cited answers", "Permission-aware", "Read-only demo"].map((item) => (
-              <li key={item} className="inline-flex items-center gap-1.5">
-                <Check className="size-3.5 text-brand-strong" aria-hidden="true" />
-                {item}
-              </li>
-            ))}
-          </ul>
+          <p
+            className={cn(
+              "mt-[clamp(8px,1.6vh,16px)] max-w-[520px] text-[15px] leading-relaxed text-pretty text-white sm:text-[16px] [@media(max-height:680px)]:hidden",
+              REVEAL,
+            )}
+            style={delay(80)}
+          >
+            {subtitle}
+          </p>
+          <div className={cn("mt-[clamp(16px,3.2vh,36px)] w-full max-w-[600px]", REVEAL)} style={delay(160)}>
+            {children}
+          </div>
+        </main>
+        <div className="min-h-4 flex-[3]" />
+        <div className="flex w-full shrink-0 justify-center [@media(max-height:640px)]:hidden">
+          <HowItWorks />
         </div>
-        <HowItWorks />
-      </main>
+      </GrainPanel>
     </div>
   );
 }
 
-function HowItWorks() {
-  const steps = [
-    {
-      title: "Connect sources",
-      body: "Upload files today; GitHub, Discord and Gmail next.",
-      art: (
-        <div className="flex gap-2" aria-hidden="true">
-          {(["upload", "github", "discord", "gmail"] as const).map((c) => (
-            <LogoTile key={c} connector={c} size={32} />
-          ))}
-        </div>
-      ),
-    },
-    {
-      title: "Ask a question",
-      body: "Slate searches only what you're allowed to see.",
-      art: (
-        <div aria-hidden="true" className="flex h-9 items-center gap-2 rounded-md border border-border bg-subtle px-3 text-[13px] text-fg-subtle">
-          <span className="inline-block size-2 animate-pulse rounded-full bg-brand motion-reduce:animate-none" />
-          Searching 4 sources…
-        </div>
-      ),
-    },
-    {
-      title: "Check the answer",
-      body: "Every claim links to the passage it came from.",
-      art: (
-        <p aria-hidden="true" className="text-[13px] leading-5 text-fg-body">
-          Leave is 25 days a year
-          <span className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-xs bg-brand px-1 align-[1px] text-[11px] font-semibold text-white">
-            1
-          </span>
-        </p>
-      ),
-    },
-  ];
+/**
+ * Gradient + grain (tokens in styles/tokens.css). White text never sits below the mid stop
+ * (white on mid 5.05:1). Overlay grain is ~2.5x weaker on dark blue than on light, so a second
+ * layer of the same tile fades out top to bottom to make the texture read evenly.
+ */
+function GrainPanel({ className, children }: { className?: string; children: ReactNode }) {
   return (
-    <section
-      aria-labelledby="how"
-      className="relative z-10 mt-auto w-full max-w-[1120px] translate-y-px rounded-t-lg border border-b-0 border-border bg-bg"
-    >
-      <div className="flex h-12 items-center justify-between border-b border-border px-6">
-        <h2 id="how" className="text-sm font-medium text-fg">
-          How it works
-        </h2>
-        <span className="hidden text-[13px] text-fg-subtle sm:inline">Built on free-tier infrastructure</span>
-      </div>
-      <ol className="grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-        {steps.map((step, i) => (
-          <li key={step.title} className="flex flex-col gap-3 p-6">
-            <h3 className="text-[15px] font-medium text-fg">
-              <span className="mr-2 text-brand-strong tabular-nums">{i + 1}</span>
-              {step.title}
-            </h3>
-            {step.art}
-            <p className="text-[13px] text-fg-subtle">{step.body}</p>
-          </li>
-        ))}
-      </ol>
-    </section>
+    <div className={cn("relative overflow-hidden", className)}>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(90% 60% at 15% 0%, rgb(255 255 255 / 0.08) 0%, transparent 55%), linear-gradient(180deg, var(--sl-hero-deep) 0%, var(--sl-hero-mid) 55%, var(--sl-hero-light) 100%)",
+        }}
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-[url(/brand/noise.png)] bg-size-[160px_160px] bg-repeat opacity-(--sl-grain-base) mix-blend-overlay"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-[url(/brand/noise.png)] bg-size-[160px_160px] bg-position-[80px_80px] bg-repeat opacity-(--sl-grain-boost) mix-blend-overlay [mask-image:linear-gradient(180deg,#000_0%,transparent_75%)]"
+      />
+      {children}
+    </div>
   );
 }
+
+/** White check-mark reassurances under the form. */
+export function TrustRow({ items }: { items: string[] }) {
+  return (
+    <ul className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+      {items.map((t) => (
+        <li key={t} className="flex items-center gap-1.5 text-body text-white">
+          <Check className="size-3.5" strokeWidth={2.5} aria-hidden="true" />
+          {t}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The white floating surface shared by the sign-in bar and the setup card. */
+export const heroSurface =
+  "bg-bg shadow-[0_1px_2px_rgb(16_24_90/0.1),0_20px_48px_-20px_rgb(16_24_90/0.55)] ring-1 ring-white/80";
+
+/** Field pieces used inside the setup card. */
+export const fieldShell =
+  "flex items-center gap-2.5 rounded-md border border-(--sl-border-input) bg-bg px-3 transition-[border-color,box-shadow] focus-within:border-brand focus-within:shadow-[0_0_0_3px_var(--sl-accent-subtle)] has-[[aria-invalid=true]]:border-danger";
+export const fieldIcon = "size-4 shrink-0 text-fg-subtle";
+export const fieldInput =
+  "h-[38px] min-w-0 flex-1 bg-transparent text-base text-fg outline-none placeholder:text-fg-subtle focus-visible:outline-none sm:text-caption";
+export const fieldLabel = "text-caption font-medium text-fg";

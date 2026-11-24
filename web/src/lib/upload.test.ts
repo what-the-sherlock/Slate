@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { relativeTime } from "./format";
-import { MAX_UPLOAD_BYTES, precheck, sha256Hex } from "./upload";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { absoluteTime, relativeTime } from "./format";
+import { MAX_UPLOAD_BYTES, precheck, sha256Hex, uploadFile, type UploadPhase } from "./upload";
 
 function file(name: string, size: number): File {
   const f = new File(["x"], name);
@@ -34,5 +34,52 @@ describe("relativeTime", () => {
     expect(relativeTime(null, now)).toBe("—");
     expect(relativeTime("2026-11-24T11:59:40Z", now)).toBe("Just now");
     expect(relativeTime("2026-11-24T11:46:00Z", now)).toBe("14 min ago");
+  });
+});
+
+describe("absoluteTime", () => {
+  it("includes the date, time and zone without throwing", () => {
+    // Regression: dateStyle/timeStyle + timeZoneName throws "Invalid option" in Intl.
+    const out = absoluteTime("2026-11-24T19:10:51Z");
+    expect(out).toMatch(/2026/);
+    expect(out).toMatch(/\d{1,2}:\d{2}/); // minutes depend on the machine's zone (IST is +5:30)
+    expect(absoluteTime(null)).toBe("");
+  });
+});
+
+describe("uploadFile", () => {
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+  class FakeXhr {
+    status = 204;
+    upload = { onprogress: null };
+    onload: (() => void) | null = null;
+    open() {}
+    send() {
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("explains a gateway timeout on complete instead of 'Unexpected response'", async () => {
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (req: Request) =>
+        req.url.endsWith("/uploads/complete")
+          ? new Response("Internal Server Error", { status: 500 }) // what the dev proxy sends
+          : json({ status: "upload", filename: "a.md", upload: { url: "https://s3.test/b", fields: {} }, upload_token: "tok_0123456789" }),
+      ),
+    );
+    const phases: UploadPhase[] = [];
+    const md = new File(["# hi"], "a.md");
+    // jsdom's File has no arrayBuffer(); the hash only needs some bytes.
+    Object.defineProperty(md, "arrayBuffer", { value: async () => new TextEncoder().encode("# hi").buffer });
+    await expect(uploadFile(md, "only_me", (p) => phases.push(p))).rejects.toThrow(
+      /took too long.*may still be indexing/,
+    );
+    expect(phases.at(-1)?.kind).toBe("checking"); // the bytes reached storage first
   });
 });
