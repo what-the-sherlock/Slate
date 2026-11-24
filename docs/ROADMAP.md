@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status:** Milestone 0 (Phase 0) — in progress. Waiting on the owner's schema decision (A1–A4) for migration 0001.
+**Status:** Milestone 0 (Phase 0) — code complete locally; waiting on the owner's commit/push and GitHub secrets for the first CI run. Vercel + SSE spike deferred to the MVP.
 
 Update this line and tick items as work completes. Only the current milestone is in scope.
 
@@ -11,9 +11,9 @@ Update this line and tick items as work completes. Only the current milestone is
 - [x] Tooling: uv, ruff, pyright, import-linter contracts, pytest (+ pytest-socket), pnpm, ESLint, Vitest; `.env.example`; `.gitignore`; pre-commit
 - [x] `core/config.py`, structured logging, error hierarchy + problem+json handler, request ID middleware
 - [x] Ports with in-memory fakes; Postgres session factory (pooled + direct)
-- [ ] Alembic migration 0001: full schema from `ARCHITECTURE.md` §4 (incl. pgvector, citext)
+- [x] Alembic migration 0001: full schema from `ARCHITECTURE.md` §4 (incl. pgvector, citext) + A1–A4 (ADR-0012, ADR-0013)
 - [x] `/healthz`, `/readyz`; Next.js skeleton with `/api/*` rewrite; generated API client
-- [ ] CI workflow; Neon test branch for integration tests; Dependabot (written; first green run needs the push + `DATABASE_URL_TEST*` secrets; `sync.yml` comes with the worker)
+- [x] CI workflow (`ci.yml`), worker workflow (`sync.yml`); Neon test branch for integration tests; Dependabot. First green run needs the owner's push + secrets
 - [ ] ~~Vercel projects `web` and `api` deployed; spike: SSE streams through the rewrite~~ **Deferred (owner, 2026-11-24): Vercel setup waits until an MVP exists. The SSE spike must run before M3 streaming work; ADR-0010 stays Proposed until then.**
 - [x] Spike: verify Neon's pgvector version supports `halfvec` and iterative scans (ADR-0011: Postgres 18.7, pgvector 0.8.7)
 - Done when: both apps run locally, CI is green, migrations apply to the Neon `test` branch, the pgvector spike is recorded

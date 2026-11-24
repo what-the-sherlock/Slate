@@ -89,6 +89,7 @@ jobs:
       cancel-in-progress: false
     env:
       ENV: test
+      SLATE_ALLOW_DESTRUCTIVE_TESTS: "1"  # dedicated test branch
       DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}
       DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_TEST_DIRECT }}
     steps:

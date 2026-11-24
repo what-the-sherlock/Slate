@@ -1,5 +1,4 @@
 import random
-from datetime import timedelta
 
 import pytest
 from hypothesis import given
@@ -8,6 +7,7 @@ from hypothesis import strategies as st
 from core.domain.jobs import (
     BASE_BACKOFF,
     MAX_BACKOFF,
+    MIN_BACKOFF,
     JobStatus,
     next_status_after_failure,
     retry_delay,
@@ -18,7 +18,7 @@ from core.domain.jobs import (
 def test_retry_delay_is_within_jittered_exponential_bounds(attempt: int, seed: int) -> None:
     delay = retry_delay(attempt, random.Random(seed))
     ceiling = min(MAX_BACKOFF, BASE_BACKOFF * 2 ** min(attempt - 1, 20))
-    assert timedelta(0) <= delay <= ceiling
+    assert min(MIN_BACKOFF, ceiling) <= delay <= ceiling
 
 
 def test_retry_delay_ceiling_grows_then_caps() -> None:

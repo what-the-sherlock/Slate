@@ -38,21 +38,24 @@ class Job:
 
 
 BASE_BACKOFF = timedelta(seconds=30)
+MIN_BACKOFF = timedelta(seconds=5)
 MAX_BACKOFF = timedelta(hours=1)
 STALE_AFTER = timedelta(minutes=10)
 
 
 def retry_delay(attempt: int, rng: random.Random | None = None) -> timedelta:
-    """Exponential backoff with "full jitter": uniform(0, min(cap, base * 2**(attempt-1))).
+    """Exponential backoff with jitter: uniform(MIN, min(cap, base * 2**(attempt-1))).
 
-    Full jitter spreads retries out so many failed jobs don't all hammer an upstream
-    service at the same instant (the "thundering herd").
+    Jitter spreads retries out so many failed jobs don't all hammer an upstream service
+    at the same instant (the "thundering herd"). The small floor stops a first retry
+    from landing immediately, i.e. with no backoff at all.
     """
     if attempt < 1:
         raise ValueError("attempt starts at 1")
     ceiling = min(MAX_BACKOFF, BASE_BACKOFF * (2 ** min(attempt - 1, 20)))
     r = (rng or random.SystemRandom()).random()
-    return timedelta(seconds=ceiling.total_seconds() * r)
+    floor = min(MIN_BACKOFF, ceiling).total_seconds()
+    return timedelta(seconds=floor + (ceiling.total_seconds() - floor) * r)
 
 
 def next_status_after_failure(attempts: int, max_attempts: int, *, retryable: bool) -> JobStatus:

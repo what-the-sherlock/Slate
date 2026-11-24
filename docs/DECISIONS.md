@@ -70,3 +70,22 @@ Format: number, title, status, context, decision, consequences. Add new ADRs at 
 - Building HNSW over 20k halfvec(1024) rows took about 26 s on Neon's free compute.
 **Decision:** The vector search query sets `SET LOCAL hnsw.iterative_scan = relaxed_order` in its transaction, alongside `hnsw.ef_search` (value tuned by evals in M2). No over-fetch fallback is needed.
 **Consequences:** Filtered ANN keeps returning k rows for guests and other narrow principals. `relaxed_order` can return rows slightly out of distance order, so results are re-sorted by distance before fusion (RRF only uses ranks). Small per-user corpora will often be searched exactly via GIN, which is both correct and cheap.
+
+## ADR-0012: Data isolation from free AI providers
+**Status:** Accepted (2026-11-24)
+**Context:** The owner's rule: private data must never reach AI providers whose free tiers may train on or retain inputs (Gemini, Groq, Cloudflare Workers AI). ADR-0005 stated the rule, but the schema had nowhere to record which data is private.
+**Decision:** Defence in depth, so a mistake in one layer is caught by another:
+1. `data_class` (`public` | `private`) on `sources`, `documents` and `chunks`, **defaulting to `private`**. Chunks carry it (like `acl`) so the router sees exactly what was retrieved.
+2. Database CHECKs: data may be `public` only if its ACL already contains `public` (readable by anyone), and `gmail_mbox` sources are always `private`.
+3. One pure routing rule, `core/domain/data_class.may_send`: a free-tier call is allowed only if **every** input (retrieved chunks, earlier turns, the question) is public. Unknown or missing classes count as private (fail closed).
+4. `embedding_generations.data_scope`: a generation served by a free provider (BGE-M3 on Workers AI) is `public`-scoped, so private chunks are never sent to it. Private evals use OpenAI embeddings only.
+5. `usage_ledger.data_class` records the most sensitive class of every model call, so it's auditable that no private call went to a free provider.
+6. **Rows can't disagree with their parents** (added after the security review): composite foreign keys force `documents.(workspace_id, data_class)` to equal its source's and `chunks.(workspace_id, data_class)` to equal its document's, with `ON UPDATE CASCADE`; a trigger makes `chunks.acl` always a copy of `documents.acl`; a trigger rejects a private chunk's embedding under a `public`-scoped generation. So a Gmail document can't be public, a chunk can't move to another workspace, and narrowing a document's ACL narrows its chunks in the same transaction.
+**Workspace-scoping exceptions (deliberate):** `embedding_generations` and `eval_runs` are global, because the embedding model is a system-wide choice. `ingestion_errors` and `messages` are reached only through a workspace-scoped parent (`ingestion_runs`, `chat_sessions`).
+**Consequences:** Private data goes only to OpenAI's paid API (no training on API inputs by default). Marking data public is a deliberate act that the database double-checks. A guest-facing query rewrite may use a free provider only for fully public conversations. Isolation tests: `tests/unit/core/domain/test_data_class.py`, `tests/integration/migrations/test_0001_schema.py`.
+
+## ADR-0013: Embedding generations: status plus partial unique indexes
+**Status:** Accepted (2026-11-24)
+**Context:** Exactly one embedding generation may be `present` (served by search) and at most one `future` (being built). Options: an application check (racy), a singleton pointer row (atomic flip, but `future`/`past` still need tracking), or database-enforced uniqueness.
+**Decision:** Keep the `status` column and add partial unique indexes `UNIQUE (status) WHERE status = 'present'` and the same for `'future'`. A flip is two statements in one transaction: demote the old `present` to `past`, then promote the `future`.
+**Consequences:** The database makes two present generations impossible, with no race. Readers see the switch atomically at commit. History stays in the same table.

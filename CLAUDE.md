@@ -63,10 +63,11 @@ uv run pyright
 uv run lint-imports                       layer rules
 uv run pytest -m "not integration"        fast tests, no network
 uv run pytest -m integration              needs DATABASE_URL pointing at a Neon *test* branch
+                                          (SLATE_ALLOW_DESTRUCTIVE_TESTS=1 also runs the migration round-trip)
 uv run alembic upgrade head               migrations (direct, non-pooled URL)
 uv run python -m api.dev --reload         API at :8000 (Windows-safe; = uvicorn api.main:app)
 uv run python scripts/export_openapi.py   regenerate openapi.json after API changes
-uv run python -m worker run --once        process queued jobs locally
+uv run python -m worker run               drain runnable jobs locally, then exit (--once: one job)
 uv run python -m evals.run --embedder openai
 pnpm -C web install | dev | lint | typecheck | test | gen:api
 ```

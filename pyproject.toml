@@ -110,6 +110,7 @@ layers = [
 ignore_imports = [
     "api.deps -> core.adapters.**",
     "api.dev -> core.adapters.**",  # dev-only: selects the Windows event loop
+    "worker.main -> core.adapters.**",
 ]
 
 [[tool.importlinter.contracts]]
@@ -134,5 +135,6 @@ forbidden_modules = ["core.adapters"]
 ignore_imports = [
     "api.deps -> core.adapters.**",
     "api.dev -> core.adapters.**",  # dev-only: selects the Windows event loop
+    "worker.main -> core.adapters.**",
 ]
 allow_indirect_imports = true

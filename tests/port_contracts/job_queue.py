@@ -29,23 +29,31 @@ def _key() -> str:
 
 
 class JobQueueContract:
+    kind: str = KIND
+
+    @pytest.fixture(autouse=True)
+    def _unique_kind(self) -> None:
+        # A fresh job kind per test: on a shared database, leftovers from other runs
+        # can't be claimed by this test (and this test's jobs can't leak into others).
+        self.kind = f"contract_{uuid4().hex[:12]}"
+
     @pytest.fixture
     def ws(self) -> WorkspaceId:
         raise NotImplementedError
 
     async def test_enqueue_is_idempotent_on_key(self, queue: JobQueue, ws: WorkspaceId) -> None:
         key = _key()
-        a = await queue.enqueue(ws, KIND, {"n": 1}, key, run_after=PAST)
-        b = await queue.enqueue(ws, KIND, {"n": 2}, key, run_after=PAST)
+        a = await queue.enqueue(ws, self.kind, {"n": 1}, key, run_after=PAST)
+        b = await queue.enqueue(ws, self.kind, {"n": 2}, key, run_after=PAST)
         assert a == b
         assert (await queue.get(a)).payload == {"n": 1}
 
     async def test_claim_returns_oldest_due_job_and_marks_running(
         self, queue: JobQueue, ws: WorkspaceId
     ) -> None:
-        older = await queue.enqueue(ws, KIND, {}, _key(), run_after=PAST)
-        await queue.enqueue(ws, KIND, {}, _key(), run_after=PAST + timedelta(days=1))
-        job = await queue.claim("w1", [KIND])
+        older = await queue.enqueue(ws, self.kind, {}, _key(), run_after=PAST)
+        await queue.enqueue(ws, self.kind, {}, _key(), run_after=PAST + timedelta(days=1))
+        job = await queue.claim("w1", [self.kind])
         assert job is not None
         assert job.id == older
         assert job.status is JobStatus.RUNNING
@@ -55,23 +63,25 @@ class JobQueueContract:
     async def test_claim_skips_future_and_other_kinds(
         self, queue: JobQueue, ws: WorkspaceId
     ) -> None:
-        await queue.enqueue(ws, KIND, {}, _key(), run_after=FUTURE)
+        await queue.enqueue(ws, self.kind, {}, _key(), run_after=FUTURE)
         await queue.enqueue(ws, "other_kind", {}, _key(), run_after=PAST)
-        assert await queue.claim("w1", [KIND]) is None
+        assert await queue.claim("w1", [self.kind]) is None
 
     async def test_concurrent_claims_never_return_the_same_job(
         self, queue: JobQueue, ws: WorkspaceId
     ) -> None:
+        # Meaningful for Postgres, where each claim runs on its own connection and
+        # SKIP LOCKED is exercised; the in-memory fake never interleaves, so it trivially passes.
         for _ in range(3):
-            await queue.enqueue(ws, KIND, {}, _key(), run_after=PAST)
-        claimed = await asyncio.gather(*(queue.claim(f"w{i}", [KIND]) for i in range(5)))
+            await queue.enqueue(ws, self.kind, {}, _key(), run_after=PAST)
+        claimed = await asyncio.gather(*(queue.claim(f"w{i}", [self.kind]) for i in range(5)))
         ids = [j.id for j in claimed if j is not None]
         assert len(ids) == 3
         assert len(set(ids)) == 3
 
     async def test_complete_marks_succeeded(self, queue: JobQueue, ws: WorkspaceId) -> None:
-        await queue.enqueue(ws, KIND, {}, _key(), run_after=PAST)
-        job = await queue.claim("w1", [KIND])
+        await queue.enqueue(ws, self.kind, {}, _key(), run_after=PAST)
+        job = await queue.claim("w1", [self.kind])
         assert job is not None
         await queue.complete(job.id, "w1")
         assert (await queue.get(job.id)).status is JobStatus.SUCCEEDED
@@ -79,8 +89,8 @@ class JobQueueContract:
     async def test_only_the_owner_can_heartbeat_or_complete(
         self, queue: JobQueue, ws: WorkspaceId
     ) -> None:
-        await queue.enqueue(ws, KIND, {}, _key(), run_after=PAST)
-        job = await queue.claim("w1", [KIND])
+        await queue.enqueue(ws, self.kind, {}, _key(), run_after=PAST)
+        job = await queue.claim("w1", [self.kind])
         assert job is not None
         with pytest.raises(Conflict):
             await queue.heartbeat(job.id, "intruder")
@@ -90,8 +100,8 @@ class JobQueueContract:
     async def test_retryable_failure_schedules_retry_with_backoff(
         self, queue: JobQueue, ws: WorkspaceId
     ) -> None:
-        await queue.enqueue(ws, KIND, {}, _key(), run_after=PAST)
-        job = await queue.claim("w1", [KIND])
+        await queue.enqueue(ws, self.kind, {}, _key(), run_after=PAST)
+        job = await queue.claim("w1", [self.kind])
         assert job is not None
         failed = await queue.fail(job.id, "w1", "timeout", retryable=True)
         assert failed.status is JobStatus.FAILED
@@ -100,8 +110,8 @@ class JobQueueContract:
         assert failed.locked_by is None
 
     async def test_non_retryable_failure_is_dead(self, queue: JobQueue, ws: WorkspaceId) -> None:
-        await queue.enqueue(ws, KIND, {}, _key(), run_after=PAST)
-        job = await queue.claim("w1", [KIND])
+        await queue.enqueue(ws, self.kind, {}, _key(), run_after=PAST)
+        job = await queue.claim("w1", [self.kind])
         assert job is not None
         assert (
             await queue.fail(job.id, "w1", "bad input", retryable=False)
@@ -110,11 +120,11 @@ class JobQueueContract:
     async def test_exhausted_attempts_become_dead_and_are_never_claimed(
         self, queue: JobQueue, ws: WorkspaceId
     ) -> None:
-        await queue.enqueue(ws, KIND, {}, _key(), run_after=PAST, max_attempts=1)
-        job = await queue.claim("w1", [KIND])
+        await queue.enqueue(ws, self.kind, {}, _key(), run_after=PAST, max_attempts=1)
+        job = await queue.claim("w1", [self.kind])
         assert job is not None
         assert (await queue.fail(job.id, "w1", "x", retryable=True)).status is JobStatus.DEAD
-        assert await queue.claim("w1", [KIND]) is None
+        assert await queue.claim("w1", [self.kind]) is None
 
     async def test_get_unknown_job_raises_not_found(self, queue: JobQueue) -> None:
         with pytest.raises(NotFound):

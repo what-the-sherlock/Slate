@@ -1,0 +1,45 @@
+name: sync
+
+# The background worker (ADR-0003, ADR-0007). It drains the jobs table, then exits so
+# Neon can scale to zero. Budget: an hourly wake costs ~5 min at 0.25 CU before Neon
+# suspends, about 0.5 CU-h/day or 15 CU-h/month of the 100 CU-h free allowance.
+
+on:
+  repository_dispatch:
+    types: [sync] # sent by the API's WorkerTrigger when it enqueues work
+  schedule:
+    - cron: "17 * * * *" # hourly safety net (minute 17: GitHub's top-of-hour queue is busiest)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One worker at a time. GitHub keeps at most one *pending* run per group (older
+  # pending runs are cancelled), so a burst of dispatches collapses to running + 1
+  # pending. That's fine: each run drains the whole queue.
+  group: worker
+  cancel-in-progress: false
+
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    # The worker stops starting new jobs after 5 h. A job still running at 5.5 h is
+    # killed here and left 'running'; the next run's reclaim requeues it.
+    timeout-minutes: 330
+    env:
+      ENV: prod
+      LOG_LEVEL: INFO
+      WORKER_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
+      SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked --no-dev
+      - name: Run worker
+        # Logs are public on a public repo: the worker logs ids, counts and error types only.
+        run: uv run --no-dev python -m worker run --max-seconds 18000

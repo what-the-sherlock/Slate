@@ -89,6 +89,7 @@ api_keys(id, workspace_id, user_id, prefix, key_hash, scopes text[], created_at,
 -- sources and ingestion
 credentials(id, workspace_id, kind, secret_encrypted bytea, created_by, created_at)   -- Fernet, key from env
 sources(id, workspace_id, connector, name, config jsonb, credential_id, visibility text[] NOT NULL,
+        data_class DEFAULT 'private',             -- ADR-0012: public only if 'public' ∈ visibility; gmail always private
         schedule_interval interval, status, checkpoint jsonb, last_synced_at, created_at)
 ingestion_runs(id, source_id, kind, status, started_at, finished_at, docs_seen, docs_changed, docs_failed, error_summary)
 ingestion_errors(id, run_id, external_id, stage, message, retryable bool, created_at)
@@ -96,14 +97,15 @@ ingestion_errors(id, run_id, external_id, stage, message, retryable bool, create
 -- content
 documents(id, workspace_id, source_id, external_id, uri, title, mime, author,
           checksum, version int, source_created_at, source_updated_at, metadata jsonb,
-          acl text[] NOT NULL, deleted_at, created_at, updated_at,
+          acl text[] NOT NULL, data_class, deleted_at, created_at, updated_at,
           UNIQUE (source_id, external_id))
 chunks(id bigserial, document_id → documents ON DELETE CASCADE, workspace_id, ordinal int,
-       heading_path text, content text, token_count int, acl text[] NOT NULL, metadata jsonb,
+       heading_path text, content text, token_count int, acl text[] NOT NULL, data_class, metadata jsonb,
        tsv_en tsvector GENERATED (to_tsvector('english', coalesce(heading_path,'') || ' ' || content)) STORED,
        tsv_simple tsvector GENERATED (to_tsvector('simple', content)) STORED,   -- code identifiers
        UNIQUE (document_id, ordinal))
-embedding_generations(id smallserial, model, dims, status CHECK (status IN ('future','present','past')), created_at)
+embedding_generations(id smallserial, model, dims, status CHECK (status IN ('future','present','past')),
+                      data_scope CHECK (data_scope IN ('all','public')), created_at)   -- ADR-0012/0013
 chunk_embeddings(chunk_id → chunks ON DELETE CASCADE, generation_id, embedding halfvec(1024),
                  PRIMARY KEY (chunk_id, generation_id))
 
@@ -118,12 +120,14 @@ jobs(id, workspace_id, kind, payload jsonb, status CHECK (status IN ('queued','r
      attempts int, max_attempts int, run_after, locked_by, locked_at, heartbeat_at, last_error,
      idempotency_key UNIQUE, created_at, finished_at)
 audit_log(id, workspace_id, actor_id, action, target_type, target_id, data jsonb, created_at)
-usage_ledger(id, day date, provider, model, kind, tokens_in, tokens_out, cost_usd numeric)   -- budget guard
+usage_ledger(id, day date, provider, model, kind, data_class, tokens_in, tokens_out, cost_usd numeric)   -- budget guard + isolation audit
 eval_cases(id, workspace_id, question, expected_document_ids uuid[], tags text[], notes)
 eval_runs(id, git_sha, generation_id, config jsonb, metrics jsonb, created_at)
 ```
 
-**Indexes (minimum):** `GIN(chunks.acl)`, `GIN(chunks.tsv_en)`, `GIN(chunks.tsv_simple)`, `(chunks.workspace_id, document_id)`, `documents(workspace_id, source_id)`, `jobs(status, run_after)` partial `WHERE status = 'queued'`. Each embedding generation gets one HNSW index: `CREATE INDEX ... ON chunk_embeddings USING hnsw (embedding halfvec_cosine_ops) WHERE generation_id = <id>`.
+**Constraints:** every status/kind/role column has a CHECK; at most one `present` and one `future` embedding generation (partial unique indexes, ADR-0013); `data_class = 'public'` requires `'public'` in the ACL (ADR-0012). The exact DDL is `migrations/versions/0001_initial_schema.py`.
+
+**Indexes (minimum):** `GIN(chunks.acl)`, `GIN(chunks.tsv_en)`, `GIN(chunks.tsv_simple)`, `(chunks.workspace_id, document_id)`, `documents(workspace_id, source_id)`, `jobs(run_after, created_at)` partial `WHERE status IN ('queued','failed')` (claim), `jobs(heartbeat_at) WHERE status = 'running'` (reclaim), plus list indexes for runs, sessions, messages and the audit log. Each embedding generation gets one HNSW index: `CREATE INDEX ... ON chunk_embeddings USING hnsw (embedding halfvec_cosine_ops) WHERE generation_id = <id>`.
 
 **Why `chunk_embeddings` is a separate table:** several embedders can coexist (OpenAI vs BGE-M3 evals), and a model can change without downtime. Build a `future` generation, evaluate it, flip it to `present` (Onyx's pattern).
 

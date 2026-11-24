@@ -67,6 +67,9 @@ class Settings(BaseSettings):
 
     sentry_dsn: SecretStr | None = None
 
+    # Identifies this worker process in jobs.locked_by (sync.yml sets it from the run id).
+    worker_id: str | None = None
+
     @field_validator("log_level")
     @classmethod
     def _upper_level(cls, v: str) -> str:

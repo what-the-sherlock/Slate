@@ -104,7 +104,14 @@ class FakeJobQueue:
         n = 0
         for job in list(self.jobs.values()):
             if job.status is JobStatus.RUNNING and job.heartbeat_at and job.heartbeat_at < cutoff:
-                self.jobs[job.id] = replace(job, status=JobStatus.QUEUED, locked_by=None)
+                status = JobStatus.DEAD if job.attempts >= job.max_attempts else JobStatus.QUEUED
+                self.jobs[job.id] = replace(
+                    job,
+                    status=status,
+                    locked_by=None,
+                    heartbeat_at=None,
+                    last_error="worker heartbeat lost",
+                )
                 n += 1
         return n
 
