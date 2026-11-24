@@ -1,0 +1,61 @@
+/*
+ * Slate design tokens (docs/UI_DESIGN.md §2). Light theme only.
+ * Prefixed --sl-* so they never collide with shadcn's variable names
+ * (shadcn's --border / --accent mean different things; see §2.8).
+ * Components use the Tailwind utilities generated from these, never raw hex.
+ */
+:root {
+  /* neutrals */
+  --sl-bg: #ffffff;
+  --sl-bg-subtle: #fafafb;
+  --sl-bg-muted: #f1f2f4;
+  --sl-bg-emphasis: #eef0f2;
+  --sl-border: #e4e6ea;
+  --sl-border-subtle: #eef0f2;
+  --sl-border-strong: #d5d8dd;
+  --sl-border-input: #8f949c;
+  --sl-fg: #0d0f12;
+  --sl-fg-body: #2a2d31;
+  --sl-fg-muted: #4a4e55;
+  --sl-fg-subtle: #6b7078;
+  --sl-fg-disabled: #a0a5ad;
+
+  /* accent */
+  --sl-accent: #3050f0;
+  --sl-accent-strong: #2440d8;
+  --sl-accent-subtle: #e8ecff;
+  --sl-accent-border: #c9d2ff;
+  --sl-accent-fg: #ffffff;
+
+  /* semantic */
+  --sl-success: #13734b;
+  --sl-success-subtle: #e6f4ec;
+  --sl-success-border: #bfe3cf;
+  --sl-warning: #8a5100;
+  --sl-warning-subtle: #fdf3e2;
+  --sl-warning-border: #f5dcae;
+  --sl-danger: #b4231b;
+  --sl-danger-subtle: #fdecea;
+  --sl-danger-border: #f6c9c4;
+  --sl-danger-solid: #d1342b;
+
+  /* special */
+  --sl-mark: #fdf0c4;
+  --sl-overlay: rgb(13 15 18 / 0.4);
+  --sl-hover-wash: rgb(255 255 255 / 0.14);
+
+  /* elevation */
+  --sl-shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 0.08), 0 1px 1px rgb(0 0 0 / 0.03);
+  --sl-shadow-md: 0 0.6px 1.6px -1.5px rgb(0 0 0 / 0.17), 0 2.3px 6px -3px rgb(0 0 0 / 0.14),
+    0 10px 26px -4.5px rgb(0 0 0 / 0.06);
+  --sl-shadow-lg: var(--sl-shadow-md), 0 24px 48px -12px rgb(0 0 0 / 0.12);
+
+  /* motion */
+  --sl-dur-instant: 80ms;
+  --sl-dur-fast: 120ms;
+  --sl-dur-base: 200ms;
+  --sl-dur-slow: 300ms;
+  --sl-ease-standard: cubic-bezier(0.44, 0, 0.56, 1);
+  --sl-ease-out: cubic-bezier(0.25, 0.1, 0.35, 1);
+  --sl-ease-in: cubic-bezier(0.4, 0, 1, 1);
+}

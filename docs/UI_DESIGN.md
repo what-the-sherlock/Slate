@@ -213,25 +213,25 @@ Values come from Answerline's Framer config: a spring with bounce 0.2 and durati
 
 ### 2.8 Implementation mapping (Tailwind v4 + shadcn/ui)
 
-Tokens live in `web/src/styles/tokens.css` and are exposed to Tailwind with `@theme inline`. shadcn variables map onto ours:
+Tokens live in `web/src/styles/tokens.css` and are exposed to Tailwind with `@theme inline`. **In code, every Slate token is prefixed `--sl-`** (`--sl-border`, `--sl-accent`, …), because several of our names collide with shadcn's (`--border`, `--accent`) and a variable can't refer to itself. This document uses the short names. shadcn variables map onto ours:
 
 ```css
 :root {
-  --background: var(--bg);           --foreground: var(--fg);
-  --card: var(--bg);                 --card-foreground: var(--fg);
-  --popover: var(--bg);              --popover-foreground: var(--fg);
-  --primary: var(--accent);          --primary-foreground: var(--accent-fg);
-  --secondary: var(--bg);            --secondary-foreground: var(--fg);
-  --muted: var(--bg-muted);          --muted-foreground: var(--fg-subtle);
-  --accent: var(--bg-muted);         --accent-foreground: var(--fg);   /* shadcn's "accent" = hover fill */
+  --background: var(--sl-bg);           --foreground: var(--sl-fg);
+  --card: var(--sl-bg);                 --card-foreground: var(--sl-fg);
+  --popover: var(--sl-bg);              --popover-foreground: var(--sl-fg);
+  --primary: var(--sl-accent);          --primary-foreground: var(--sl-accent-fg);
+  --secondary: var(--sl-bg);            --secondary-foreground: var(--sl-fg);
+  --muted: var(--sl-bg-muted);          --muted-foreground: var(--sl-fg-subtle);
+  --accent: var(--sl-bg-muted);         --accent-foreground: var(--sl-fg);   /* shadcn's "accent" = hover fill */
   --destructive: #D1342B;
-  --border: var(--border);           --input: var(--border-input);
-  --ring: var(--accent);
+  --border: var(--sl-border);           --input: var(--sl-border-input);
+  --ring: var(--sl-accent);
   --radius: 8px;
 }
 ```
 
-shadcn's `--accent` means "hover fill", not brand colour. Our brand blue is `--primary` in shadcn terms. Name our own token `--brand` in code if that collision causes confusion.
+shadcn's `--accent` means "hover fill", not brand colour. Our brand blue is `--primary` in shadcn terms. In Tailwind utilities our blue is exposed as `brand` (`bg-brand`, `text-brand-strong`) for the same reason.
 
 ---
 

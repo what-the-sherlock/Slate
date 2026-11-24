@@ -1,3 +1,5 @@
+# Third-party files (font licence, generated API types) stay byte-for-byte as published.
+exclude: ^(web/src/fonts/|web/src/lib/api/schema\.d\.ts$)
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
