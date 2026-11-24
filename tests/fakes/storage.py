@@ -162,8 +162,7 @@ class InMemoryIndex:
             out.append(c)
         return out
 
-    @staticmethod
-    def _scored(c: _StoredChunk, score: float) -> ScoredChunk:
+    def _scored(self, c: _StoredChunk, score: float) -> ScoredChunk:
         return ScoredChunk(
             chunk_id=c.id,
             document_id=c.document_id,
@@ -171,6 +170,7 @@ class InMemoryIndex:
             content=c.chunk.content,
             score=score,
             heading_path=c.chunk.heading_path,
+            title=self._docs[c.document_id][1].title,
         )
 
     async def vector_search(

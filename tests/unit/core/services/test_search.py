@@ -1,0 +1,147 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+from decimal import Decimal
+from uuid import uuid4
+
+import pytest
+
+from core.domain.auth import Identity, Role
+from core.domain.documents import DocumentUpsert, NewChunk, SearchFilters, Vector
+from core.domain.errors import UpstreamUnavailable, ValidationFailed
+from core.domain.ids import GenerationId, SessionId, SourceId, UserId, WorkspaceId
+from core.domain.principals import PUBLIC, Principals, user_principal, workspace_principal
+from core.domain.search import Lane
+from core.services.search import SearchService
+from tests.fakes.models import FakeEmbedder
+from tests.fakes.storage import InMemoryIndex
+from tests.fakes.usage import InMemoryGenerations, InMemoryLedger
+
+WS = WorkspaceId(uuid4())
+OWNER = UserId(uuid4())
+GUEST = UserId(uuid4())
+SOURCE = SourceId(uuid4())
+GEN = GenerationId(1)
+
+
+def identity(user: UserId, *, guest: bool = False) -> Identity:
+    return Identity(
+        user_id=user,
+        workspace_id=WS,
+        session_id=SessionId(uuid4()),
+        email="a@b.c",
+        name="A",
+        role=Role.VIEWER if guest else Role.OWNER,
+        is_guest=guest,
+        principals=Principals.for_user(user, WS, is_guest=guest),
+        csrf_secret="c",
+    )
+
+
+class DownEmbedder(FakeEmbedder):
+    async def embed_query(self, text: str) -> Vector:
+        raise UpstreamUnavailable("embedder down")
+
+
+async def seed(index: InMemoryIndex, embedder: FakeEmbedder) -> None:
+    docs: Sequence[tuple[str, str, tuple[str, ...]]] = [
+        ("handbook", "Everyone gets 25 days of paid leave per year.", (PUBLIC,)),
+        ("salaries", "Salary bands for leave cover are confidential.", (user_principal(OWNER),)),
+        ("team", "The team meets on Mondays.", (workspace_principal(WS),)),
+    ]
+    for ext, content, acl in docs:
+        vec = (await embedder.embed_documents([content])).vectors
+        await index.write_document(
+            WS,
+            DocumentUpsert(SOURCE, ext, f"upload://{ext}", ext.title(), "text/plain", ext, acl),
+            [NewChunk(0, content, len(content.split()))],
+            {GEN: vec},
+            data_class="private",
+        )
+
+
+def make(
+    embedder: FakeEmbedder | None = None, *, spent: str = "0", present: bool = True
+) -> tuple[SearchService, InMemoryIndex, FakeEmbedder]:
+    e = embedder or FakeEmbedder()
+    index = InMemoryIndex()
+    gens = InMemoryGenerations()
+    if present:
+        gens.present_gen = (GEN, e.model)
+    svc = SearchService(
+        index, e, gens, InMemoryLedger(Decimal(spent)), monthly_budget_usd=Decimal("5")
+    )
+    return svc, index, e
+
+
+async def test_hybrid_search_runs_both_lanes_and_fuses() -> None:
+    svc, index, e = make()
+    await seed(index, e)
+    # The exact chunk text as the query: its fake vector matches, and the words match.
+    res = await svc.search(identity(OWNER), "Everyone gets 25 days of paid leave per year.")
+    assert set(res.lanes) == {Lane.KEYWORD, Lane.VECTOR}
+    top = res.hits[0]
+    assert top.chunk.title == "Handbook"
+    assert top.ranks == {Lane.KEYWORD: 1, Lane.VECTOR: 1}
+    assert res.notices == ()
+
+
+async def test_guest_never_sees_private_or_workspace_chunks() -> None:
+    svc, index, e = make()
+    await seed(index, e)
+    res = await svc.search(identity(GUEST, guest=True), "leave team salary Mondays")
+    titles = {h.chunk.title for h in res.hits}
+    assert titles <= {"Handbook"}
+    owner = await svc.search(identity(OWNER), "leave team salary Mondays")
+    assert {h.chunk.title for h in owner.hits} >= {"Salaries", "Team"}
+
+
+async def test_keyword_only_before_any_generation_exists() -> None:
+    svc, index, e = make(present=False)
+    await seed(index, e)
+    res = await svc.search(identity(OWNER), "leave")
+    assert res.lanes == (Lane.KEYWORD,)
+    assert res.notices == ()  # not a degradation, just nothing embedded yet
+
+
+async def test_generation_from_another_model_is_not_queried() -> None:
+    svc, index, e = make(FakeEmbedder(model="other-model"))
+    svc._generations.present_gen = (GEN, "fake-embed")  # type: ignore[attr-defined]
+    await seed(index, e)
+    res = await svc.search(identity(OWNER), "leave")
+    assert res.lanes == (Lane.KEYWORD,)
+
+
+async def test_degrades_to_keyword_when_embedder_is_down() -> None:
+    svc, index, _ = make(DownEmbedder())
+    await seed(index, FakeEmbedder())
+    res = await svc.search(identity(OWNER), "leave")
+    assert res.lanes == (Lane.KEYWORD,)
+    assert "unavailable" in res.notices[0]
+    assert res.hits
+
+
+async def test_degrades_to_keyword_when_budget_is_spent() -> None:
+    svc, index, e = make(spent="5")
+    await seed(index, e)
+    res = await svc.search(identity(OWNER), "leave")
+    assert res.lanes == (Lane.KEYWORD,)
+    assert "budget" in res.notices[0]
+
+
+@pytest.mark.parametrize("query", ["", "   \n\t ", "x" * 501])
+async def test_rejects_empty_and_oversized_queries(query: str) -> None:
+    svc, _, _ = make()
+    with pytest.raises(ValidationFailed):
+        await svc.search(identity(OWNER), query)
+
+
+async def test_limit_is_clamped_and_filters_pass_through() -> None:
+    svc, index, e = make()
+    await seed(index, e)
+    res = await svc.search(identity(OWNER), "leave", limit=0)
+    assert len(res.hits) == 1
+    none = await svc.search(
+        identity(OWNER), "leave", filters=SearchFilters(source_ids=(SourceId(uuid4()),))
+    )
+    assert none.hits == []

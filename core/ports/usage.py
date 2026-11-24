@@ -27,7 +27,18 @@ class UsageLedger(Protocol):
     async def month_to_date_usd(self) -> Decimal: ...
 
 
+@dataclass(frozen=True, slots=True)
+class GenerationInfo:
+    id: GenerationId
+    model: str
+    dims: int
+
+
 class GenerationStore(Protocol):
+    async def present(self) -> GenerationInfo | None:
+        """The generation search serves from, or None before anything was embedded."""
+        ...
+
     async def ensure_present(self, model: str, dims: int) -> GenerationId:
         """The 'present' generation for this model, creating it (and its HNSW index) if
         no generation is present yet. Raises Conflict if another model is present."""

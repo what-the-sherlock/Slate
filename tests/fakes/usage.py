@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from core.domain.errors import Conflict
 from core.domain.ids import GenerationId
-from core.ports.usage import UsageEntry
+from core.ports.usage import GenerationInfo, UsageEntry
 
 
 class InMemoryLedger:
@@ -22,11 +22,16 @@ class InMemoryLedger:
 
 class InMemoryGenerations:
     def __init__(self) -> None:
-        self.present: tuple[GenerationId, str] | None = None
+        self.present_gen: tuple[GenerationId, str] | None = None
+
+    async def present(self) -> GenerationInfo | None:
+        if self.present_gen is None:
+            return None
+        return GenerationInfo(self.present_gen[0], self.present_gen[1], 1024)
 
     async def ensure_present(self, model: str, dims: int) -> GenerationId:
-        if self.present is None:
-            self.present = (GenerationId(1), model)
-        if self.present[1] != model:
+        if self.present_gen is None:
+            self.present_gen = (GenerationId(1), model)
+        if self.present_gen[1] != model:
             raise Conflict("another model is present")
-        return self.present[0]
+        return self.present_gen[0]

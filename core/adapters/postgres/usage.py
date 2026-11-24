@@ -9,7 +9,7 @@ from sqlalchemy import text
 from core.adapters.postgres.uow import UnitOfWork
 from core.domain.errors import Conflict
 from core.domain.ids import GenerationId
-from core.ports.usage import UsageEntry
+from core.ports.usage import GenerationInfo, UsageEntry
 
 
 class PostgresUsageLedger:
@@ -51,6 +51,19 @@ class PostgresUsageLedger:
 class PostgresGenerationStore:
     def __init__(self, uow: UnitOfWork) -> None:
         self._uow = uow
+
+    async def present(self) -> GenerationInfo | None:
+        async with self._uow() as s:
+            row = (
+                await s.execute(
+                    text(
+                        "SELECT id, model, dims FROM embedding_generations WHERE status = 'present'"
+                    )
+                )
+            ).first()
+        if row is None:
+            return None
+        return GenerationInfo(GenerationId(int(row[0])), str(row[1]), int(row[2]))
 
     async def ensure_present(self, model: str, dims: int) -> GenerationId:
         async with self._uow() as s:

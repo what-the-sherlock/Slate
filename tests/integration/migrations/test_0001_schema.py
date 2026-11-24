@@ -254,7 +254,15 @@ async def test_chunk_search_vectors_are_generated(tx: AsyncConnection) -> None:
 # ---------------------------------------------------------------- A3: generations
 
 
+async def _retire_existing_generations(tx: AsyncConnection) -> None:
+    # The shared test branch may already hold real generations from manual runs.
+    # Retiring them inside the test transaction (rolled back afterwards) keeps
+    # these tests independent of branch state.
+    await tx.execute(text("UPDATE embedding_generations SET status='past' WHERE status<>'past'"))
+
+
 async def test_only_one_present_and_one_future_generation(tx: AsyncConnection) -> None:
+    await _retire_existing_generations(tx)
     for model, status in [("a", "present"), ("b", "future"), ("c", "past"), ("d", "past")]:
         await tx.execute(text(NEW_GENERATION), {"m": model, "s": status})
     for status in ("present", "future"):
@@ -264,6 +272,7 @@ async def test_only_one_present_and_one_future_generation(tx: AsyncConnection) -
 
 
 async def test_generation_flip_in_one_transaction(tx: AsyncConnection) -> None:
+    await _retire_existing_generations(tx)
     await tx.execute(text(NEW_GENERATION), {"m": "old", "s": "present"})
     new = await scalar(tx, NEW_GENERATION + " RETURNING id", m="new", s="future")
     # Demote first, then promote: the unique index never sees two 'present' rows,

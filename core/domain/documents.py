@@ -59,6 +59,7 @@ class ScoredChunk:
     content: str
     score: float
     heading_path: str | None = None
+    title: str | None = None  # the document's title, for result lists
 
 
 @dataclass(frozen=True, slots=True)
