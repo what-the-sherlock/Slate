@@ -177,11 +177,14 @@ async def test_db_error_while_recording_failure_does_not_crash() -> None:
 async def test_transient_heartbeat_error_keeps_heartbeating() -> None:
     q = await _queue_with("a")
     beats = 0
+    third_beat = asyncio.Event()
     original = q.heartbeat
 
     async def blip_then_ok(job_id: JobId, worker_id: str) -> None:
         nonlocal beats
         beats += 1
+        if beats >= 3:
+            third_beat.set()
         if beats == 1:
             raise OSError("neon connection dropped")
         await original(job_id, worker_id)
@@ -189,7 +192,9 @@ async def test_transient_heartbeat_error_keeps_heartbeating() -> None:
     q.heartbeat = blip_then_ok
 
     async def slow(job: Job) -> None:
-        await asyncio.sleep(0.06)
+        # Deterministic: finish only after the heartbeat survived the blip and beat twice more
+        # (a fixed sleep is flaky with Windows' ~15 ms timer resolution).
+        await asyncio.wait_for(third_beat.wait(), timeout=5)
 
     summary = await Worker(q, {"a": slow}, "w", heartbeat_every_s=0.01).run(RunLimits())
     assert beats >= 3  # kept beating after the blip

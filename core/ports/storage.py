@@ -78,3 +78,7 @@ class BlobStore(Protocol):
     async def delete(self, ref: str) -> None:
         """Idempotent: deleting a missing blob is not an error."""
         ...
+
+    async def presigned_url(self, ref: str, *, expires_in: int = 300) -> str:
+        """A short-lived URL that lets a browser download this blob without credentials."""
+        ...

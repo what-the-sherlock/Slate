@@ -203,3 +203,8 @@ class InMemoryBlobStore:
 
     async def delete(self, ref: str) -> None:
         self.blobs.pop(ref, None)
+
+    async def presigned_url(self, ref: str, *, expires_in: int = 300) -> str:
+        if ref not in self.blobs:
+            raise NotFound("blob not found")
+        return f"https://blobs.test/{ref}?expires={expires_in}"
