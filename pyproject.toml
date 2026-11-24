@@ -1,0 +1,123 @@
+[project]
+name = "slate"
+version = "0.1.0"
+description = "Permission-aware knowledge assistant with hybrid search and cited answers"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.3",
+    "alembic>=1.14",
+    "structlog>=24.4",
+    "httpx>=0.28",
+    "tenacity>=9.0",
+    "sse-starlette>=2.1",
+    "uvicorn>=0.32",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+    "pyright>=1.1.390",
+    "import-linter>=2.1",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-socket>=0.7",
+    "hypothesis>=6.120",
+    "pip-audit>=2.7",
+    "pre-commit>=4.0",
+]
+
+[tool.uv]
+# Not a distributable library: the repo root is on sys.path for every entry point.
+package = false
+
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["web", "docs", "*.md", "migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC", "S", "PT", "RUF", "TID", "N", "C4", "PTH"]
+ignore = ["S101"]  # assert is fine; tests use it and runtime code doesn't rely on it
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S311"]  # fake secrets and non-crypto randomness are fine in tests
+"scripts/**" = ["S311"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# Rule 6: vendor SDKs live only in adapters (adapters re-allow via per-file-ignores when added).
+"openai".msg = "Import the OpenAI SDK only in core/adapters/openai/"
+
+[tool.ruff.lint.isort]
+known-first-party = ["api", "core", "worker", "evals"]
+
+# ---------------------------------------------------------------- pyright
+[tool.pyright]
+pythonVersion = "3.12"
+include = ["api", "core", "worker", "evals", "tests", "scripts"]  # add "migrations" in slice 5
+exclude = ["**/__pycache__", "web", ".venv"]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "basic"
+reportUnnecessaryTypeIgnoreComment = "warning"
+executionEnvironments = [
+    { root = "core", extraPaths = ["."] },
+    { root = "." },
+]
+strict = ["core"]
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+addopts = "-ra --strict-markers --disable-socket --allow-unix-socket"
+markers = [
+    "integration: needs DATABASE_URL pointing at a Neon test branch (network allowed)",
+    "contract: API/event contract snapshots",
+]
+filterwarnings = ["error::DeprecationWarning:core.*"]
+
+# ---------------------------------------------------------------- import-linter
+[tool.importlinter]
+root_packages = ["api", "core", "worker", "evals"]
+include_external_packages = true  # needed to forbid sqlalchemy/fastapi/httpx in pure layers
+
+[[tool.importlinter.contracts]]
+name = "Layers: entry points -> services -> ports -> domain"
+type = "layers"
+layers = [
+    "api | worker | evals",
+    "core.services",
+    "core.ports",
+    "core.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain is pure"
+type = "forbidden"
+source_modules = ["core.domain"]
+forbidden_modules = ["core.ports", "core.services", "core.adapters", "core.config", "api", "worker", "evals", "sqlalchemy", "fastapi", "httpx"]
+
+[[tool.importlinter.contracts]]
+name = "Services never import adapters"
+type = "forbidden"
+source_modules = ["core.services", "core.ports"]
+forbidden_modules = ["core.adapters", "sqlalchemy", "fastapi"]
+
+# Composition roots (api.deps, worker.main, evals.run) get ignore_imports entries
+# for core.adapters in the slice that creates them.
+[[tool.importlinter.contracts]]
+name = "Only composition roots import adapters"
+type = "forbidden"
+source_modules = ["api", "worker", "evals"]
+forbidden_modules = ["core.adapters"]
+allow_indirect_imports = true
