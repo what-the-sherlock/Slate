@@ -63,7 +63,7 @@ known-first-party = ["api", "core", "worker", "evals"]
 # ---------------------------------------------------------------- pyright
 [tool.pyright]
 pythonVersion = "3.12"
-include = ["api", "core", "worker", "evals", "tests", "scripts"]  # add "migrations" in slice 5
+include = ["api", "core", "worker", "evals", "tests", "scripts", "migrations"]
 exclude = ["**/__pycache__", "web", ".venv"]
 venvPath = "."
 venv = ".venv"
@@ -87,7 +87,11 @@ markers = [
     "integration: needs DATABASE_URL pointing at a Neon test branch (network allowed)",
     "contract: API/event contract snapshots",
 ]
-filterwarnings = ["error::DeprecationWarning:core.*"]
+filterwarnings = [
+    "error::DeprecationWarning:core.*",
+    # upstream: starlette nudges TestClient users towards httpx2; harmless for us
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
 
 # ---------------------------------------------------------------- import-linter
 [tool.importlinter]
@@ -102,6 +106,10 @@ layers = [
     "core.services",
     "core.ports",
     "core.domain",
+]
+ignore_imports = [
+    "api.deps -> core.adapters.**",
+    "api.dev -> core.adapters.**",  # dev-only: selects the Windows event loop
 ]
 
 [[tool.importlinter.contracts]]
@@ -123,4 +131,8 @@ name = "Only composition roots import adapters"
 type = "forbidden"
 source_modules = ["api", "worker", "evals"]
 forbidden_modules = ["core.adapters"]
+ignore_imports = [
+    "api.deps -> core.adapters.**",
+    "api.dev -> core.adapters.**",  # dev-only: selects the Windows event loop
+]
 allow_indirect_imports = true
