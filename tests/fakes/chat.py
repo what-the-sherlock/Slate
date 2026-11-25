@@ -27,6 +27,7 @@ class InMemoryChatStore:
         self.sessions: dict[ChatSessionId, _Session] = {}
         self.feedback: dict[tuple[MessageId, UserId], tuple[int, str | None, str | None]] = {}
         self.usage: dict[MessageId, dict[str, object] | None] = {}
+        self.superseded: list[StoredMessage] = []
 
     def _owned(self, ws: WorkspaceId, user: UserId, sid: ChatSessionId) -> _Session | None:
         s = self.sessions.get(sid)
@@ -62,13 +63,33 @@ class InMemoryChatStore:
         return [] if s is None else s.messages[-limit:]
 
     async def add_message(
-        self, ws: WorkspaceId, user: UserId, session: ChatSessionId, message: NewMessage
+        self,
+        ws: WorkspaceId,
+        user: UserId,
+        session: ChatSessionId,
+        message: NewMessage,
+        *,
+        supersede_from: MessageId | None = None,
     ) -> MessageId:
         s = self._owned(ws, user, session)
         if s is None:
             raise NotFound("chat not found")
+        if supersede_from is not None:
+            at = next(
+                (
+                    i
+                    for i, m in enumerate(s.messages)
+                    if m.id == supersede_from and m.role.value == "user"
+                ),
+                None,
+            )
+            if at is None:
+                raise NotFound("message not found")
+            self.superseded.extend(s.messages[at:])
+            del s.messages[at:]  # live history only, as Postgres filters superseded rows
         mid = MessageId(self._ids.new_uuid())
         abstained = bool((message.usage or {}).get("abstained"))
+        mode = (message.usage or {}).get("mode", "grounded")
         s.messages.append(
             StoredMessage(
                 mid,
@@ -78,6 +99,7 @@ class InMemoryChatStore:
                 message.model,
                 message.latency_ms,
                 abstained=abstained,
+                mode=mode,  # type: ignore[arg-type]
             )
         )
         self.usage[mid] = message.usage

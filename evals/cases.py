@@ -29,6 +29,9 @@ class Case(BaseModel):
     expected_answer_points: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
     visibility: Literal["public", "private"] = "public"
+    # A question no source answers but Slate should still answer (ADR-0025): "general"
+    # (general knowledge, labelled) or "chat" (small talk). None: no-answer cases abstain.
+    expect_mode: Literal["general", "chat"] | None = None
 
     @property
     def answerable(self) -> bool:

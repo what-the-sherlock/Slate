@@ -11,7 +11,7 @@ import pytest
 from core.adapters.parsers.formats import FormatParser
 from core.domain.auth import Identity, Role
 from core.domain.budget import SpendLimits
-from core.domain.documents import SearchFilters
+from core.domain.documents import ParsedDocument, SearchFilters
 from core.domain.errors import NotFound, PermissionDenied, RateLimited, ValidationFailed
 from core.domain.github import Comment, Issue, Repo
 from core.domain.ids import JobId, SessionId, SourceId, UserId, WorkspaceId
@@ -389,3 +389,56 @@ async def test_due_repos_get_one_job_per_hour(env: Env) -> None:
     before = len(env.jobs.jobs)
     await env.svc.enqueue_due()
     assert len(env.jobs.jobs) == before  # same hour, same idempotency key
+
+
+def checkpoint(env: Env, sid: SourceId) -> dict[str, object]:
+    return env.sources.records[sid].checkpoint or {}
+
+
+class _FlakyParser:
+    """Fails to parse any text containing BROKEN, as a corrupt file would."""
+
+    def __init__(self) -> None:
+        self._real = FormatParser()
+        self.broken = True
+
+    def supports(self, mime: str) -> bool:
+        return self._real.supports(mime)
+
+    def parse(self, data: bytes, mime: str) -> ParsedDocument:
+        if self.broken and b"BROKEN" in data:
+            raise ValidationFailed("This file couldn't be read.")
+        return self._real.parse(data, mime)
+
+
+async def test_a_file_that_failed_is_retried_on_the_next_sync_without_a_push(env: Env) -> None:
+    flaky = _FlakyParser()
+    env.sync._parser = flaky
+    env.repo.files["docs/broken.md"] = b"# Broken\n\nBROKEN content."
+    sid = await env.connect()
+    await env.run(sid)
+    assert "file:docs/broken.md" not in env.docs(sid)
+    assert env.last_run()[0] == "partial"
+    assert checkpoint(env, sid)["commit"] is None  # not past the failure
+
+    flaky.broken = False  # e.g. a parser fix shipped; no new push to the repo
+    await env.run(sid)
+    assert "file:docs/broken.md" in env.docs(sid)
+    assert env.last_run()[:3] == ("succeeded", 3, 1)  # only the failed file cost anything
+    assert checkpoint(env, sid)["commit"] == "c1"
+
+
+async def test_an_issue_that_failed_holds_the_issue_checkpoint_back(env: Env) -> None:
+    flaky = _FlakyParser()
+    env.sync._parser = flaky
+    env.repo.issues[0] = replace(env.repo.issues[0], body="BROKEN body")
+    sid = await env.connect()
+    await env.run(sid)
+    assert "issue:1" not in env.docs(sid)
+    assert "pr:2" in env.docs(sid)  # later items still index this run
+    assert checkpoint(env, sid)["issues_since"] is None
+
+    flaky.broken = False
+    await env.run(sid)
+    assert "issue:1" in env.docs(sid)
+    assert checkpoint(env, sid)["issues_since"] == (T0 + timedelta(days=2)).isoformat()

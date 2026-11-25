@@ -40,7 +40,7 @@ describe("reduceTurn", () => {
     expect(t.cited).toEqual([1]);
     t = reduceTurn(t, {
       type: "done",
-      data: { v: 1, message_id: "m", abstained: false, model: "x", latency_ms: 10, citations: [1], closest: [], notices: [] },
+      data: { v: 1, message_id: "m", abstained: false, model: "x", latency_ms: 10, citations: [1], closest: [], notices: [], mode: "grounded" },
     });
     expect(t.stage).toBe("done");
     expect(t.messageId).toBe("m");
@@ -49,7 +49,7 @@ describe("reduceTurn", () => {
   it("shows the closest matches when abstaining", () => {
     const t = reduceTurn(newTurn("q", "k"), {
       type: "done",
-      data: { v: 1, message_id: "m", abstained: true, model: null, latency_ms: 5, citations: [], closest: [SOURCE], notices: [] },
+      data: { v: 1, message_id: "m", abstained: true, model: null, latency_ms: 5, citations: [], closest: [SOURCE], notices: [], mode: "grounded" },
     });
     expect(t.done?.abstained).toBe(true);
     expect(t.sources).toEqual([SOURCE]);

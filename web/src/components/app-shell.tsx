@@ -33,6 +33,9 @@ const NAV: readonly NavItem[] = [
 ];
 
 const COLLAPSED_KEY = "slate.sidebar.collapsed";
+// Chat has its own history column, so the nav defaults to the icon rail there (a separate
+// preference: collapsing it in Chat doesn't collapse it everywhere).
+const CHAT_COLLAPSED_KEY = "slate.sidebar.collapsed.chat";
 
 /**
  * The rail state lives in localStorage, an external store, so it is read with
@@ -47,16 +50,20 @@ function subscribeCollapsed(cb: () => void) {
     window.removeEventListener("storage", cb);
   };
 }
-function useCollapsed(): [boolean, (next: boolean) => void] {
+function useCollapsed(inChat: boolean): [boolean, (next: boolean) => void] {
+  const key = inChat ? CHAT_COLLAPSED_KEY : COLLAPSED_KEY;
   const collapsed = useSyncExternalStore(
     subscribeCollapsed,
-    () => window.localStorage.getItem(COLLAPSED_KEY) === "1",
-    () => false,
+    () => {
+      const stored = window.localStorage.getItem(key);
+      return stored === null ? inChat : stored === "1";
+    },
+    () => inChat,
   );
   return [
     collapsed,
     (next) => {
-      window.localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0");
+      window.localStorage.setItem(key, next ? "1" : "0");
       collapsedListeners.forEach((cb) => cb());
     },
   ];
@@ -68,7 +75,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [drawer, setDrawer] = useState(false);
-  const [collapsed, setCollapsed] = useCollapsed();
+  const [collapsed, setCollapsed] = useCollapsed(pathname === "/chat");
 
   useEffect(() => {
     if (me.data === null) router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`);

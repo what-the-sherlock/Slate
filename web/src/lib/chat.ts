@@ -60,13 +60,21 @@ export class SseParser {
   }
 }
 
-export type ChatRequest = { question: string; session_id?: string | null; source_ids?: string[] };
+export type ChatRequest = components["schemas"]["ChatBody"];
+export type AnswerMode = DoneEvent["mode"];
 
 /**
  * POST /api/v1/chat and deliver events as they arrive. Errors before the stream starts
- * (validation, rate limit, budget, unverified) reject with an ApiProblem.
+ * (validation, rate limit, budget, unverified) reject with an ApiProblem. `onBytes` fires
+ * for every chunk read, keep-alive pings included, so a watchdog can tell a slow answer
+ * from a dead connection.
  */
-export async function streamChat(body: ChatRequest, onEvent: (e: ChatEvent) => void, signal?: AbortSignal): Promise<void> {
+export async function streamChat(
+  body: ChatRequest,
+  onEvent: (e: ChatEvent) => void,
+  signal?: AbortSignal,
+  onBytes?: () => void,
+): Promise<void> {
   const response = await globalThis.fetch(`${typeof window === "undefined" ? "" : window.location.origin}/api/v1/chat`, {
     method: "POST",
     credentials: "same-origin",
@@ -93,6 +101,7 @@ export async function streamChat(body: ChatRequest, onEvent: (e: ChatEvent) => v
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
+    onBytes?.();
     for (const event of parser.feed(value)) onEvent(event);
   }
   for (const event of parser.feed("\n\n")) onEvent(event);
@@ -102,6 +111,14 @@ export async function streamChat(body: ChatRequest, onEvent: (e: ChatEvent) => v
 
 export type Stage = "searching" | "reading" | "streaming" | "done" | "error" | "stopped";
 
+/** What went wrong, in words for people (lib/chat-errors.ts). Never raw API text for 5xx. */
+export interface TurnError {
+  title: string;
+  detail: string;
+  requestId?: string | null;
+  retryAfterS?: number;
+}
+
 export interface Turn {
   key: string;
   question: string;
@@ -110,22 +127,30 @@ export interface Turn {
   text: string;
   cited: number[]; // server-validated citation numbers
   done?: DoneEvent;
-  error?: { message: string; requestId?: string | null };
-  messageId?: string;
+  error?: TurnError;
+  messageId?: string; // the assistant message (after done)
+  userMessageId?: string; // the stored question (after meta): the anchor for regenerate/edit
+  slow?: boolean; // no first token after 20 s
+  startedAt?: number;
+  replaces?: string; // the anchor this turn was asked to replace (kept for retries)
 }
 
 export function newTurn(question: string, key: string): Turn {
   return { key, question, stage: "searching", sources: [], text: "", cited: [] };
 }
 
+export function isBusy(turn: Turn): boolean {
+  return turn.stage === "searching" || turn.stage === "reading" || turn.stage === "streaming";
+}
+
 export function reduceTurn(turn: Turn, event: ChatEvent): Turn {
   switch (event.type) {
     case "meta":
-      return turn;
+      return { ...turn, userMessageId: event.data.user_message_id };
     case "sources":
       return { ...turn, stage: "reading", sources: event.data.sources };
     case "token":
-      return { ...turn, stage: "streaming", text: turn.text + event.data.text };
+      return { ...turn, stage: "streaming", slow: false, text: turn.text + event.data.text };
     case "citation":
       return turn.cited.includes(event.data.n) ? turn : { ...turn, cited: [...turn.cited, event.data.n] };
     case "done":
@@ -138,24 +163,40 @@ export function reduceTurn(turn: Turn, event: ChatEvent): Turn {
         sources: turn.sources.length ? turn.sources : event.data.closest,
       };
     case "error":
-      return { ...turn, stage: "error", error: { message: event.data.detail || event.data.title, requestId: event.data.request_id } };
+      return {
+        ...turn,
+        stage: "error",
+        slow: false,
+        // The server's in-band error is either an AppError written for people or a fixed
+        // "stopped before it finished"; the request id is kept for support.
+        error: {
+          title: turn.text ? "The answer stopped before it finished" : "Slate couldn't answer this",
+          detail: turn.text ? "What arrived is kept above. Try again for a full answer." : event.data.detail || event.data.title,
+          requestId: event.data.request_id,
+        },
+      };
   }
 }
 
 /**
  * Turn validated `[n]` markers into links `cite:n` for the Markdown renderer, which shows
- * them as badges. Unvalidated markers are escaped so they render as literal text.
+ * them as badges. Unvalidated markers are escaped so they render as literal text, except
+ * that while an answer streams, a marker for a shown source becomes a muted placeholder
+ * badge (`cite-pending:n`), so the text doesn't reflow when the server confirms it.
  */
-export function citationMarkdown(text: string, valid: readonly number[]): string {
+export function citationMarkdown(text: string, valid: readonly number[], pending: readonly number[] = []): string {
   const ok = new Set(valid);
+  const soon = new Set(pending);
   // The model can't mint its own cite: links; only ours (from bare [n]) are made below.
-  text = text.replace(/\]\(\s*cite:/gi, "](#");
-  return text.replace(/\[(\d{1,3})\]/g, (whole, n: string) => (ok.has(Number(n)) ? `[${n}](cite:${n})` : `\\[${n}\\]`));
+  text = text.replace(/\]\(\s*cite(-pending)?:/gi, "](#");
+  return text.replace(/\[(\d{1,3})\]/g, (whole, n: string) =>
+    ok.has(Number(n)) ? `[${n}](cite:${n})` : soon.has(Number(n)) ? `[${n}](cite-pending:${n})` : `\\[${n}\\]`,
+  );
 }
 
 /** Markdown link policy: only http(s) links and our own cite: links survive (§3.11). */
 export function safeUrl(url: string): string {
-  if (/^cite:\d{1,3}$/.test(url)) return url;
+  if (/^cite(-pending)?:\d{1,3}$/.test(url)) return url;
   try {
     const u = new URL(url);
     return u.protocol === "http:" || u.protocol === "https:" ? url : "";
@@ -169,4 +210,45 @@ export function answerWithFootnotes(turn: Turn): string {
   const used = turn.sources.filter((s) => turn.cited.includes(s.n));
   if (!used.length) return turn.text;
   return `${turn.text}\n\n${used.map((s) => `[${s.n}] ${s.title}`).join("\n")}`;
+}
+
+export type StoredMessage = components["schemas"]["MessageOut"];
+
+/**
+ * Stored messages -> turns, for reopening a chat. Restored sources are placeholders (the
+ * history endpoint returns citation ids, not titles). A question with no stored answer
+ * (stopped, or the connection dropped) comes back as `stopped`, so it can be regenerated.
+ */
+export function turnsFromHistory(messages: readonly StoredMessage[]): Turn[] {
+  const turns: Turn[] = [];
+  for (const m of messages) {
+    if (m.role === "user") {
+      turns.push({ ...newTurn(m.content, m.id), stage: "stopped", userMessageId: m.id });
+      continue;
+    }
+    const last = turns[turns.length - 1];
+    if (!last || last.done) continue;
+    const sources: SourceOut[] = m.citations
+      .filter((c) => c.document_id)
+      .map((c) => ({ n: c.n, chunk_id: c.chunk_id ?? 0, document_id: c.document_id!, ordinal: -1, title: `Source ${c.n}`, heading_path: null, snippet: "" }));
+    Object.assign(last, {
+      stage: "done",
+      text: m.abstained ? "" : m.content,
+      cited: m.citations.map((c) => c.n),
+      sources,
+      messageId: m.id,
+      done: {
+        v: 1,
+        message_id: m.id,
+        abstained: m.abstained,
+        model: m.model,
+        latency_ms: m.latency_ms ?? 0,
+        citations: m.citations.map((c) => c.n),
+        closest: [],
+        notices: [],
+        mode: m.mode ?? "grounded",
+      },
+    } satisfies Partial<Turn>);
+  }
+  return turns;
 }

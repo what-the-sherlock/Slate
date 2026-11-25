@@ -204,11 +204,12 @@ Values come from Answerline's Framer config: a spring with bounce 0.2 and durati
 3. **Gliding highlight** in the sidebar and in tab bars: one `--bg-muted` pill slides between items on hover and focus with `spring`, instead of each item fading its own background (Beautiful UI's sidebar).
 4. **Pulse dot** for live things (a sync running, a stream in progress): a 6 px `--accent` dot with a 4 px `--accent-subtle` ring, and a halo that scales 1→2.4 while fading out, every 1.6 s (Answerline's feed header).
 5. **Stagger in:** when a set of items arrives at once (sources strip, search results), items fade in and rise 4 px, 30 ms apart, capped at 8 staggered items.
-6. **Streaming text:** each new token chunk fades from opacity 0 to 1 over 120 ms. A 2 px `--fg` caret blinks at the end while streaming. No per-character animation.
+6. **Streaming text:** received text is revealed at a steady pace by a requestAnimationFrame loop (`useSmoothText`): faster the further it lags, never more than ~¼ s behind, so bursty chunks read as a word-by-word flow. A 2 px `--fg` caret blinks at the end while streaming. The answer fades in over 150 ms where the thinking row stood.
 7. **Arrow nudge:** links and buttons ending in `→` move the arrow 2 px right on hover.
 8. **Copy confirm:** the copy icon morphs to a check for 1.5 s. The label is announced as "Copied".
 
 9. **Illustration loops** (auth "How it works" only, §4.1): built from `lib/motion.ts` (`useCycle`, `useTypewriter`, `useCountUp`, `useInView`) and CSS transitions; entrances use `REVEAL` + `delay()` from `lib/reveal.ts`. Loops pause on hover/focus, offscreen and in hidden tabs.
+10. **Chat** (§4.3): a shimmering stage label beside the orb; a citation placeholder that pops (slight overshoot, 260 ms) into an accent badge; the send button's idle → ready glow and its morph into Stop; suggestion cards lifting 1 px with an arrow nudge; the jump-to-latest pill sliding up; history rows fading in, with a pulse dot on a chat still answering; the history column's width transition.
 
 **Reduced motion** (`prefers-reduced-motion: reduce`): illustration loops render their finished frame; remove every transform and spring, keep opacity fades at 150 ms or less, make the caret and pulse dot static, stop skeleton pulsing, and render orbs as a static frame (the library does this itself). Nothing may rely on motion to communicate.
 
@@ -345,7 +346,7 @@ Built on Answerline's "live feed" table and Beautiful UI's records table and tas
 - 200 px expanded, 60 px collapsed (icons only, labelled), toggled with the collapse button (`Ctrl/⌘ B` is planned). The state persists in `localStorage`. `--bg` background with a 1 px `--border` on the right (ADR-0017, §4.2).
 - **Top:** the workspace block (24 px logo tile plus workspace name 14/500). There's a single workspace, so it isn't a switcher and has no chevron. Below it, a **New chat** button (`secondary`, full width, `square-pen` icon, kbd hint `Ctrl/⌘ Shift O`).
 - **Primary nav** (items 32 px, `--radius-md`, 16 px icon, 14/500 label, the gliding highlight from §2.7): Chat, Search, Sources, Settings. Settings shows only for owners and admins. The active item has a `--bg` fill, a 1 px `--border` and `--fg` text. Inactive items use `--fg-muted`.
-- **Recent chats:** a section label in `caption` style ("Today", "Yesterday", "Previous 7 days", "Older"), then items 32 px, single line with ellipsis. The current chat is highlighted. The list loads 30, then more on scroll (cursor pagination). Rename and delete wait until the API supports them; don't show a ⋯ menu that does nothing.
+- **Recent chats** (moved, 2026-11-26): they live in Chat's own history column (§4.3), not in this sidebar. The rest of this bullet describes that list: a section label in `caption` style ("Today", "Yesterday", "Previous 7 days", "Older"), then items 32 px, single line with ellipsis. The current chat is highlighted. The list loads 30, then more on scroll (cursor pagination). Rename and delete wait until the API supports them; don't show a ⋯ menu that does nothing.
 - **Bottom:** a user button (24 px avatar, name, and role in `caption`) that opens a menu: role shown, Keyboard shortcuts, Sign out.
 - **Phone (< 768 px):** the sidebar becomes a left drawer (280 px, `--overlay` backdrop) opened from a menu icon in a 56 px top bar.
 
@@ -432,57 +433,138 @@ Loop rules (`lib/motion.ts`): the whole card pauses while hovered or focused, wh
 - **Below `lg` (1024 px):** a 56 px top bar with a menu button opens the same sidebar as a 260 px drawer over an `--overlay` backdrop. Escape or a backdrop click closes it.
 - **Page bar** (`PageHeader`): at least 56 px tall, full-bleed, with a hairline below. Title in `page`, an optional one-line `caption` description, and actions on the right.
 
-### 4.3 Chat (M3)
+### 4.3 Chat (M3; redesigned 2026-11-26, ADR-0024, ADR-0025)
+
+**Layout.** `nav rail (60) | history (260, collapsible) | conversation | [sources panel (400)]`. The page is exactly the viewport tall and only the conversation scrolls, so the composer is always pinned to the bottom of the column, whatever the length of the chat.
+
+```text
+┌──┬───────────────┬─────────────────────────────────────┬──────────┐
+│▣ │ Chats   [✎][⊟]│ Chat title                          │ Sources  │
+│◎ │ ⌕ Filter chats │─────────────────────────────────────│ (on      │
+│▤ │ Today         │        (column max 760, scrolls)    │  demand) │
+│⌕ │ ▌Leave pol… ● │                    ╭─────────────╮  │          │
+│⚡│  Deploy st…   │                    │ user bubble │  │          │
+│  │ Yesterday     │  [1 Handbook] [2 FAQ]  source strip │          │
+│  │  …            │  Answer prose with [1] badges…      │          │
+│  │               │  ⧉ ↻ 👍 👎              2 sources · 2.1 s │    │
+│  │               │  ╭──────────── composer ──────────╮ │          │
+│  │               │  │ Ask anything…                  │ │          │
+│  │               │  │ [All sources ▾]   ↵ send  [↑] │ │          │
+└──┴───────────────┴──╰────────────────────────────────╯─┴──────────┘
+```
+
+- **Main nav:** on `/chat` it defaults to the 60 px rail. This is its own preference, `slate.sidebar.collapsed.chat`, so collapsing it here doesn't collapse it elsewhere.
+- **History** (`chat/history-panel.tsx`): `--bg-subtle`, a 56 px header ("Chats", New chat `Ctrl/⌘ ⇧ O`, hide), a filter box, then chats grouped Today / Yesterday / Previous 7 days / Previous 30 days / month / year (`groupByDay`, local time).
+  - **Rows:** 32 px, ellipsis. The active row is white with a hairline ring. A chat still answering shows the pulse dot.
+  - **Paging:** 30 at a time, the next page on scroll (cursor).
+  - **New chats:** a chat started in this tab is inserted at the top as soon as `meta` arrives. The list never polls.
+  - **States:** skeleton rows while loading, an inline error with Try again, and "Your chats will appear here" when there are none.
+  - **Not yet:** rename and delete wait for the API.
+  - **Open/closed:** kept in `slate.chats.open`. Below `lg` it's a 280 px drawer, opened from the chat header.
+- **Chat header** (56 px, hairline): the chat's title (it fades on change), plus Show chats and New chat buttons when the history column is hidden.
+- **Column:** max 760 px, padded 16/24.
 
 **Empty (new chat):**
 
-- Vertically centred column, 640 px wide. A 64 px orb in `breathing` (the assistant's idle presence), then `h1` "What do you want to know?", then 14 `--fg-subtle` "Searching 4 sources · 1,284 documents you can access" (from the API; each account sees its own numbers).
-- The composer (below), then 3–4 **suggested questions** as `secondary` `sm` buttons that wrap. Suggestions come from the workspace's own documents; an empty workspace suggests uploading or loading sample data instead.
+- Vertically centred, max 640 px. A 64 px `breathing` orb, `h1` "What do you want to know?", then a status line, each fading up in turn.
+- **The status line says what Slate can search *right now*:**
+  - "Searching N sources · M documents you can access".
+  - With no sources: "Ask a general question, or add a source…".
+  - Each repo still syncing gets a neutral pill ("**octo/docs** is still syncing…").
+  - Each failed sync gets a danger pill with its error and "Fix in Sources". A bare "0 documents" is never shown.
+- **Starter questions:** up to 4 cards (2 columns from `sm`), built from the user's own sources (repo issues and PRs, the README, uploads), plus "What can you help me with?".
+  - Hover lifts a card 1 px and slides in an arrow.
+  - Clicking fills the composer without sending.
 
-**Composer** (Beautiful UI prompt bar):
+**Composer** (`chat/composer.tsx`; Beautiful UI's prompt bar in the sign-in pill's styling):
 
-- Sticky at the bottom of the chat column, 16 px from the bottom edge (plus the safe-area inset), with a gradient fade from `--bg` above it so text doesn't collide with it. Container: `--bg`, 1 px `--border-strong`, `--radius-lg`, `--shadow-sm`, padding 12; focus-within: border `--accent`.
-- Inside: an auto-growing textarea (15 px, 1–8 lines), placeholder "Ask anything about your sources…". A bottom row: on the left, filter chips ("All sources ▾" multi-select with logos, and "Any time ▾"); on the right, a hint ("↵ to send, ⇧↵ for a new line", `caption`, hidden on phone) and the **send button** (32 px, `--accent`, `--radius-md`, `arrow-up` icon). It's disabled while the input is empty.
-- While streaming, the send button becomes a **Stop** button (`square` icon, `secondary`). Stop cancels the SSE request and keeps the partial answer with a "Stopped" note.
-- Length limit: 4,000 characters. A counter appears at 3,600 ("3,612 / 4,000") and turns danger at the limit. Sending is blocked over the limit.
-- Keyboard: Enter sends, Shift+Enter adds a new line, `/` focuses the composer from anywhere in Chat, ↑ in an empty composer recalls the last question for editing.
+- **Container:** `rounded-2xl`, 1 px `--border-strong`, a soft two-layer shadow. On focus: `--accent` border plus a 3 px `--accent-subtle` ring.
+- **Textarea:** 15 px, auto-growing from 1 to 8 lines. It also resizes when text is put in from outside (recall, Rephrase, a refused question handed back).
+- **Bottom row:**
+  - **"All sources ▾"** popover: a multi-select with connector icons and document counts, sent as `source_ids`. Tinted when active.
+  - The counter from 3,600 characters.
+  - The hint "↵ send · ⇧↵ new line" (hidden on phones).
+  - The send button.
+- **Send button:** 32 px, `--radius-lg`.
+  - **Idle** (empty or over the limit): tinted `--accent-subtle`. It stays focusable (`aria-disabled`) and its tooltip says why it can't send.
+  - **Ready:** solid `--accent` with a blue glow, pressing to `scale(.95)`.
+  - **While the chat answers:** it morphs (zoom-in) into **Stop**, a square on `--fg`.
+- **Keyboard:**
+  - Enter sends, Shift+Enter adds a new line. IME composition never sends.
+  - `/` focuses the composer and `Ctrl/⌘ ⇧ O` starts a new chat.
+  - ↑ in an empty box recalls the last question.
+- **Under the box:** "Slate can make mistakes. Check answers against their cited sources." (`data`, hidden on phones).
+- **Text above the composer:** the conversation fades out under it (a 32 px `--bg` gradient). A "↓ Jump to latest" pill floats above it when the reader has scrolled away. It reads "New text below" while an answer streams.
 
 **Conversation:**
 
-- Each turn is a **question bar** followed by an **answer block** (Answerline's "Prompt bar" plus "Answer").
-- **Question bar:** full column width, `--bg-subtle`, 1 px `--border` top and bottom, padding 14×16, the question in 15/500 `--fg`. On the right, once sources arrive: "5 sources" (13 `--fg-subtle`, with a `layers` icon), which opens the panel.
-- **Source strip:** directly under the question bar, a horizontal scroll row of source chips (§3.10) that stagger in when the `sources` event arrives.
-- **Answer:** `prose`, max 720, 16 px below the strip. Inline citation badges.
-- **Answer footer** (after `done`): `ghost` `sm` icon buttons for Copy (copies the answer with citations turned into footnotes: `[1] Title — URL`), thumbs up and thumbs down. Down opens a small popover with reasons ("Wrong", "Missing information", "Bad sources", "Other") and an optional comment. Submitting shows "Thanks, feedback saved" as a toast. To the right, 12 `--fg-subtle` meta: "4.2 s · gpt-x-mini". Not shown: token or cost numbers (those belong in Settings).
-- **Scrolling:** auto-scroll follows the stream only while the user is at the bottom. If they scroll up, it stops, and a floating "↓ Jump to latest" pill appears above the composer.
+- **Question:** a right-aligned bubble, `rounded-2xl` (bottom-right `--radius-md`), `--bg-muted`, max 85%, 15/24, fading up 4 px.
+  - On hover or focus (always on phones): Copy, and **Edit** (when nothing is streaming).
+  - **Edit** turns the bubble into an accent-ringed box with Cancel and Send. Enter sends and Escape cancels. When later turns exist it warns "The answers below will be replaced."
+  - Sending replaces this turn and everything after it (`replace_from`, ADR-0024).
+- **Answer:** left-aligned, no bubble, `prose-answer` (15/28), in this order:
+  1. The source strip (grounded answers only).
+  2. The thinking row while working.
+  3. The "General answer · not from your sources" chip (mode `general`), with a tooltip explaining it.
+  4. The text, or the abstention card.
+  5. The footer.
+- **Source strip:** chips stagger in (30 ms apart, capped at 8). Cited sources use the accent tint. Uncited ones are neutral.
+- **Footer** (fades in at `done`):
+  - Copy, which copies with footnotes and morphs to a check.
+  - **Regenerate**, on the last turn only and not while streaming.
+  - 👍 and 👎. 👎 opens a popover: reason chips, an optional comment, then Send feedback, which toasts "Thanks, feedback saved".
+  - On the right: "N sources · 2.1 s · model".
+- **Code blocks:** a 36 px header with the language and a Copy button (which morphs to "Copied"), mono 13/20, scrolling at 400 px. Tables scroll inside a hairline frame.
+- **Scrolling** (`useStickToBottom`):
+  - The view follows the stream only while the reader is at the bottom. Any upward wheel, key or touch stops it, and coming back to the bottom resumes it.
+  - Sending, regenerating and editing snap to the bottom.
+  - Switching chats lands on the latest turn.
 
-**Answer lifecycle, mapped to the SSE contract** (`ARCHITECTURE.md` §8; no invented events):
+**Answer lifecycle** (SSE contract v1, `ARCHITECTURE.md` §8; no invented events):
 
 | Moment | What the user sees |
 | --- | --- |
-| Sent, before `meta` | The question bar appears immediately (optimistic). Under it: a 20 px orb (`searching`) and "Searching your sources…" |
-| `meta` received | No visual change. The URL updates to the session ID (history `replace`) |
-| `sources` received | The strip staggers in. The orb switches to `connecting` and the label to "Reading 5 sources…" |
-| First `token` | The orb and label fade out over 150 ms; text streams in with the caret. The answer region has `aria-busy="true"` |
-| `citation` | The matching `[n]` in the text becomes a live badge (until then it renders as a muted placeholder badge, so the text doesn't reflow) |
-| `done` | The caret disappears, the footer fades in, `aria-busy` clears, and screen readers hear "Answer ready" |
-| `error` mid-stream | Partial text stays. An inline alert (danger) below it: "The answer stopped before it finished." with a **Retry** button and "Ref: req_8f2c…" (mono, copyable) |
-| No first token after 20 s | The label changes to "Still working… this is taking longer than usual." No timeout UI before the server's own timeout |
+| Sent | The bubble appears at once and the composer clears. A fixed 28 px thinking row shows a 20 px orb (`searching`) and a shimmering "Thinking…" |
+| `meta` | No change. A new chat moves to `?c=<session>` (history `replace`) and appears in the history list |
+| `sources` | The strip staggers in. The orb switches to `connecting`: "Reading 5 sources…". After 3 s the elapsed seconds show |
+| First `token` | The thinking row is replaced by the text, which fades in where the row stood. Text is revealed at a steady pace (`useSmoothText`: faster the further behind, never more than ~¼ s behind) with a blinking 2 px caret |
+| Partial Markdown | `repairMarkdown` closes open fences and `**` and hides a half-written `[n` or link, so no frame flickers. Finished blocks are memoised, so only the last block re-renders |
+| `citation` | The muted placeholder `[n]` (same size, so no reflow) pops to an accent badge |
+| `done` | Caret off, footer fades in, `aria-busy` clears, "Answer ready" is announced |
+| No token after 20 s | "Still working… this is taking longer than usual." |
+| No bytes for 75 s | The client gives up (the server pings every 15 s): "This is taking too long" with Try again |
 
-The stage label is in an `aria-live="polite"` region; it announces stage changes, never individual tokens.
+**States and failures:** every message says what happened and what to do. No raw API text is shown for 5xx errors, and no stack traces ever.
+
+| Situation | What the user sees |
+| --- | --- |
+| Refused before streaming (4xx: rate limit, budget, validation) | Nothing is added to the chat. The question goes back into the composer with the reason above it (the server's human copy) |
+| Offline or the connection dropped | "You're offline" or "Connection lost": "Check your connection, then try again. Your question is kept." Try again |
+| Provider down (503) | "Slate's AI is unavailable right now" with a folded "Details" reference |
+| Server error (5xx) | "Something went wrong on our side" with a folded reference id |
+| Rate limited mid-thread | The Try again button counts down "Try again in 42 s" |
+| Error mid-answer | The partial text stays: "The answer stopped before it finished". Try again |
+| Stopped | The partial text stays, with a "Stopped" chip and Regenerate |
+| Reopened chat whose last question has no saved answer | "No answer was saved for this question" with Regenerate |
+| Stale or foreign `?c=` link | "This chat isn't available" (the same for both) and Start a new chat |
+| Closing the tab mid-answer | The browser asks first (`beforeunload`). Switching chats inside the app keeps the answer streaming (the chat store owns the stream) |
 
 **Insufficient evidence** (a designed outcome, not an error):
 
-- An inline alert in the **neutral** style (`--bg-subtle`, `--border`, `circle-help` icon): title "Not enough evidence to answer this", body "I couldn't find passages that answer this question in the sources available to you."
-- Then "Closest matches" with up to 3 compact source rows (logo, title, location), each opening the preview.
-- Then suggestions as `ghost` buttons: "Rephrase", "Search instead" (opens Search with the query), and "Clear filters" if filters are active.
+- A neutral card (`--bg-subtle`, hairline, `circle-help`): "Not enough evidence to answer this" / "I couldn't find passages that answer this question in the sources available to you."
+- "Closest matches" lists up to 3 rows, each opening the preview.
+- Then **Rephrase** (puts the question back in the composer), **Search instead**, and **Clear filters** when a source filter is active.
 - **The wording is the same for every user.** It must never hint that private documents exist that the user can't see.
+
+**General and small-talk answers** (ADR-0025): a greeting gets a short reply with no label (mode `chat`). A general question that no source covers gets an answer with the "General answer · not from your sources" chip and no citations. A question about the user's own organisation that no source covers still gets the insufficient-evidence card.
 
 **Sources panel** (right, 400 px; a sheet below 1280 px):
 
-- Header: "Sources" plus a count badge and a close icon button. Below it, the list of sources for the selected answer: number badge, logo, title (2 lines), location, relative date, and a 3-line snippet with the cited passage highlighted.
-- Clicking a source switches the panel to the **document preview**: back arrow, title, location and an "Open in GitHub ↗" style link. Then the document text in `prose` (code in a code block), with every cited passage highlighted (`--accent-subtle` fill, 2 px `--accent` left bar) and the selected one scrolled into view with a brief pulse of the bar.
-- Loading shows a preview skeleton. A 404 or 403 from the API shows the empty state "This document isn't available" (same wording for both, so access isn't leaked).
+- **Header:** "Sources" plus a count badge and a close icon button. Below it, the sources of the selected answer: number badge (accent if cited), title (2 lines), location, and a 3-line snippet.
+- **Document preview:** clicking a source switches the panel to the preview: back arrow, title, location, and the text with every cited passage highlighted (`--accent-subtle` fill, 2 px `--accent` bar). The selected passage is scrolled into view.
+- **Loading and errors:** a preview skeleton while loading. A 404 or 403 shows "This document isn't available" (one wording for both, so access isn't leaked).
+- **Chat switches:** switching chats closes the panel.
+- **Known gap:** a reopened chat shows its sources as "Source n". The history endpoint returns citation ids, not titles; enriching it through the ACL-checked search path is a follow-up.
 
 ### 4.4 Search (M2)
 
@@ -583,7 +665,7 @@ The landing page after sign-in (`/home`), and the reference implementation of th
 | Where | Size | State | Meaning |
 | --- | --- | --- | --- |
 | Chat empty state | 64 | `breathing` | The assistant is ready (idle presence) |
-| After sending, before `sources` | 20 | `searching` | Retrieving |
+| After sending, before `sources` | 20 | `searching` | Thinking (retrieving, or a small-talk reply) |
 | After `sources`, before the first token | 20 | `connecting` | Linking passages into an answer |
 | Sign-in "How it works", column 2, while thinking | 20 | `searching` | Decorative (`decorative` prop), `aria-hidden`, paused with the card |
 

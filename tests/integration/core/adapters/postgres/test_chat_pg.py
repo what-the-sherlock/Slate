@@ -94,3 +94,43 @@ async def test_abstentions_are_marked_in_history(
     (msg,) = await chats.messages(ws, user, sid, limit=5)
     assert msg.abstained
     assert await chats.get_session(ws, user, ChatSessionId(uuid4())) is None
+
+
+async def test_supersede_retires_the_turn_and_later_ones_only_for_the_owner(
+    uow: UnitOfWork, people: tuple[tuple[WorkspaceId, UserId], tuple[WorkspaceId, UserId]]
+) -> None:
+    (ws_a, a), (ws_b, b) = people
+    chats = PostgresChatStore(uow)
+    sid = await chats.create_session(ws_a, a, "Leave?")
+    q1 = await chats.add_message(ws_a, a, sid, NewMessage(Role.USER, "How much leave?"))
+    a1 = await chats.add_message(ws_a, a, sid, NewMessage(Role.ASSISTANT, "25 days.", parent_id=q1))
+    q2 = await chats.add_message(ws_a, a, sid, NewMessage(Role.USER, "Part-timers?"))
+    await chats.add_message(ws_a, a, sid, NewMessage(Role.ASSISTANT, "Pro rata.", parent_id=q2))
+
+    # Another account can't supersede A's messages, and nothing changes when it tries.
+    with pytest.raises(NotFound):
+        await chats.add_message(ws_b, b, sid, NewMessage(Role.USER, "x"), supersede_from=q2)
+    # Only a live user message can be the anchor.
+    with pytest.raises(NotFound):
+        await chats.add_message(ws_a, a, sid, NewMessage(Role.USER, "x"), supersede_from=a1)
+    assert len(await chats.messages(ws_a, a, sid, limit=10)) == 4
+
+    # Regenerate the second turn: it drops out, the first stays, the new question is live.
+    new_q = await chats.add_message(
+        ws_a, a, sid, NewMessage(Role.USER, "Part-timers?"), supersede_from=q2
+    )
+    live = await chats.messages(ws_a, a, sid, limit=10)
+    assert [m.id for m in live] == [q1, a1, new_q]
+    with pytest.raises(NotFound):  # already superseded: can't be an anchor again
+        await chats.add_message(ws_a, a, sid, NewMessage(Role.USER, "x"), supersede_from=q2)
+
+    # Edit the first question: everything from it on is retired.
+    edited = await chats.add_message(
+        ws_a, a, sid, NewMessage(Role.USER, "Sick leave?"), supersede_from=q1
+    )
+    assert [m.id for m in await chats.messages(ws_a, a, sid, limit=10)] == [edited]
+    async with uow() as s:
+        kept = (
+            await s.execute(text("SELECT count(*) FROM messages WHERE session_id = :s"), {"s": sid})
+        ).scalar_one()
+    assert kept == 6  # nothing deleted: superseded rows stay for feedback and audit

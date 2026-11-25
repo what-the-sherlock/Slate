@@ -13,7 +13,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from core.domain.answer import MAX_QUESTION_CHARS
+from core.domain.answer import MAX_QUESTION_CHARS, AnswerMode
 from core.services.search import MAX_SOURCE_FILTERS
 
 SSE_VERSION = 1
@@ -25,6 +25,11 @@ class ChatBody(BaseModel):
         default=None, description="Continue this chat; omit to start one"
     )
     source_ids: list[UUID] = Field(default_factory=list[UUID], max_length=MAX_SOURCE_FILTERS)
+    replace_from: UUID | None = Field(
+        default=None,
+        description="Regenerate or edit: this question (a user message id in session_id) and"
+        " everything after it are replaced by the new turn (ADR-0024)",
+    )
 
 
 class FeedbackBody(BaseModel):
@@ -78,6 +83,11 @@ class DoneEvent(BaseModel):
     citations: list[int]
     closest: list[AnswerSourceOut] = Field(description="Closest matches, when abstaining")
     notices: list[str]
+    mode: AnswerMode = Field(
+        default="grounded",
+        description="grounded: cited from sources; general: from general knowledge, not your"
+        " sources (label it); chat: small talk (ADR-0025)",
+    )
 
 
 class ErrorEvent(BaseModel):
@@ -123,4 +133,5 @@ class MessageOut(BaseModel):
     model: str | None
     latency_ms: int | None
     abstained: bool
+    mode: AnswerMode = "grounded"
     citations: list[CitationOut]

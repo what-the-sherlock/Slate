@@ -192,6 +192,19 @@
             "title": "Question",
             "type": "string"
           },
+          "replace_from": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Regenerate or edit: this question (a user message id in session_id) and everything after it are replaced by the new turn (ADR-0024)",
+            "title": "Replace From"
+          },
           "session_id": {
             "anyOf": [
               {
@@ -553,6 +566,17 @@
           "message_id": {
             "format": "uuid",
             "title": "Message Id",
+            "type": "string"
+          },
+          "mode": {
+            "default": "grounded",
+            "description": "grounded: cited from sources; general: from general knowledge, not your sources (label it); chat: small talk (ADR-0025)",
+            "enum": [
+              "grounded",
+              "general",
+              "chat"
+            ],
+            "title": "Mode",
             "type": "string"
           },
           "model": {
@@ -1004,6 +1028,16 @@
               }
             ],
             "title": "Latency Ms"
+          },
+          "mode": {
+            "default": "grounded",
+            "enum": [
+              "grounded",
+              "general",
+              "chat"
+            ],
+            "title": "Mode",
+            "type": "string"
           },
           "model": {
             "anyOf": [

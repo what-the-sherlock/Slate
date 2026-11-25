@@ -2,6 +2,8 @@
 
 **Status:** M1, M2, accounts (ADR-0021) and **M3 cited chat complete** (2026-11-25; ADR-0022). Next: M4 GitHub.
 
+**Chat redesign (2026-11-26, owner-requested, outside the milestone plan):** answer modes (general knowledge and small talk, ADR-0025), regenerate and edit by superseding (ADR-0024, migration 0005), GitHub sync retries failed items, `scripts/diagnose_sources.py`, and the redesigned Chat page (UI_DESIGN §4.3). Pending owner steps: run `alembic upgrade head` on prod, run `evals.answers` (paid) and record it in EVALS.md, and run the diagnosis script against prod for the 0-document repo.
+
 Update this line and tick items as work completes. Only the current milestone is in scope.
 
 ## Milestones (3-week interview demo, full-time)

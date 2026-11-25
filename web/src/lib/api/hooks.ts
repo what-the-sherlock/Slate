@@ -1,6 +1,6 @@
 "use client";
 
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiProblem, unwrap } from "./client";
 import type { components } from "./schema";
 
@@ -21,6 +21,8 @@ export const keys = {
   job: (id: string) => ["job", id] as const,
   search: (body: SearchBody | null) => ["search", body] as const,
   document: (id: string) => ["document", id] as const,
+  chatSessions: ["chat-sessions"] as const,
+  chatMessages: (id: string | null) => ["chat-messages", id] as const,
 };
 
 /** The signed-in user, or null when signed out (401 is an answer, not an error). */
@@ -110,19 +112,32 @@ export function useDocument(id: string | null) {
 export type ChatSession = components["schemas"]["ChatSessionOut"];
 export type ChatMessageOut = components["schemas"]["MessageOut"];
 
-/** The signed-in user's chats, newest first. */
+export const CHAT_SESSIONS_PAGE = 30;
+
+/**
+ * The signed-in user's chats, newest first, 30 at a time (cursor: the oldest created_at
+ * seen). No polling: the list changes only when this tab starts a chat, and the chat store
+ * inserts that row itself (Neon compute budget, UI_DESIGN §4.5).
+ */
 export function useChatSessions() {
-  return useQuery({
-    queryKey: ["chat-sessions"] as const,
-    queryFn: async () => unwrap(await api.GET("/api/v1/chat/sessions")),
-    staleTime: 30_000,
+  return useInfiniteQuery({
+    queryKey: keys.chatSessions,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) =>
+      unwrap(
+        await api.GET("/api/v1/chat/sessions", {
+          params: { query: { limit: CHAT_SESSIONS_PAGE, ...(pageParam ? { before: pageParam } : {}) } },
+        }),
+      ),
+    getNextPageParam: (last) => (last.length === CHAT_SESSIONS_PAGE ? last.at(-1)?.created_at : undefined),
+    staleTime: 60_000,
   });
 }
 
 /** A chat's stored messages (oldest first), to reopen it from the URL. */
 export function useChatMessages(sessionId: string | null) {
   return useQuery({
-    queryKey: ["chat-messages", sessionId] as const,
+    queryKey: keys.chatMessages(sessionId),
     queryFn: async () =>
       unwrap(await api.GET("/api/v1/chat/sessions/{session_id}/messages", { params: { path: { session_id: sessionId! } } })),
     enabled: !!sessionId,

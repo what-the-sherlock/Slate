@@ -20,7 +20,17 @@ def main() -> None:
     parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
     use_selector_loop_on_windows()
-    uvicorn.run("api.main:app", host=args.host, port=args.port, reload=args.reload, loop="none")
+    # The loop is named as an import string (not "none" + the policy above): with --reload,
+    # the app runs in a child process that never sees this process's loop policy, and fell
+    # back to Proactor, where every database call fails with psycopg's InterfaceError.
+    # uvicorn passes this setting to the child, so both processes get a Selector loop.
+    uvicorn.run(
+        "api.main:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        loop="asyncio:SelectorEventLoop",
+    )
 
 
 if __name__ == "__main__":

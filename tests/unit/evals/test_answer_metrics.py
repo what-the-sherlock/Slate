@@ -69,3 +69,19 @@ def test_points_match_on_content_words_not_exact_wording() -> None:
         "Tuesday and Thursday",
     ]
     assert points_found("It takes three weeks.", ["3 weeks"]) == ["3 weeks"]
+
+
+def test_general_and_chat_cases_must_answer_in_their_mode() -> None:
+    results = [
+        r("gen-ok", answerable=False, expect_mode="general", mode="general"),
+        r("gen-abstained", answerable=False, abstained=True, expect_mode="general"),
+        r("chat-wrong", answerable=False, expect_mode="chat", mode="general"),
+        r("na", answerable=False, abstained=True),
+        r("fell-back", answerable=True, mode="general"),
+    ]
+    s = summarise_answers(results)
+    assert s["mode_accuracy"] == round(1 / 3, 4)
+    assert s["wrong_mode"] == ["gen-abstained", "chat-wrong"]
+    assert s["missed_abstentions"] == []
+    assert "gen-abstained" not in s["false_abstentions"]  # type: ignore[operator]
+    assert s["general_instead_of_grounded"] == ["fell-back"]

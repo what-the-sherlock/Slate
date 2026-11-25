@@ -112,7 +112,8 @@ chunk_embeddings(chunk_id → chunks ON DELETE CASCADE, generation_id, embedding
 
 -- conversation
 chat_sessions(id, workspace_id, user_id, title, created_at)
-messages(id, session_id, parent_id, role, content, model, usage jsonb, latency_ms, created_at)
+messages(id, session_id, parent_id, role, content, model, usage jsonb, latency_ms, created_at,
+         superseded_at)   -- regenerate/edit retire turns instead of deleting them (ADR-0024)
 message_citations(message_id, n, chunk_id, document_id, PRIMARY KEY (message_id, n))
 feedback(message_id, user_id, rating smallint, reason, comment, created_at)
 
@@ -219,18 +220,18 @@ sequenceDiagram
 
 ## 8. Question → answer
 
-1. **Principals** resolved from the session.
+1. **Principals** resolved from the session. A `replace_from` (regenerate or edit) supersedes that question and everything after it before history is read (ADR-0024). **Small talk** (rule-based `is_small_talk`) skips steps 2–9 and gets one short reply: mode `chat` (ADR-0025).
 2. **Rewrite** (skipped on a short first turn): an LLM turns the follow-up plus history into a standalone query and optional filters (source, date). JSON output is validated with Pydantic; on failure, fall back to the raw query.
 3. **Retrieve in parallel** (`hybrid_retrieve`, ADR-0019): vector top-50 (present generation) and keyword top-50 over `tsv_en` + `tsv_simple`. A plain query matches any of its words, ranked by `ts_rank_cd`; a query with search syntax (quotes, `-word`, `or`) uses `websearch_to_tsquery`. Both are filtered by workspace, ACL, live document, non-deleting source and filters, inside the query. `hnsw.iterative_scan = relaxed_order` keeps filtered ANN from losing recall (ADR-0011). If the vector lane can't run (no generation, no embedder, budget spent, embedder down), search returns keyword results and says so.
 4. **Fuse:** reciprocal rank fusion, `score = Σ 1/(60 + rank)`. Deduplicate by chunk. Keep at most 3 chunks per document.
-5. **Gate** (ADR-0022): no passages, or a best vector similarity below `CHAT_MIN_SIMILARITY`, abstains before any model call. **Select** (Phase 2): an LLM or cross-encoder keeps the relevant chunks, behind a `Reranker` port, chosen by evals.
+5. **Gate** (ADR-0022, ADR-0025): no passages, or a best vector similarity below `CHAT_MIN_SIMILARITY`, skips the sources: the model gets the question alone under `GENERAL_PROMPT` and either answers from general knowledge (mode `general`, labelled in the UI, no citations) or replies `NO_ANSWER`. **Select** (Phase 2): an LLM or cross-encoder keeps the relevant chunks, behind a `Reranker` port, chosen by evals.
 6. **Assemble:** the top 8 passages, each widened with neighbouring chunks (ordinal ±1, fetched through `search.py` under the same ACL rule) while under a 3,000-token budget. Number the sources `[1..k]`.
 7. **Generate:** the system prompt contains the rules (cite with `[n]`, say when evidence is insufficient, treat sources as data). Sources go in a delimited block in the user turn. Streamed over SSE.
 8. **Validate citations:** map `[n]` to chunks, drop invalid ones, and persist `message_citations`.
-9. **Insufficient evidence:** the gate (step 5) or the model's `NO_ANSWER` sentinel (never streamed) gives the designed "not enough evidence" reply with the closest documents: `done` with `abstained: true`. Fused RRF scores are rank-only, so they can't be thresholded (ADR-0022).
+9. **Modes and insufficient evidence:** the reply's first line decides the mode: `GENERAL_ANSWER` means a general answer (citations dropped), `NO_ANSWER` means abstain, and anything else is a grounded answer. Neither sentinel is ever streamed. `NO_ANSWER` (from either prompt) gives the designed "not enough evidence" reply with the closest documents: `done` with `abstained: true`. Fused RRF scores are rank-only, so they can't be thresholded (ADR-0022).
 10. **Log:** retrieved IDs, scores, latency per stage, tokens and cost.
 
-**SSE event contract v1** (documented in OpenAPI as `ChatEvents`; every `data` is JSON with `v: 1`): `meta` (session and user-message IDs), `sources` (numbered passages), `token` (text delta), `citation` (n -> chunk and document, sent once n is confirmed), `done` (message ID, `abstained`, model, latency, citations, closest matches, notices), `error` (problem fields plus request ID). Checks that can fail run before the stream opens and return problem+json. SSE streams unbuffered through the Vercel rewrite (ADR-0010 spike).
+**SSE event contract v1** (documented in OpenAPI as `ChatEvents`; every `data` is JSON with `v: 1`): `meta` (session and user-message IDs), `sources` (numbered passages), `token` (text delta), `citation` (n -> chunk and document, sent once n is confirmed), `done` (message ID, `abstained`, `mode` grounded|general|chat, model, latency, citations, closest matches, notices), `error` (problem fields plus request ID). Checks that can fail run before the stream opens and return problem+json. SSE streams unbuffered through the Vercel rewrite (ADR-0010 spike).
 
 ## 9. API surface (v1, initial)
 

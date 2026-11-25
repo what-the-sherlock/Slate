@@ -244,3 +244,28 @@ Format: number, title, status, context, decision, consequences. Add new ADRs at 
 - Pagination follows only `api.github.com` links, and token-bearing calls don't follow redirects.
 
 **Accepted:** the inline runner's 120 s timeout stays the hard outer bound, inside Vercel's 300 s; a GitHub rate-limit wait can still use part of it.
+
+## ADR-0024: Regenerate and edit supersede messages; they are never deleted
+**Status:** Accepted (2026-11-26, chat redesign).
+**Context:** Retry re-asked the question as a new turn, so a stored chat showed the question twice, and there was no way to regenerate an answer or edit a question. Owner decision (2026-11-26): do it properly, with backend support.
+**Decision:**
+1. `POST /chat` takes `replace_from`, the id of a user message in `session_id`. That question and **every later message** of the chat are marked `messages.superseded_at` (migration 0005). This happens in the same transaction that stores the new question, and only for a live user message of a session the caller owns. Otherwise the result is 404, the same for "missing" and "someone else's".
+2. `ChatStore.messages` returns live rows only (partial index `messages_live_idx`). The service supersedes, then reads history, so replaced turns never reach the prompt.
+3. Regenerate is `replace_from` = the last question with the same text. Edit is `replace_from` = any question with new text. Retry is regenerate, which fixes the duplicate.
+4. Rows are kept, not deleted: feedback on a replaced answer survives, and branch navigation ("‹ 2/3 ›") can be added later from the same data.
+**Consequences:** One nullable column and a partial index. An answer stopped mid-stream is still not persisted (ADR-0022), so reopening that chat shows the question as "stopped" with Regenerate. `prepare` reads the chat's messages once more to validate the anchor before streaming.
+
+## ADR-0025: Answer modes: grounded, general and chat
+**Status:** Accepted (2026-11-26). Amends ADR-0022's "use only the sources" rule.
+**Context:** Slate refused "hi" with "Not enough evidence": the gate found nothing, and the prompt forbade outside knowledge. Owner decision (2026-11-26): answer small talk naturally, and answer general questions from the model's own knowledge, clearly labelled, while questions about the user's own organisation that no source covers still abstain.
+**Decision:**
+1. **Small talk is detected by rules** (`is_small_talk`): greetings, thanks, goodbyes and "what can you do", 10 words at most, with every comma-separated part small talk on its own ("hi, what's our leave policy?" is a question). It skips retrieval and gets a short reply under `CHAT_PROMPT`. Mode: `chat`.
+2. **When the gate finds nothing**, the model gets the question *without sources* under `GENERAL_PROMPT`. It either answers from general knowledge, starting with the sentinel `GENERAL_ANSWER` (mode `general`), or replies `NO_ANSWER` when the question is about the user's own organisation, people, projects, documents, repositories or data (the existing abstention, with the closest matches).
+3. **The grounded prompt** gets the same choice when its sources don't answer: cite (`grounded`), `GENERAL_ANSWER` (`general`, no citation events, any `[n]` removed), or `NO_ANSWER`.
+4. `SentinelFilter` recognises both sentinels at the start of the stream and never lets either reach the user. `done.mode` and `MessageOut.mode` are additive fields, so SSE stays v1. The mode is stored in `messages.usage.mode` (no migration).
+5. Each question still makes **one** paid call (budget pre-checked, rate-limited, recorded in `finally`). A greeting no longer pays for an embedding.
+**Consequences:**
+- A question the gate used to refuse for free now costs one call (about $0.0003 with gpt-4o-mini), bounded by the existing per-user limits and spend caps.
+- General answers have no citations, so the UI labels them "General answer · not from your sources".
+- The organisation-or-general judgement is the model's. `evals.answers` measures it with new `expect_mode` cases (`gen-*`, `chat-*`) and reports `mode_accuracy`, `wrong_mode` and `general_instead_of_grounded`. The existing no-answer cases must still abstain.
+- Security: the general and chat calls receive no sources, so they can't leak any. History is still neutralised. The abstention wording is unchanged, so it still never hints at hidden documents.

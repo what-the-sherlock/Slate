@@ -7,6 +7,9 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from core.domain.answer import (
+    CHAT_PROMPT,
+    GENERAL_ANSWER,
+    GENERAL_PROMPT,
     NO_ANSWER,
     SYSTEM_PROMPT,
     CitationTracker,
@@ -15,8 +18,10 @@ from core.domain.answer import (
     build_messages,
     cited_numbers,
     is_no_answer,
+    is_small_talk,
     number_sources,
     parse_rewrite,
+    plain_messages,
     should_abstain_before_model,
     sources_block,
     validate_citations,
@@ -107,6 +112,63 @@ def test_real_answers_pass_through_unchanged(deltas: list[str]) -> None:
     out = "".join(f.feed(d) for d in deltas) + f.flush()
     assert out == "".join(deltas)
     assert not f.abstained
+
+
+@pytest.mark.parametrize(
+    ("deltas", "expected"),
+    [
+        ([f"{GENERAL_ANSWER}\nOAuth is a framework."], "OAuth is a framework."),
+        (["GEN", "ERAL_", "ANSWER", "\n", "OAuth", " is"], "OAuth is"),
+        ([f"  {GENERAL_ANSWER}: ", "Sure."], "Sure."),
+        ([GENERAL_ANSWER], ""),
+    ],
+)
+def test_the_general_sentinel_is_stripped_and_sets_the_mode(
+    deltas: list[str], expected: str
+) -> None:
+    f = SentinelFilter()
+    out = "".join(f.feed(d) for d in deltas) + f.flush()
+    assert out == expected
+    assert f.mode == "general"
+    assert not f.abstained
+
+
+@pytest.mark.parametrize("deltas", [["Gr", "eat question"], ["GENERALLY ", "speaking"]])
+def test_text_that_only_looks_like_a_sentinel_passes_through(deltas: list[str]) -> None:
+    f = SentinelFilter()
+    out = "".join(f.feed(d) for d in deltas) + f.flush()
+    assert out == "".join(deltas)
+    assert f.mode == "grounded"
+
+
+@pytest.mark.parametrize(
+    "q",
+    ["hi", "Hii", "hello there!", "Thanks!", "thank you so much", "hi, how are you?",
+     "What can you do?", "who are you", "good morning", "bye", "ok cool"],
+)  # fmt: skip
+def test_small_talk_is_recognised(q: str) -> None:
+    assert is_small_talk(q)
+
+
+@pytest.mark.parametrize(
+    "q",
+    ["hi, what's our leave policy?", "What is OAuth?", "help me write a SQL query",
+     "thanks, now summarise the roadmap", "hello world program in python", "",
+     "hi " * 20],
+)  # fmt: skip
+def test_real_questions_are_not_small_talk(q: str) -> None:
+    assert not is_small_talk(q)
+
+
+def test_general_and_chat_prompts_carry_no_sources_and_keep_the_abstain_rule() -> None:
+    msgs = plain_messages(GENERAL_PROMPT, " What is OAuth? ", [ChatMessage(Role.USER, "hi")])
+    assert [m.role for m in msgs] == [Role.SYSTEM, Role.USER, Role.USER]
+    assert msgs[-1].content == "What is OAuth?"
+    assert "<sources>" not in "".join(m.content for m in msgs)
+    for prompt in (GENERAL_PROMPT, SYSTEM_PROMPT):
+        assert NO_ANSWER in prompt
+        assert GENERAL_ANSWER in prompt
+    assert "organisation" in CHAT_PROMPT
 
 
 def test_is_no_answer() -> None:

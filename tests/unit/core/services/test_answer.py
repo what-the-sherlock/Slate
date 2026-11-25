@@ -6,7 +6,14 @@ from uuid import uuid4
 
 import pytest
 
-from core.domain.answer import INSUFFICIENT_EVIDENCE, NO_ANSWER, SYSTEM_PROMPT
+from core.domain.answer import (
+    CHAT_PROMPT,
+    GENERAL_ANSWER,
+    GENERAL_PROMPT,
+    INSUFFICIENT_EVIDENCE,
+    NO_ANSWER,
+    SYSTEM_PROMPT,
+)
 from core.domain.auth import Identity, Role
 from core.domain.budget import SpendLimits
 from core.domain.chat import ChatMessage
@@ -195,20 +202,73 @@ async def test_model_sentinel_becomes_the_designed_reply_and_never_streams() -> 
     assert stored[1].abstained
 
 
-async def test_nothing_retrieved_abstains_without_calling_the_model() -> None:
-    env = Env()
+async def test_nothing_retrieved_about_your_data_abstains_after_one_general_call() -> None:
+    env = Env(NO_ANSWER)  # the general prompt says: this is about their own data
     events = await env.ask("What is the office wifi password?")
-    assert done(events).abstained
-    assert env.model.requests == []
-    assert [e for e in env.ledger.entries if e.kind == "chat"] == []
+    d = done(events)
+    assert d.abstained
+    assert text(events) == ""
+    assert len(env.model.requests) == 1
+    assert env.model.requests[0][0].content == GENERAL_PROMPT  # no sources sent
+    assert "<sources>" not in env.model.requests[0][-1].content
 
 
-async def test_a_distant_best_match_abstains_without_calling_the_model() -> None:
-    env = Env(vector=True, min_similarity=0.99)  # fake vectors are near-orthogonal
+async def test_nothing_retrieved_general_question_gets_a_labelled_general_answer() -> None:
+    env = Env(f"{GENERAL_ANSWER}\nOAuth is an authorization framework [1].")
+    events = await env.ask("What is OAuth?")
+    d = done(events)
+    assert not d.abstained
+    assert d.mode == "general"
+    assert d.citations == ()
+    assert text(events).startswith("OAuth is")  # sentinel never streams
+    assert not [e for e in events if isinstance(e, Cited)]
+    meta = events[0]
+    assert isinstance(meta, Meta)
+    stored = await env.chats.messages(WS, OWNER, meta.session_id, limit=10)
+    assert stored[1].mode == "general"
+    assert "[1]" not in stored[1].content  # no sources, so no citation survives
+    assert [e.kind for e in env.ledger.entries] == ["chat"]  # one paid call
+
+
+async def test_a_distant_best_match_falls_back_to_the_general_prompt() -> None:
+    env = Env(NO_ANSWER, vector=True, min_similarity=0.99)  # fake vectors: near-orthogonal
     await env.doc("handbook", [LEAVE])
     events = await env.ask("paid leave")
-    assert done(events).abstained
-    assert env.model.requests == []
+    d = done(events)
+    assert d.abstained
+    assert d.closest  # closest matches are still offered
+    assert env.model.requests[0][0].content == GENERAL_PROMPT
+
+
+async def test_small_talk_skips_retrieval_and_replies_in_chat_mode() -> None:
+    env = Env("Hi! I can answer questions from your sources.")
+    await env.doc("handbook", [LEAVE])
+    events = await env.ask("hi")
+    d = done(events)
+    assert d.mode == "chat"
+    assert not d.abstained
+    assert not [e for e in events if isinstance(e, SourcesFound)]
+    assert env.model.requests[0][0].content == CHAT_PROMPT
+    assert text(events) == "Hi! I can answer questions from your sources."
+
+
+async def test_small_talk_with_a_real_question_is_not_small_talk() -> None:
+    env = Env()
+    await env.doc("handbook", [LEAVE])
+    events = await env.ask("hi, how many days of paid leave do we get?")
+    assert done(events).mode == "grounded"
+    assert any(isinstance(e, SourcesFound) for e in events)
+
+
+async def test_grounded_prompt_may_answer_generally_without_citations() -> None:
+    env = Env(f"{GENERAL_ANSWER}: Leave usually means time off [1].")
+    await env.doc("handbook", [LEAVE])
+    events = await env.ask("What does leave mean in general?")
+    d = done(events)
+    assert d.mode == "general"
+    assert d.citations == ()
+    assert not [e for e in events if isinstance(e, Cited)]
+    assert text(events).startswith("Leave usually")
 
 
 # ---------------------------------------------------------------- security
@@ -358,3 +418,63 @@ async def test_neighbours_from_another_section_keep_their_heading() -> None:
     await env.ask("customs pre-clearance")
     sent = env.model.requests[-1][-1].content
     assert "[Roadmap > Q2 2027]\nCarbon reporting" in sent
+
+
+# ---------------------------------------------------------------- regenerate / edit (ADR-0024)
+
+
+async def _two_turns(env: Env) -> tuple[Meta, Meta]:
+    first = (await env.ask("How much leave?"))[0]
+    assert isinstance(first, Meta)
+    second = (await env.ask("And for part-timers?", session=first.session_id))[0]
+    assert isinstance(second, Meta)
+    return first, second
+
+
+async def test_regenerate_replaces_the_last_turn_instead_of_duplicating_it() -> None:
+    env = Env()
+    await env.doc("handbook", [LEAVE])
+    first, second = await _two_turns(env)
+    who = identity()
+    q, sid = await env.svc.prepare(
+        who, "And for part-timers?", first.session_id, second.user_message_id
+    )
+    events = [e async for e in env.svc.answer(who, q, sid, replace_from=second.user_message_id)]
+    assert not done(events).abstained
+    live = await env.chats.messages(WS, OWNER, first.session_id, limit=50)
+    assert [m.content for m in live if m.role.value == "user"] == [
+        "How much leave?",
+        "And for part-timers?",
+    ]
+    assert len(live) == 4  # two questions, two answers: the old pair is superseded, not added to
+    assert env.chats.superseded[0].id == second.user_message_id
+
+
+async def test_editing_an_earlier_question_drops_later_turns_from_the_prompt() -> None:
+    env = Env()
+    await env.doc("handbook", [LEAVE])
+    first, _ = await _two_turns(env)
+    who = identity()
+    q, sid = await env.svc.prepare(
+        who, "How much sick leave?", first.session_id, first.user_message_id
+    )
+    [e async for e in env.svc.answer(who, q, sid, replace_from=first.user_message_id)]
+    live = await env.chats.messages(WS, OWNER, first.session_id, limit=50)
+    assert [m.content for m in live if m.role.value == "user"] == ["How much sick leave?"]
+    prompt = env.model.requests[-1]
+    assert "part-timers" not in " ".join(m.content for m in prompt)  # replaced turns are gone
+
+
+async def test_replace_from_must_be_a_live_question_in_your_own_chat() -> None:
+    env = Env()
+    await env.doc("handbook", [LEAVE])
+    first, _ = await _two_turns(env)
+    with pytest.raises(ValidationFailed):
+        await env.svc.prepare(identity(), "x", None, first.user_message_id)
+    with pytest.raises(NotFound):  # someone else's chat: same answer as a missing one
+        await env.svc.prepare(identity(OTHER), "x", first.session_id, first.user_message_id)
+    with pytest.raises(NotFound):  # not a message of this chat
+        await env.svc.prepare(identity(), "x", first.session_id, uuid4())  # type: ignore[arg-type]
+    answer_id = (await env.chats.messages(WS, OWNER, first.session_id, limit=50))[1].id
+    with pytest.raises(NotFound):  # an answer can't be the anchor; only a question can
+        await env.svc.prepare(identity(), "x", first.session_id, answer_id)

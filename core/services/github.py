@@ -414,6 +414,7 @@ class GitHubSync:
             return cp, True  # nothing pushed: no download, no spend
         existing = await self._sources.document_checksums(source.id, "file:")
         present: set[str] = set()
+        failed_before = tally.failed
         async for f in self._gh.doc_files(installation, repo.full_name, head):
             if out_of_time():
                 return cp, False
@@ -430,6 +431,10 @@ class GitHubSync:
             )  # fmt: skip
         gone = [e for e in existing if e not in present]
         tally.pruned = await self._sources.delete_documents(source.id, gone)
+        if tally.failed > failed_before:
+            # Keep the old commit so the next sync reads the tree again and retries the
+            # files that failed; the ones that worked are skipped by checksum, at no cost.
+            return cp, True
         return replace(cp, commit=head), True
 
     async def _issues(
@@ -442,6 +447,10 @@ class GitHubSync:
         tally: _Tally,
         out_of_time: Callable[[], bool],
     ) -> tuple[SyncCheckpoint, bool]:
+        # The checkpoint stops at the first issue that failed to index, so the next sync
+        # fetches it (and everything after it) again. Unchanged ones re-index for free
+        # (checksum), so only the failed ones cost anything.
+        stuck = False
         async for issue in self._gh.issues(
             installation, repo.full_name, cp.issues_since, MAX_ISSUES_PER_SYNC
         ):
@@ -455,6 +464,7 @@ class GitHubSync:
             text = issue_markdown(issue, comments)
             tally.seen += 1
             kind = "pr" if issue.is_pr else "issue"
+            failed_before = tally.failed
             await self._index(
                 source,
                 run,
@@ -475,7 +485,9 @@ class GitHubSync:
                 created=issue.created_at,
                 updated=issue.updated_at,
             )
-            cp = replace(cp, issues_since=issue.updated_at.isoformat())
+            stuck = stuck or tally.failed > failed_before
+            if not stuck:
+                cp = replace(cp, issues_since=issue.updated_at.isoformat())
         return cp, True
 
     async def _index(

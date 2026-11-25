@@ -48,7 +48,8 @@ Retrieval metrics are computed without an LLM. Answer metrics use point coverage
 ## Answer evals (M3, paid)
 
 `uv run python -m evals.answers [--limit N]` runs the real `AnswerService` (gpt-4o-mini by default) over the cases. It costs about $0.001 a case, and refuses to run if the global caps couldn't cover it. Chats stay in memory. It reports:
-- **abstention accuracy:** no-answer cases must abstain, answerable cases must not; with false and missed abstentions listed
+- **abstention accuracy:** no-answer cases must abstain, answerable cases must not; with false and missed abstentions listed. Cases with `expect_mode` (`gen-*` general knowledge, `chat-*` small talk; ADR-0025) must *not* abstain
+- **mode accuracy:** the share of `expect_mode` cases answered in that mode (`wrong_mode` lists the misses), and `general_instead_of_grounded`, answerable cases the model answered from general knowledge instead of the sources (should be empty)
 - **citation validity:** share of cited documents among the expected ones
 - **point coverage:** expected answer points found in the text
 - **answers that followed the injection fixture:** must be none

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
 
+from core.domain.answer import AnswerMode
 from core.domain.chat import Role
 from core.domain.ids import ChatSessionId, ChunkId, DocumentId, MessageId, UserId, WorkspaceId
 
@@ -41,6 +42,7 @@ class StoredMessage:
     latency_ms: int | None = None
     citations: tuple[Citation, ...] = field(default=())
     abstained: bool = False
+    mode: AnswerMode = "grounded"  # usage.mode (ADR-0025); older answers are grounded
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,13 +75,25 @@ class ChatStore(Protocol):
     async def messages(
         self, ws: WorkspaceId, user: UserId, session: ChatSessionId, *, limit: int
     ) -> list[StoredMessage]:
-        """The session's latest messages, oldest first, with citations. Empty if not owned."""
+        """The session's latest live (not superseded) messages, oldest first, with
+        citations. Empty if not owned."""
         ...
 
     async def add_message(
-        self, ws: WorkspaceId, user: UserId, session: ChatSessionId, message: NewMessage
+        self,
+        ws: WorkspaceId,
+        user: UserId,
+        session: ChatSessionId,
+        message: NewMessage,
+        *,
+        supersede_from: MessageId | None = None,
     ) -> MessageId:
-        """Raises NotFound if the session isn't this user's."""
+        """Raises NotFound if the session isn't this user's.
+
+        ``supersede_from`` (regenerate or edit, ADR-0024): in the same transaction, mark
+        that user message and every later message of the session superseded, so they drop
+        out of ``messages`` and of the prompt's history. Raises NotFound unless it is a
+        live user message in this session."""
         ...
 
     async def add_citations(self, message: MessageId, citations: Sequence[Citation]) -> None: ...

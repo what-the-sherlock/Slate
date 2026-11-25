@@ -93,6 +93,7 @@ def _sse(event: AnswerEvent) -> dict[str, str]:
                 citations=list(event.citations),
                 closest=[_source(s) for s in event.closest],
                 notices=list(event.notices),
+                mode=event.mode,
             )
             name = "done"
     return {"event": name, "data": body.model_dump_json()}
@@ -127,15 +128,21 @@ def _error_event(exc: Exception, request_id: str | None) -> dict[str, str]:
 async def chat(
     body: ChatBody, request: Request, identity: MutatingIdentity, answers: Answers
 ) -> EventSourceResponse:
+    replace_from = MessageId(body.replace_from) if body.replace_from else None
     question, session = await answers.prepare(
-        identity, body.question, ChatSessionId(body.session_id) if body.session_id else None
+        identity,
+        body.question,
+        ChatSessionId(body.session_id) if body.session_id else None,
+        replace_from,
     )
     filters = SearchFilters(source_ids=tuple(SourceId(s) for s in body.source_ids))
     request_id: str | None = getattr(request.state, "request_id", None)
 
     async def events() -> AsyncIterator[dict[str, str]]:
         try:
-            async for event in answers.answer(identity, question, session, filters):
+            async for event in answers.answer(
+                identity, question, session, filters, replace_from=replace_from
+            ):
                 yield _sse(event)
         except Exception as exc:  # the stream has started: report in-band, never crash
             log.warning("chat.stream_failed", error=type(exc).__name__)
@@ -191,6 +198,7 @@ async def messages(
             model=m.model,
             latency_ms=m.latency_ms,
             abstained=m.abstained,
+            mode=m.mode,
             citations=[
                 CitationOut(n=c.n, chunk_id=c.chunk_id, document_id=c.document_id)
                 for c in m.citations

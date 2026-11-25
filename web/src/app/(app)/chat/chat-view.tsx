@@ -1,246 +1,313 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, Square } from "lucide-react";
-import Link from "next/link";
+import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { ArrowDown, MessageSquareX, PanelLeftOpen, SquarePen } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { ThinkingOrb } from "@/components/thinking-orb";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { ApiProblem, errorMessage } from "@/lib/api/client";
-import { useChatMessages, useSources, type ChatMessageOut } from "@/lib/api/hooks";
-import { newTurn, reduceTurn, streamChat, type SourceOut, type Turn } from "@/lib/chat";
-import { formatCount } from "@/lib/format";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { keys, useChatMessages, useChatSessions, useSources, type ChatSession } from "@/lib/api/hooks";
+import { isBusy, type Turn } from "@/lib/chat";
+import { chatTitle } from "@/lib/chat-history";
+import { chatStore, useStreamingChats, useThread, type AskOptions } from "@/lib/chat-store";
+import { useStickToBottom } from "@/lib/use-stick-to-bottom";
 import { cn } from "@/lib/utils";
-import { TurnView } from "./answer";
+import { ChatEmpty } from "./chat-empty";
+import { Composer, LIMIT } from "./composer";
+import { HistoryPanel } from "./history-panel";
 import { SourcesPanel } from "./sources-panel";
+import { TurnView, type TurnActions } from "./turn";
 
-const LIMIT = 4000;
-const COUNTER_AT = 3600;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Stored messages -> turns, for reopening a chat from the URL. */
-export function turnsFromHistory(messages: ChatMessageOut[]): Turn[] {
-  const turns: Turn[] = [];
-  for (const m of messages) {
-    if (m.role === "user") {
-      turns.push({ ...newTurn(m.content, m.id), stage: "done" });
-      continue;
-    }
-    const last = turns[turns.length - 1];
-    if (!last) continue;
-    const sources: SourceOut[] = m.citations
-      .filter((c) => c.document_id)
-      .map((c) => ({ n: c.n, chunk_id: c.chunk_id ?? 0, document_id: c.document_id!, ordinal: -1, title: `Source ${c.n}`, heading_path: null, snippet: "" }));
-    Object.assign(last, {
-      text: m.abstained ? "" : m.content,
-      cited: m.citations.map((c) => c.n),
-      sources,
-      messageId: m.id,
-      done: { v: 1, message_id: m.id, abstained: m.abstained, model: m.model, latency_ms: m.latency_ms ?? 0, citations: m.citations.map((c) => c.n), closest: [], notices: [] },
-    });
-  }
-  return turns;
+// A new chat lives under a draft key until the server names its session (chat-store.ts).
+let drafts = 0;
+const nextDraft = () => `draft:${++drafts}`;
+
+// The history column's open/closed state is a preference kept in localStorage.
+const HISTORY_KEY = "slate.chats.open";
+const historyListeners = new Set<() => void>();
+function subscribeHistory(cb: () => void) {
+  historyListeners.add(cb);
+  window.addEventListener("storage", cb);
+  return () => {
+    historyListeners.delete(cb);
+    window.removeEventListener("storage", cb);
+  };
+}
+function useHistoryOpen(): [boolean, (open: boolean) => void] {
+  const open = useSyncExternalStore(
+    subscribeHistory,
+    () => window.localStorage.getItem(HISTORY_KEY) !== "0",
+    () => true,
+  );
+  return [
+    open,
+    (next) => {
+      window.localStorage.setItem(HISTORY_KEY, next ? "1" : "0");
+      historyListeners.forEach((cb) => cb());
+    },
+  ];
 }
 
-/** Chat (UI_DESIGN §4.3): empty state, conversation, composer, sources panel. */
+/**
+ * Chat (UI_DESIGN §4.3): history | conversation + composer | sources panel.
+ *
+ * The page is exactly the viewport tall and scrolls only the conversation, so the composer
+ * stays pinned at the bottom whatever the length of the chat. Turns come from the chat
+ * store (lib/chat-store.ts), which keeps streams alive across chat switches.
+ */
 export function ChatView() {
   const router = useRouter();
   const params = useSearchParams();
   const client = useQueryClient();
-  const rawSession = params.get("c");
-  const urlSession = rawSession && UUID_RE.test(rawSession) ? rawSession : null;
-  const history = useChatMessages(urlSession);
+  const raw = params.get("c");
+  const urlSession = raw && UUID_RE.test(raw) ? raw : null;
+
+  // "New chat" (the URL lost ?c=) gets a fresh draft key; adjusting state while rendering
+  // is React's pattern for "reset when a prop changes", with no flash of the old chat.
+  const [draftKey, setDraftKey] = useState(nextDraft);
+  const [prevUrl, setPrevUrl] = useState(urlSession);
+  if (prevUrl !== urlSession) {
+    setPrevUrl(urlSession);
+    if (!urlSession) setDraftKey(nextDraft());
+  }
+  const key = urlSession ?? draftKey;
+  const keyRef = useRef(key);
+  useEffect(() => {
+    keyRef.current = key;
+  }, [key]);
+
+  const thread = useThread(key);
+  const turns = useMemo(() => thread?.turns ?? [], [thread]);
+  const streamingChats = useStreamingChats();
+  const history = useChatMessages(urlSession && !thread ? urlSession : null);
+  const sessions = useChatSessions();
   const sources = useSources();
-  const [session, setSession] = useState<string | null>(urlSession);
-  const [turns, setTurns] = useState<Turn[]>([]);
+
   const [draft, setDraft] = useState("");
   const [composerError, setComposerError] = useState<string | null>(null);
-  const [panel, setPanel] = useState<{ key: string; n: number | null } | null>(null);
-  const abort = useRef<AbortController | null>(null);
-  const bottom = useRef<HTMLDivElement>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  // The sources panel belongs to one chat: switching chats closes it (no effect needed).
+  const [panelState, setPanelState] = useState<{ thread: string; turn: string; n: number | null } | null>(null);
+  const panel = panelState?.thread === key ? panelState : null;
+  const setPanel = useCallback((p: { turn: string; n: number | null } | null) => setPanelState(p && { thread: keyRef.current, ...p }), []);
+  const [historyOpen, setHistoryOpen] = useHistoryOpen();
+  const [drawer, setDrawer] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
-  const atBottom = useRef(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const { atBottom, scrollToBottom } = useStickToBottom(scrollRef, contentRef);
 
-  // Reopening a chat: load its stored turns once.
-  useEffect(() => {
-    if (history.data && urlSession && session === urlSession && turns.length === 0) setTurns(turnsFromHistory(history.data));
-  }, [history.data, urlSession, session, turns.length]);
+  const threadBusy = turns.some(isBusy);
 
-  // "New chat" (the URL lost ?c=) resets the screen.
+  // A reopened chat: load it from the server once, unless this tab already holds it.
   useEffect(() => {
-    if (!urlSession && session && !abort.current) {
-      setSession(null);
-      setTurns([]);
-      setPanel(null);
-    }
-  }, [urlSession, session]);
+    if (urlSession && history.data) chatStore.hydrate(urlSession, history.data);
+  }, [urlSession, history.data]);
 
+  // Switching chats (or a reopened chat arriving) lands on its latest turn.
+  const hasTurns = turns.length > 0;
   useEffect(() => {
-    const onScroll = () => {
-      atBottom.current = window.innerHeight + window.scrollY >= document.body.scrollHeight - 80;
+    if (hasTurns) scrollToBottom("instant");
+  }, [key, hasTurns, scrollToBottom]);
+
+  // Leaving the page mid-answer would cut the stream: ask first (closing the tab only).
+  useEffect(() => {
+    const onUnload = (e: BeforeUnloadEvent) => {
+      if (chatStore.isStreaming()) e.preventDefault();
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
   }, []);
 
-  useEffect(() => {
-    if (atBottom.current) bottom.current?.scrollIntoView?.({ block: "end" });
-  }, [turns]);
+  const newChat = useCallback(() => {
+    setDrawer(false);
+    setComposerError(null);
+    router.push("/chat", { scroll: false });
+    requestAnimationFrame(() => input.current?.focus());
+  }, [router]);
 
+  // "/" focuses the composer; Ctrl/⌘ + Shift + O starts a new chat (UI_DESIGN §3.9).
   useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      const typing = e.target instanceof HTMLElement && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
-      if (e.key === "/" && !typing) {
+    const onKey = (e: KeyboardEvent) => {
+      const typing = e.target instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable);
+      if (e.key === "/" && !typing && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         input.current?.focus();
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        newChat();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [newChat]);
 
-  const streaming = turns.some((t) => t.stage === "searching" || t.stage === "reading" || t.stage === "streaming");
-  const counts = useMemo(() => {
-    const list = sources.data ?? [];
-    return { sources: list.length, documents: list.reduce((n, s) => n + s.documents, 0) };
-  }, [sources.data]);
+  const options = useCallback(
+    (startedOn: string): AskOptions => ({
+      sourceIds: selected,
+      onSession: (sid, question) => {
+        // The new chat goes to the top of the history list at once (no refetch, no poll).
+        client.setQueryData<InfiniteData<ChatSession[], string | null>>(keys.chatSessions, (old) => {
+          const row: ChatSession = { id: sid, title: chatTitle(question), created_at: new Date().toISOString() };
+          if (!old) return { pages: [[row]], pageParams: [null] };
+          const [first = [], ...rest] = old.pages;
+          return { ...old, pages: [[row, ...first.filter((s) => s.id !== sid)], ...rest] };
+        });
+        if (keyRef.current === startedOn) router.replace(`/chat?c=${sid}`, { scroll: false });
+      },
+      onRefused: (question, err) => {
+        if (keyRef.current === startedOn || keyRef.current === chatStore.get(startedOn)?.key) {
+          setDraft(question);
+          setComposerError(err.detail);
+          input.current?.focus();
+        } else {
+          toast.error(err.detail);
+        }
+      },
+    }),
+    [client, router, selected],
+  );
 
-  const update = (key: string, fn: (t: Turn) => Turn) => setTurns((all) => all.map((t) => (t.key === key ? fn(t) : t)));
-
-  async function ask(question: string) {
-    const q = question.trim();
-    if (!q || q.length > LIMIT || streaming) return;
-    setComposerError(null);
-    const key = crypto.randomUUID();
-    setTurns((all) => [...all, newTurn(q, key)]);
-    atBottom.current = true;
-    const controller = new AbortController();
-    abort.current = controller;
-    try {
-      await streamChat(
-        { question: q, session_id: session },
-        (event) => {
-          if (event.type === "meta" && event.data.session_id !== session) {
-            setSession(event.data.session_id);
-            router.replace(`/chat?c=${event.data.session_id}`, { scroll: false });
-          }
-          update(key, (t) => reduceTurn(t, event));
-        },
-        controller.signal,
-      );
-      void client.invalidateQueries({ queryKey: ["chat-sessions"] });
-    } catch (err) {
-      if (controller.signal.aborted) {
-        update(key, (t) => ({ ...t, stage: "stopped" }));
-      } else if (err instanceof ApiProblem && err.isClientError) {
-        // Refused before streaming (limit, budget, validation): take the question back.
-        setTurns((all) => all.filter((t) => t.key !== key));
-        setDraft(q);
-        setComposerError(errorMessage(err));
-      } else {
-        update(key, (t) => ({ ...t, stage: "error", error: { message: errorMessage(err), requestId: err instanceof ApiProblem ? err.problem.request_id : null } }));
-      }
-    } finally {
-      abort.current = null;
-    }
-  }
-
-  function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    const q = draft;
-    if (!q.trim() || q.length > LIMIT) return;
+  function send(text: string = draft) {
+    const q = text.trim();
+    if (!q || q.length > LIMIT || threadBusy) return;
     setDraft("");
-    void ask(q);
+    setComposerError(null);
+    scrollToBottom("smooth");
+    void chatStore.ask(key, q, options(key));
   }
 
-  function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      e.currentTarget.form?.requestSubmit();
-    } else if (e.key === "ArrowUp" && !draft) {
-      const last = turns[turns.length - 1];
-      if (last) {
-        e.preventDefault();
-        setDraft(last.question);
-      }
-    }
-  }
+  const actions: TurnActions = useMemo(
+    () => ({
+      onOpenSource: (turn: Turn, n: number | null) => setPanel({ turn: turn.key, n }),
+      onRegenerate: (turn: Turn) => {
+        scrollToBottom("smooth");
+        void chatStore.regenerate(key, turn, options(key));
+      },
+      onEdit: (turn: Turn, question: string) => {
+        scrollToBottom("smooth");
+        void chatStore.edit(key, turn, question, options(key));
+      },
+      onRephrase: (question: string) => {
+        setDraft(question);
+        requestAnimationFrame(() => {
+          const el = input.current;
+          el?.focus();
+          el?.setSelectionRange(el.value.length, el.value.length);
+        });
+      },
+      onClearFilters: () => setSelected([]),
+    }),
+    [key, options, scrollToBottom, setPanel],
+  );
 
-  const panelTurn = panel ? turns.find((t) => t.key === panel.key) : undefined;
-  const empty = turns.length === 0 && !(urlSession && history.isPending);
+  const panelTurn = panel ? turns.find((t) => t.key === panel.turn) : undefined;
+  const loading = !!urlSession && !thread && history.isPending;
+  // The API answers an unknown or someone else's chat with no messages (no probing).
+  const missing = !!urlSession && ((!thread && history.isError) || (history.data?.length === 0 && !turns.length));
+  const title =
+    (urlSession && sessions.data?.pages.flat().find((s) => s.id === urlSession)?.title) || turns[0]?.question || (urlSession ? "Chat" : "New chat");
+
+  const historyProps = {
+    activeId: urlSession,
+    streaming: streamingChats,
+    onNewChat: newChat,
+  };
 
   return (
-    <div className="flex min-h-svh">
-      <div className="mx-auto flex w-full max-w-[760px] min-w-0 flex-1 flex-col px-4 sm:px-6">
-        {empty ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 py-16 text-center">
-            <ThinkingOrb state="breathing" size={64} label="Slate is ready" />
-            <h1 className="text-[28px] font-semibold text-fg">What do you want to know?</h1>
-            <p className="text-body text-fg-subtle">
-              {counts.sources
-                ? `Searching ${formatCount(counts.sources)} sources · ${formatCount(counts.documents)} documents you can access`
-                : "Your workspace is empty."}{" "}
-              {!counts.documents ? (
-                <Link href="/sources?add=1" className="font-medium text-brand hover:underline">
-                  Upload documents
-                </Link>
-              ) : null}
-            </p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-10 py-8">
-            {turns.map((t) => (
-              <TurnView key={t.key} turn={t} onOpenSource={(turn, n) => setPanel({ key: turn.key, n })} onRetry={(turn) => void ask(turn.question)} />
-            ))}
-            <div ref={bottom} />
-          </div>
+    <div className="flex h-[calc(100svh-3.5rem)] min-h-0 lg:h-svh">
+      {/* History: a column on wide screens, a drawer below lg. */}
+      <aside
+        aria-hidden={!historyOpen || undefined}
+        className={cn(
+          "hidden shrink-0 overflow-hidden border-border transition-[width] duration-300 ease-[var(--sl-ease-out)] motion-reduce:transition-none lg:block",
+          historyOpen ? "w-[260px] border-r" : "w-0",
         )}
-
-        <form onSubmit={onSubmit} className="sticky bottom-0 bg-gradient-to-t from-bg via-bg to-transparent pt-6 pb-[max(16px,env(safe-area-inset-bottom))]">
-          {composerError ? (
-            <p role="alert" className="mb-2 text-caption text-danger">
-              {composerError}
-            </p>
-          ) : null}
-          <div className="rounded-lg border border-border-strong bg-bg p-3 shadow-sm focus-within:border-brand">
-            <label htmlFor="composer" className="sr-only">
-              Ask a question
-            </label>
-            <textarea
-              ref={input}
-              id="composer"
-              rows={1}
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setComposerError(null);
-                e.target.style.height = "auto";
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 8 * 24)}px`;
-              }}
-              onKeyDown={onKeyDown}
-              placeholder="Ask anything about your sources…"
-              className="block max-h-48 w-full resize-none bg-transparent text-[15px] leading-6 text-fg outline-none placeholder:text-fg-subtle"
-            />
-            <div className="mt-2 flex items-center gap-3">
-              {draft.length >= COUNTER_AT ? (
-                <span className={cn("text-data tabular-nums", draft.length > LIMIT ? "text-danger" : "text-fg-subtle")}>
-                  {draft.length.toLocaleString()} / {LIMIT.toLocaleString()}
-                </span>
-              ) : null}
-              <span className="ml-auto hidden text-data text-fg-subtle sm:inline">↵ to send, ⇧↵ for a new line</span>
-              {streaming ? (
-                <Button type="button" variant="secondary" size="icon" aria-label="Stop" onClick={() => abort.current?.abort()}>
-                  <Square />
-                </Button>
-              ) : (
-                <Button type="submit" variant="primary" size="icon" aria-label="Send" disabled={!draft.trim() || draft.length > LIMIT}>
-                  <ArrowUp />
-                </Button>
-              )}
-            </div>
+        inert={!historyOpen || undefined}
+      >
+        <div className="h-full w-[260px]">
+          <HistoryPanel {...historyProps} variant="column" onClose={() => setHistoryOpen(false)} />
+        </div>
+      </aside>
+      {drawer ? (
+        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Chats">
+          <button className="absolute inset-0 bg-[var(--sl-overlay)] animate-in fade-in duration-200" aria-label="Close chats" onClick={() => setDrawer(false)} />
+          <div className="absolute inset-y-0 left-0 w-[280px] max-w-[85vw] border-r border-border shadow-lg animate-in slide-in-from-left duration-300 ease-[var(--sl-ease-out)]">
+            <HistoryPanel {...historyProps} variant="drawer" onClose={() => setDrawer(false)} onNavigate={() => setDrawer(false)} />
           </div>
-        </form>
+        </div>
+      ) : null}
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3 sm:px-4">
+          <HeaderButton label="Show chats" className={cn(historyOpen && "lg:hidden")} onClick={() => (window.matchMedia("(min-width: 1024px)").matches ? setHistoryOpen(true) : setDrawer(true))}>
+            <PanelLeftOpen />
+          </HeaderButton>
+          <h1 key={title} className="min-w-0 flex-1 truncate px-1.5 text-ui font-medium text-fg animate-in fade-in duration-300">
+            {title}
+          </h1>
+          <HeaderButton label="New chat" hint="Ctrl ⇧ O" className={cn(historyOpen && "lg:hidden")} onClick={newChat}>
+            <SquarePen />
+          </HeaderButton>
+        </header>
+
+        <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]" tabIndex={-1}>
+          <div ref={contentRef} className="mx-auto flex min-h-full w-full max-w-[760px] flex-col px-4 sm:px-6">
+            {missing ? (
+              <MissingChat onNewChat={newChat} />
+            ) : loading ? (
+              <ConversationSkeleton />
+            ) : !turns.length ? (
+              <ChatEmpty sources={sources.data ?? []} loading={sources.isPending} onPick={actions.onRephrase} />
+            ) : (
+              <div className="flex flex-col gap-10 pt-8 pb-10">
+                {turns.map((t, i) => (
+                  <TurnView key={t.key} turn={t} isLast={i === turns.length - 1} threadBusy={threadBusy} filtersActive={selected.length > 0} actions={actions} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="relative shrink-0 px-4 pb-[max(12px,env(safe-area-inset-bottom))] sm:px-6">
+          {/* Fade the conversation out under the composer so text never collides with it. */}
+          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 -top-8 h-8 bg-gradient-to-t from-bg to-transparent" />
+          <div className="relative mx-auto max-w-[712px]">
+            {!atBottom && turns.length ? (
+              <button
+                type="button"
+                onClick={() => scrollToBottom("smooth")}
+                className="absolute -top-12 left-1/2 z-10 inline-flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-bg px-3 text-caption font-medium text-fg-muted shadow-md transition-colors animate-in fade-in slide-in-from-bottom-2 duration-200 hover:text-fg"
+              >
+                <ArrowDown className="size-3.5" aria-hidden="true" />
+                {threadBusy ? "New text below" : "Jump to latest"}
+              </button>
+            ) : null}
+            <Composer
+              value={draft}
+              onChange={(v) => {
+                setDraft(v);
+                if (composerError) setComposerError(null);
+              }}
+              onSubmit={() => send()}
+              onStop={() => chatStore.stop(key)}
+              onRecall={() => turns[turns.length - 1]?.question}
+              streaming={threadBusy}
+              error={composerError}
+              inputRef={input}
+              sources={sources.data ?? []}
+              selected={selected}
+              onSelected={setSelected}
+            />
+            <p className="mt-2 text-center text-data text-fg-subtle max-sm:hidden">
+              Slate can make mistakes. Check answers against their cited sources.
+            </p>
+          </div>
+        </div>
       </div>
 
       {panel && panelTurn ? (
@@ -248,10 +315,71 @@ export function ChatView() {
           sources={panelTurn.sources}
           cited={panelTurn.cited}
           selected={panel.n}
-          onSelect={(n) => setPanel({ key: panel.key, n })}
+          onSelect={(n) => setPanel({ turn: panel.turn, n })}
           onClose={() => setPanel(null)}
         />
       ) : null}
+    </div>
+  );
+}
+
+function HeaderButton({
+  label,
+  hint,
+  className,
+  onClick,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  className?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon-sm" aria-label={label} onClick={onClick} className={className}>
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        {label}
+        {hint ? <kbd className="ml-1 font-sans opacity-70">{hint}</kbd> : null}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ConversationSkeleton() {
+  return (
+    <div className="flex flex-col gap-10 pt-8" aria-busy="true" aria-label="Loading chat">
+      {[0, 1].map((i) => (
+        <div key={i} className="flex flex-col gap-4">
+          <Skeleton className="ml-auto h-10 w-2/5 rounded-2xl" />
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-11/12" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/5" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A stale or someone else's chat link: same message for both (no probing). */
+function MissingChat({ onNewChat }: { onNewChat: () => void }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
+      <span className="inline-flex size-10 items-center justify-center rounded-md border border-border">
+        <MessageSquareX className="size-5 text-fg-muted" aria-hidden="true" />
+      </span>
+      <p className="text-ui font-medium text-fg">This chat isn&apos;t available</p>
+      <p className="max-w-[360px] text-body text-fg-subtle">It may have been removed, or the link is wrong.</p>
+      <Button variant="secondary" size="sm" onClick={onNewChat}>
+        <SquarePen /> Start a new chat
+      </Button>
     </div>
   );
 }

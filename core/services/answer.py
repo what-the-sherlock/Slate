@@ -1,5 +1,5 @@
 """Cited chat: rewrite -> retrieve -> gate -> assemble -> stream -> validate -> persist
-(ARCHITECTURE §8, ADR-0022).
+(ARCHITECTURE §8, ADR-0022), with answer modes (ADR-0025).
 
 The service yields typed events and the API turns them into the SSE contract
 (``meta``, ``sources``, ``token``, ``citation``, ``done``; ``error`` is the API's job).
@@ -11,8 +11,14 @@ Guarantees:
   prompt, and model output triggers nothing.
 * Every paid call is budget-checked first (core/domain/budget.py) and written to the
   usage ledger after. Chat is rate-limited per user, per minute and per day.
-* Abstention: the gate before any model call, then the NO_ANSWER sentinel, which never
-  reaches the user. Both persist the same designed "not enough evidence" reply.
+* Modes (ADR-0025), one paid call per question either way:
+  - small talk (rules, ``is_small_talk``) skips retrieval and gets a short reply (``chat``);
+  - when the gate finds nothing relevant, the model gets the question *without* sources
+    and either answers from general knowledge (``general``) or replies NO_ANSWER;
+  - otherwise the grounded prompt, whose reply is cited, general (GENERAL_ANSWER) or
+    NO_ANSWER.
+  NO_ANSWER never reaches the user: it persists the same designed "not enough evidence"
+  reply. General and chat calls see no sources, so they can't leak any.
 """
 
 from __future__ import annotations
@@ -26,18 +32,23 @@ from decimal import Decimal
 import structlog
 
 from core.domain.answer import (
+    CHAT_PROMPT,
     DEFAULT_MIN_SIMILARITY,
+    GENERAL_PROMPT,
     INSUFFICIENT_EVIDENCE,
     MAX_HISTORY_TURNS,
     MAX_QUESTION_CHARS,
     MAX_SOURCES,
+    AnswerMode,
     CitationTracker,
     Passage,
     SentinelFilter,
     Source,
     build_messages,
+    is_small_talk,
     number_sources,
     parse_rewrite,
+    plain_messages,
     rewrite_messages,
     should_abstain_before_model,
     validate_citations,
@@ -67,6 +78,7 @@ log = structlog.get_logger(__name__)
 CHAT_LIMIT = Limit(budget=6, window=timedelta(minutes=1))
 CHAT_DAILY_LIMIT = Limit(budget=50, window=timedelta(days=1))
 ANSWER_MAX_TOKENS = 700
+CHAT_MAX_TOKENS = 200  # small talk is short
 REWRITE_MAX_TOKENS = 60
 SOURCE_TOKEN_BUDGET = 3000  # passages plus their neighbours, in total
 CLOSEST_SHOWN = 3
@@ -117,6 +129,7 @@ class Done:
     citations: tuple[int, ...] = ()
     closest: tuple[Source, ...] = field(default=())  # shown when abstaining
     notices: tuple[str, ...] = ()
+    mode: AnswerMode = "grounded"
 
 
 AnswerEvent = Meta | SourcesFound | Token | Cited | Done
@@ -148,10 +161,15 @@ class AnswerService:
         self._min_similarity = min_similarity
 
     async def prepare(
-        self, identity: Identity, question: str, session_id: ChatSessionId | None
+        self,
+        identity: Identity,
+        question: str,
+        session_id: ChatSessionId | None,
+        replace_from: MessageId | None = None,
     ) -> tuple[str, ChatSessionId | None]:
         """Every check that should fail as a plain HTTP error, before streaming starts:
-        input, rate limits, budget, and that a given chat is this user's."""
+        input, rate limits, budget, that a given chat is this user's, and that a turn being
+        regenerated or edited (``replace_from``, ADR-0024) is a live question in it."""
         q = question.strip()
         if not q:
             raise ValidationFailed(
@@ -166,6 +184,14 @@ class AnswerService:
             is None
         ):
             raise NotFound("This chat doesn't exist.")
+        if replace_from is not None:
+            if session_id is None:
+                raise ValidationFailed("Regenerating or editing needs the chat it belongs to.")
+            live = await self._chats.messages(
+                identity.workspace_id, identity.user_id, session_id, limit=200
+            )
+            if not any(m.id == replace_from and m.role is Role.USER for m in live):
+                raise NotFound("This message doesn't exist.")
         await self._spend_rate(identity)
         await self._check_budget(
             identity.workspace_id, _price(self._model.model, *ANSWER_ESTIMATE_TOKENS)
@@ -178,13 +204,28 @@ class AnswerService:
         question: str,
         session_id: ChatSessionId | None,
         filters: SearchFilters | None = None,
+        *,
+        replace_from: MessageId | None = None,
     ) -> AsyncIterator[AnswerEvent]:
-        """Call ``prepare`` first. Yields Meta, SourcesFound, Token/Cited..., Done."""
+        """Call ``prepare`` first. Yields Meta, SourcesFound, Token/Cited..., Done.
+
+        ``replace_from`` regenerates or edits: that question and everything after it are
+        superseded in the same write that stores the new question, *before* history is
+        read, so the replaced turns never reach the prompt (ADR-0024)."""
         started = time.perf_counter()
         ws, user = identity.workspace_id, identity.user_id
         sid = session_id or await self._chats.create_session(ws, user, _title(question))
-        history = await self._history(identity, sid)
-        user_msg = await self._chats.add_message(ws, user, sid, NewMessage(Role.USER, question))
+        user_msg = await self._chats.add_message(
+            ws, user, sid, NewMessage(Role.USER, question), supersede_from=replace_from
+        )
+        history = await self._history(identity, sid, exclude=user_msg)
+
+        if is_small_talk(question):
+            yield Meta(sid, user_msg, question)
+            log.info("answer.routed", mode="chat")
+            async for ev in self._unsourced(identity, sid, user_msg, question, history, started):
+                yield ev
+            return
 
         query = await self._rewrite(identity, question, history) if history else question
         yield Meta(sid, user_msg, query)
@@ -199,10 +240,14 @@ class AnswerService:
         if should_abstain_before_model(
             bool(passages), results.best_similarity, min_similarity=self._min_similarity
         ):
-            log.info("answer.abstained", stage="gate", sources=len(sources))
-            yield await self._abstain(
-                identity, sid, user_msg, sources, started, notices, model=None
-            )
+            # Nothing relevant: the model may still answer a general question, without
+            # sources; a question about the user's own data still abstains (ADR-0025).
+            log.info("answer.routed", mode="general", sources=len(sources))
+            async for ev in self._unsourced(
+                identity, sid, user_msg, question, history, started, closest=sources,
+                notices=notices,
+            ):  # fmt: skip
+                yield ev
             return
 
         yield SourcesFound(sources)
@@ -211,6 +256,7 @@ class AnswerService:
         # The real request size, not the pre-flight guess (security review).
         await self._check_budget(ws, _price(self._model.model, tokens_in, ANSWER_MAX_TOKENS))
         sentinel, tracker = SentinelFilter(), CitationTracker(s.n for s in sources)
+        no_cites = CitationTracker(())
         by_n = {s.n: s for s in sources}
         parts: list[str] = []
         usage: Usage | None = None
@@ -221,9 +267,12 @@ class AnswerService:
                     usage = item
                     continue
                 out = sentinel.feed(item.text)
-                for ev in self._emit(out, parts, tracker, by_n):
+                # A general answer (GENERAL_ANSWER) confirms no citations.
+                cites = no_cites if sentinel.general else tracker
+                for ev in self._emit(out, parts, cites, by_n):
                     yield ev
-            for ev in self._emit(sentinel.flush(), parts, tracker, by_n):
+            cites = no_cites if sentinel.general else tracker
+            for ev in self._emit(sentinel.flush(), parts, cites, by_n):
                 yield ev
         finally:
             # A stream cut by the client or the provider was still paid for: record the
@@ -237,7 +286,9 @@ class AnswerService:
             )
             return
 
-        text, kept = validate_citations("".join(parts), by_n)
+        mode = sentinel.mode
+        # A general answer cites nothing: any [n] it wrote is dropped (rule 9).
+        text, kept = validate_citations("".join(parts), by_n if mode == "grounded" else {})
         latency = _ms(started)
         msg_id = await self._chats.add_message(
             ws,
@@ -248,7 +299,7 @@ class AnswerService:
                 text,
                 parent_id=user_msg,
                 model=self._model.model,
-                usage=_usage_json(usage, self._model.model),
+                usage=_usage_json(usage, self._model.model, mode),
                 latency_ms=latency,
             ),
         )
@@ -256,8 +307,76 @@ class AnswerService:
             msg_id,
             [Citation(n, by_n[n].passage.chunk_id, by_n[n].passage.document_id) for n in kept],
         )
-        log.info("answer.done", sources=len(sources), cited=len(kept), latency_ms=latency)
-        yield Done(msg_id, False, self._model.model, latency, tuple(kept), notices=notices)
+        log.info(
+            "answer.done", mode=mode, sources=len(sources), cited=len(kept), latency_ms=latency
+        )
+        yield Done(
+            msg_id, False, self._model.model, latency, tuple(kept), notices=notices, mode=mode
+        )
+
+    async def _unsourced(
+        self,
+        identity: Identity,
+        sid: ChatSessionId,
+        user_msg: MessageId,
+        question: str,
+        history: Sequence[ChatMessage],
+        started: float,
+        *,
+        closest: tuple[Source, ...] | None = None,
+        notices: tuple[str, ...] = (),
+    ) -> AsyncIterator[AnswerEvent]:
+        """One model call without sources: small talk (``closest is None``) or the general
+        fallback, which may still abstain for a question about the user's own data."""
+        ws, user = identity.workspace_id, identity.user_id
+        small_talk = closest is None
+        messages = plain_messages(CHAT_PROMPT if small_talk else GENERAL_PROMPT, question, history)
+        tokens_in = sum(self._tokenizer.count(m.content) for m in messages)
+        max_tokens = CHAT_MAX_TOKENS if small_talk else ANSWER_MAX_TOKENS
+        await self._check_budget(ws, _price(self._model.model, tokens_in, max_tokens))
+        sentinel = SentinelFilter()
+        parts: list[str] = []
+        usage: Usage | None = None
+        try:
+            async for item in self._model.stream(messages, max_tokens=max_tokens):
+                if isinstance(item, Usage):
+                    usage = item
+                    continue
+                out = sentinel.feed(item.text)
+                if out:
+                    parts.append(out)
+                    yield Token(out)
+            if out := sentinel.flush():
+                parts.append(out)
+                yield Token(out)
+        finally:
+            # History may hold private content, so the call is classed private (ADR-0012).
+            await self._record(ws, "chat", "private", usage or self._estimate(tokens_in, parts))
+
+        if sentinel.abstained or not "".join(parts).strip():
+            log.info("answer.abstained", stage="general")
+            yield await self._abstain(
+                identity, sid, user_msg, closest or (), started, notices, model=self._model.model
+            )
+            return
+        mode: AnswerMode = "chat" if small_talk else "general"
+        text, _ = validate_citations("".join(parts), {})  # no sources: no citations
+        latency = _ms(started)
+        msg_id = await self._chats.add_message(
+            ws,
+            user,
+            sid,
+            NewMessage(
+                Role.ASSISTANT,
+                text,
+                parent_id=user_msg,
+                model=self._model.model,
+                usage=_usage_json(usage, self._model.model, mode),
+                latency_ms=latency,
+            ),
+        )
+        log.info("answer.done", mode=mode, latency_ms=latency)
+        yield Done(msg_id, False, self._model.model, latency, notices=notices, mode=mode)
 
     async def feedback(
         self,
@@ -309,11 +428,18 @@ class AnswerService:
         if self._limits.near_global_limit(spend):
             log.warning("budget_80_percent", spent_usd=str(spend.month_all))
 
-    async def _history(self, identity: Identity, sid: ChatSessionId) -> list[ChatMessage]:
+    async def _history(
+        self, identity: Identity, sid: ChatSessionId, *, exclude: MessageId
+    ) -> list[ChatMessage]:
+        """The turns before the question just stored (``exclude``)."""
         stored = await self._chats.messages(
-            identity.workspace_id, identity.user_id, sid, limit=MAX_HISTORY_TURNS
+            identity.workspace_id, identity.user_id, sid, limit=MAX_HISTORY_TURNS + 1
         )
-        return [ChatMessage(m.role, m.content) for m in stored if m.role is not Role.SYSTEM]
+        return [
+            ChatMessage(m.role, m.content)
+            for m in stored
+            if m.id != exclude and m.role is not Role.SYSTEM
+        ][-MAX_HISTORY_TURNS:]
 
     async def _rewrite(
         self, identity: Identity, question: str, history: Sequence[ChatMessage]
@@ -436,11 +562,16 @@ def _price(model: str, tokens_in: int, tokens_out: int) -> Decimal:
     return (price_in * tokens_in + price_out * tokens_out) / Decimal(1_000_000)
 
 
-def _usage_json(usage: Usage | None, model: str) -> dict[str, object] | None:
+def _usage_json(usage: Usage | None, model: str, mode: AnswerMode) -> dict[str, object]:
     if usage is None:
-        return None
+        return {"mode": mode}
     cost = _price(model, usage.tokens_in, usage.tokens_out)
-    return {"tokens_in": usage.tokens_in, "tokens_out": usage.tokens_out, "cost_usd": str(cost)}
+    return {
+        "tokens_in": usage.tokens_in,
+        "tokens_out": usage.tokens_out,
+        "cost_usd": str(cost),
+        "mode": mode,
+    }
 
 
 def _title(question: str) -> str:

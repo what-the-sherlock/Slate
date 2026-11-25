@@ -588,6 +588,11 @@ export interface components {
             /** Question */
             question: string;
             /**
+             * Replace From
+             * @description Regenerate or edit: this question (a user message id in session_id) and everything after it are replaced by the new turn (ADR-0024)
+             */
+            replace_from?: string | null;
+            /**
              * Session Id
              * @description Continue this chat; omit to start one
              */
@@ -734,6 +739,13 @@ export interface components {
              * Format: uuid
              */
             message_id: string;
+            /**
+             * Mode
+             * @description grounded: cited from sources; general: from general knowledge, not your sources (label it); chat: small talk (ADR-0025)
+             * @default grounded
+             * @enum {string}
+             */
+            mode: "grounded" | "general" | "chat";
             /** Model */
             model: string | null;
             /** Notices */
@@ -919,6 +931,12 @@ export interface components {
             id: string;
             /** Latency Ms */
             latency_ms: number | null;
+            /**
+             * Mode
+             * @default grounded
+             * @enum {string}
+             */
+            mode: "grounded" | "general" | "chat";
             /** Model */
             model: string | null;
             /**

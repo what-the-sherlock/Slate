@@ -94,7 +94,13 @@ class _MemoryChats:
         return self._messages.get(session, [])[-limit:]
 
     async def add_message(
-        self, ws: WorkspaceId, user: UserId, session: ChatSessionId, message: NewMessage
+        self,
+        ws: WorkspaceId,
+        user: UserId,
+        session: ChatSessionId,
+        message: NewMessage,
+        *,
+        supersede_from: MessageId | None = None,  # evals ask one-shot questions
     ) -> MessageId:
         mid = MessageId(uuid4())
         self._messages.setdefault(session, []).append(
@@ -206,6 +212,8 @@ async def run(limit: int | None, only: set[str] | None = None) -> int:
                     cost_usd=float(spent),
                     latency_ms=done.latency_ms if done else 0,
                     text=text,
+                    expect_mode=case.expect_mode,
+                    mode=done.mode if done else "grounded",
                 )
             )
             print(f"  {case.id:<12} {'ABSTAINED' if results[-1].abstained else 'answered'}")

@@ -325,3 +325,29 @@
   expected_documents: []
   tags: [no-answer]
   visibility: public
+
+# ---- answered without sources (ADR-0025): general knowledge, labelled; small talk
+- id: gen-001
+  question: What is the difference between OAuth and OpenID Connect?
+  expected_documents: []
+  expect_mode: general
+  tags: [no-answer, general]
+  visibility: public
+- id: gen-002
+  question: How do I reverse a list in Python?
+  expected_documents: []
+  expect_mode: general
+  tags: [no-answer, general]
+  visibility: public
+- id: chat-001
+  question: hi
+  expected_documents: []
+  expect_mode: chat
+  tags: [no-answer, chat]
+  visibility: public
+- id: chat-002
+  question: Thanks! What can you do?
+  expected_documents: []
+  expect_mode: chat
+  tags: [no-answer, chat]
+  visibility: public

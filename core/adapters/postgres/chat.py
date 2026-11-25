@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import text
 
 from core.adapters.postgres.uow import UnitOfWork
+from core.domain.answer import AnswerMode
 from core.domain.chat import Role
 from core.domain.errors import NotFound
 from core.domain.ids import ChatSessionId, ChunkId, DocumentId, MessageId, UserId, WorkspaceId
@@ -25,6 +26,16 @@ _GET_SESSION = (
     "SELECT s.id, s.title, s.created_at FROM chat_sessions s"  # noqa: S608 (constants only)
     f" WHERE s.id = :id AND {_OWNED}"
 )
+# Regenerate/edit (ADR-0024): retire the anchor user message and everything after it.
+# The anchor must be a live user message of a session this user owns.
+_SUPERSEDE = (
+    "UPDATE messages m SET superseded_at = now()"  # noqa: S608 (constants only)
+    " FROM messages anchor JOIN chat_sessions s ON s.id = anchor.session_id"
+    " WHERE anchor.id = :anchor AND anchor.session_id = :id AND anchor.role = 'user'"
+    f" AND anchor.superseded_at IS NULL AND {_OWNED}"
+    " AND m.session_id = anchor.session_id AND m.superseded_at IS NULL"
+    " AND m.created_at >= anchor.created_at RETURNING m.id"
+)
 _MESSAGES = (
     "SELECT * FROM ("  # noqa: S608 (constants only)
     "  SELECT m.id, m.role, m.content, m.created_at, m.model, m.latency_ms, m.usage,"
@@ -33,10 +44,14 @@ _MESSAGES = (
     "     FILTER (WHERE c.n IS NOT NULL), '[]') AS cites"
     "  FROM messages m JOIN chat_sessions s ON s.id = m.session_id"
     "  LEFT JOIN message_citations c ON c.message_id = m.id"
-    f"  WHERE m.session_id = :id AND {_OWNED}"
+    f"  WHERE m.session_id = :id AND m.superseded_at IS NULL AND {_OWNED}"
     "  GROUP BY m.id ORDER BY m.created_at DESC LIMIT :n"
     ") t ORDER BY created_at"
 )
+
+
+def _mode(raw: object) -> AnswerMode:
+    return raw if raw in ("general", "chat") else "grounded"
 
 
 def _info(r: Any) -> ChatSessionInfo:  # reason: RowMapping values are Any
@@ -130,6 +145,7 @@ class PostgresChatStore:
                     model=r["model"],
                     latency_ms=r["latency_ms"],
                     abstained=bool(usage.get("abstained")),
+                    mode=_mode(usage.get("mode")),
                     citations=tuple(
                         Citation(
                             n=int(c["n"]),
@@ -143,7 +159,13 @@ class PostgresChatStore:
         return out
 
     async def add_message(
-        self, ws: WorkspaceId, user: UserId, session: ChatSessionId, message: NewMessage
+        self,
+        ws: WorkspaceId,
+        user: UserId,
+        session: ChatSessionId,
+        message: NewMessage,
+        *,
+        supersede_from: MessageId | None = None,
     ) -> MessageId:
         params = {
             "id": session,
@@ -157,6 +179,15 @@ class PostgresChatStore:
             "latency": message.latency_ms,
         }
         async with self._uow() as s:
+            if supersede_from is not None:
+                retired = (
+                    await s.execute(
+                        text(_SUPERSEDE),
+                        {"anchor": supersede_from, "id": session, "ws": ws, "u": user},
+                    )
+                ).all()
+                if not retired:
+                    raise NotFound("message not found")  # rolls the transaction back
             row = (
                 await s.execute(
                     text(
