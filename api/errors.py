@@ -82,7 +82,12 @@ async def _app_error(request: Request, exc: Exception) -> JSONResponse:
     headers: dict[str, str] = {}
     if isinstance(exc, RateLimited) and exc.retry_after_s:
         headers["Retry-After"] = str(exc.retry_after_s)
-    log.info("app_error", code=exc.code, status=status)
+    if status >= 500:
+        # Server-side problems (storage down, config missing): the detail is our own fixed
+        # text, never user content, and without it a 503 can't be diagnosed from the logs.
+        log.warning("app_error", code=exc.code, status=status, detail=exc.detail)
+    else:
+        log.info("app_error", code=exc.code, status=status)
     extra = {k: v for k, v in exc.extra.items() if v is not None}
     return problem(
         request,
