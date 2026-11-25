@@ -36,6 +36,7 @@ const SOURCE_STATUS: Record<string, { variant: PillVariant; label: string }> = {
   failed: { variant: "danger", label: "Failed" },
   never: { variant: "outline", label: "Never synced" },
   paused: { variant: "outline", label: "Paused" },
+  partial: { variant: "warning", label: "Partial" },
 };
 
 export function SourceStatusPill({ status }: { status: string }) {

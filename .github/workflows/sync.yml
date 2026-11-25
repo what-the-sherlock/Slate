@@ -34,6 +34,16 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
       SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+      # Embedding uploads and repos (paid; capped by the budget guard and spend caps).
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # Upload storage (Neon Object Storage, ADR-0014).
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT_URL_S3: ${{ secrets.AWS_ENDPOINT_URL_S3 }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      # GitHub App (ADR-0023): only the id and private key; the worker mints install tokens.
+      GITHUB_APP_ID: ${{ secrets.SLATE_GITHUB_APP_ID }}
+      GITHUB_APP_PRIVATE_KEY: ${{ secrets.SLATE_GITHUB_APP_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

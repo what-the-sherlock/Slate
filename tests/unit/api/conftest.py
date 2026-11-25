@@ -14,6 +14,7 @@ from core.domain.budget import SpendLimits
 from core.services.answer import AnswerService
 from core.services.auth import AuthPolicy, AuthService
 from core.services.catalog import CatalogService
+from core.services.github import GitHubService
 from core.services.search import SearchService
 from core.services.uploads import UploadService
 from tests.fakes.auth import (
@@ -27,6 +28,7 @@ from tests.fakes.auth import (
 )
 from tests.fakes.catalog import InMemoryCatalog
 from tests.fakes.chat import InMemoryChatStore
+from tests.fakes.github import FakeGitHub
 from tests.fakes.jobs import FakeJobQueue
 from tests.fakes.models import FakeChatModel, FakeEmbedder, WordTokenizer
 from tests.fakes.rate_limit import InMemoryRateLimiter
@@ -135,8 +137,32 @@ def answers(
 
 
 @pytest.fixture
+def fake_github() -> FakeGitHub:
+    return FakeGitHub()
+
+
+@pytest.fixture
+def source_store() -> InMemorySources:
+    return InMemorySources()
+
+
+@pytest.fixture
+def github(fake_github: FakeGitHub, source_store: InMemorySources) -> GitHubService:
+    clock = FakeClock()
+    return GitHubService(
+        fake_github,
+        source_store,
+        FakeJobQueue(clock),
+        InMemoryRateLimiter(clock),
+        clock,
+        secret=b"g" * 32,
+    )
+
+
+@pytest.fixture
 def app(
     probe: FakeHealthProbe,
+    github: GitHubService,
     auth: AuthService,
     uploads: UploadService,
     catalog: InMemoryCatalog,
@@ -155,6 +181,7 @@ def app(
         search=search,
         answers=answers,
         chats=chats,
+        github=github,
     )
     application.dependency_overrides[get_container] = lambda: container
     return application

@@ -184,7 +184,7 @@ Connectors declare their capabilities by which protocols they implement. A conne
 | Connector | Capabilities | Notes |
 | --- | --- | --- |
 | `upload` | (API-driven) | Direct-to-storage, two steps (ADR-0016): `POST /uploads` checks role, size, type and duplicates and returns a size-limited presigned POST plus a signed upload token; the browser sends the file straight to the bucket; `POST /uploads/complete` checks size and sniffs the first 8 KB, then enqueues `process_upload`. The worker re-verifies the sha256 |
-| `github` | FullLoad, Poll, SlimList, WebhookReceiver | Code via shallow `git clone`/`fetch` in the worker (no API quota); issues and PRs via REST with `since`; GitHub App or fine-grained PAT; 5,000 req/h budget |
+| `github` | FullLoad, Poll, SlimList | GitHub App (ADR-0023): the installation is verified as the user's through OAuth during install. Docs come from one tarball per changed default branch, issues and PRs via REST with `since`; one source per repo; unchanged files skipped by checksum, deleted files pruned; hourly, plus "Sync now" inline (90 s, then the worker). No code and no webhooks in M4 |
 | `discord` | FullLoad, Poll | Bot with Message Content intent; page with `after=<snowflake>`; group messages by thread or 30-min window into one document |
 | `gmail_mbox` | FullLoad | Import of a Google Takeout `.mbox` uploaded to BlobStore; one document per thread; visibility `user:<owner>` |
 
@@ -234,13 +234,13 @@ sequenceDiagram
 
 ## 9. API surface (v1, initial)
 
-`GET /api/v1/auth/config`, `POST /api/v1/auth/signup|login|logout`, `POST /api/v1/auth/verify`, `POST /api/v1/auth/verify/resend`, `POST /api/v1/auth/password/forgot|reset`, `GET /api/v1/me`, `GET|POST /api/v1/sources`, `POST /api/v1/sources/{id}/sync`, `GET /api/v1/sources/{id}/runs`, `POST /api/v1/uploads`, `POST /api/v1/uploads/complete`, `GET /api/v1/documents/{id}` (preview, ACL-checked), `POST /api/v1/search`, `POST /api/v1/chat` (SSE), `GET /api/v1/chat/sessions`, `GET /api/v1/chat/sessions/{id}/messages`, `POST /api/v1/messages/{id}/feedback`, `POST /api/v1/webhooks/{connector}`, `GET /healthz`, `GET /readyz`.
+`GET /api/v1/auth/config`, `POST /api/v1/auth/signup|login|logout`, `POST /api/v1/auth/verify`, `POST /api/v1/auth/verify/resend`, `POST /api/v1/auth/password/forgot|reset`, `GET /api/v1/me`, `GET|POST /api/v1/sources`, `GET /api/v1/sources/github/status`, `POST /api/v1/sources/github/install|installations|repos|connect`, `POST /api/v1/sources/{id}/sync`, `DELETE /api/v1/sources/{id}`, `GET /api/v1/sources/{id}/runs`, `POST /api/v1/uploads`, `POST /api/v1/uploads/complete`, `GET /api/v1/documents/{id}` (preview, ACL-checked), `POST /api/v1/search`, `POST /api/v1/chat` (SSE), `GET /api/v1/chat/sessions`, `GET /api/v1/chat/sessions/{id}/messages`, `POST /api/v1/messages/{id}/feedback`, `POST /api/v1/webhooks/{connector}`, `GET /healthz`, `GET /readyz`.
 
 Errors use RFC 9457 `application/problem+json` with a stable `type` URI per domain error. List endpoints use cursor pagination.
 
 ## 10. Configuration (env vars, all read in `core/config.py`)
 
-`ENV` (`dev|test|prod`), `OWNER_EMAIL`, `SETUP_TOKEN`, `SIGNUPS_ENABLED`, `SMTP_HOST|PORT|SECURITY|USERNAME|PASSWORD`, `MAIL_FROM`, `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `DAILY_LLM_BUDGET_USD`, `WORKSPACE_MONTHLY_BUDGET_USD`, `WORKSPACE_DAILY_BUDGET_USD`, `DATABASE_URL` (pooled), `DATABASE_URL_DIRECT`, `SESSION_SECRET`, `CREDENTIALS_FERNET_KEY`, `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL` (default gpt-4o-mini), `CHAT_MIN_SIMILARITY`, `OPENAI_EMBED_MODEL`, `EMBED_DIMS=1024`, `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `UPLOADS_BUCKET` (Neon Object Storage, ADR-0014), `GITHUB_DISPATCH_TOKEN`, `GITHUB_REPO`, `GITHUB_APP_*` or `GITHUB_TOKEN`, `DISCORD_BOT_TOKEN`, `MONTHLY_LLM_BUDGET_USD=5`, `SENTRY_DSN`, `LOG_LEVEL`.
+`ENV` (`dev|test|prod`), `OWNER_EMAIL`, `SETUP_TOKEN`, `SIGNUPS_ENABLED`, `SMTP_HOST|PORT|SECURITY|USERNAME|PASSWORD`, `MAIL_FROM`, `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `DAILY_LLM_BUDGET_USD`, `WORKSPACE_MONTHLY_BUDGET_USD`, `WORKSPACE_DAILY_BUDGET_USD`, `DATABASE_URL` (pooled), `DATABASE_URL_DIRECT`, `SESSION_SECRET`, `CREDENTIALS_FERNET_KEY`, `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL` (default gpt-4o-mini), `CHAT_MIN_SIMILARITY`, `OPENAI_EMBED_MODEL`, `EMBED_DIMS=1024`, `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `UPLOADS_BUCKET` (Neon Object Storage, ADR-0014), `GITHUB_DISPATCH_TOKEN`, `GITHUB_REPO`, `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY` (ADR-0023), `DISCORD_BOT_TOKEN`, `MONTHLY_LLM_BUDGET_USD=5`, `SENTRY_DSN`, `LOG_LEVEL`.
 
 `.env.example` lists them all with comments. The app refuses to start in `prod` if a required one is missing.
 

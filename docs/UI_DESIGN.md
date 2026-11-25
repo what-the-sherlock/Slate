@@ -527,7 +527,14 @@ The stage label is in an `aria-live="polite"` region; it announces stage changes
   - "Already indexed" (neutral, for the checksum no-op, so a duplicate isn't presented as an error)
   - Failures, inline with a reason: "File type not supported", "Larger than 25 MB", "Couldn't read this PDF" (with a Retry button where retryable).
   Files are validated in the browser (type and size) before upload, and again on the server, which is the authority.
-- **GitHub:** 1) Access: a fine-grained personal access token (secret input), a "Create a token ↗" link, and the required permissions listed in a small checklist; "Check access" calls `validate` and shows "Connected as @user · 12 repositories" (success) or the specific failure. 2) Repositories: a searchable checklist with visibility tags. 3) Content: switches for Code, Docs and READMEs, Issues, Pull requests. 4) Review: a summary, then "Connect and start sync".
+- **GitHub (ADR-0023, GitHub App):**
+  1) In the dialog: what the app can read (read-only, as a checklist), what gets indexed (docs, issues and PRs; code not yet) and "Continue to GitHub ↗". The tile is live only when the server's app is configured; otherwise it shows "Not set up on this server yet".
+  2) GitHub install (the user picks repos there).
+  3) `/sources/github/callback`:
+     - "Checking your installation with GitHub…", then a searchable repo checklist: Private or Public tag, already-connected repos ticked, disabled and tagged "Connected", "Select all" (max 20), a live "N selected" counter, a note that public repos stay workspace-only too, and a "Missing a repository? Change access on GitHub ↗" link.
+     - Special states: "Waiting for approval" (org install), "The app can't see any repositories" with a link to its settings, and expired or foreign links with "Start again".
+  4) After "Connect N repositories": per-repo first-sync progress (Waiting, Syncing, Synced, Continues in background, Couldn't sync), then "Go to Sources".
+  The source detail page has "Sync now" (toast: "Synced" or "finishes in the background within the hour"), run kinds as words (First sync, Sync), each run's summary line, and a danger-zone "Disconnect" with a confirm dialog that says exactly what's deleted.
 - **Discord:** 1) Bot: "Add the bot to your server ↗", the bot token (secret input), Check. 2) Channels: a checklist grouped by category, with notes on which channels the bot can't read. 3) Visibility. 4) Review.
 - **Gmail:** 1) A short Takeout guide (3 numbered steps with a "Open Google Takeout ↗" link, and the note "Select only Mail, in .mbox format"). 2) A dropzone for `.mbox`. 3) Visibility is fixed at "Only me" (a `lock` icon and the line "Email is always private to you"). No choice is offered.
 

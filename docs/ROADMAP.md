@@ -50,7 +50,10 @@ Update this line and tick items as work completes. Only the current milestone is
 - Done when: every `[n]` opens its passage; abstention cases pass
 
 ### M4 — GitHub (days 12–13)
-- [ ] Code via git, README/docs, issues and PRs, webhooks, pruning
+- [x] GitHub App install with ownership check, repo picker, one source per repo (ADR-0023)
+- [x] Docs (tarball) + issues and PRs with comments; checksum skip; pruning; hourly schedule; Sync now inline; disconnect
+- [ ] Owner: create the GitHub App, set the secrets, try it on a test repo; security review
+- Deferred (owner decision): code indexing, webhooks, dispatch token
 - Done when: a push is searchable within the next sync
 
 ### M5 — Discord (days 14–15)

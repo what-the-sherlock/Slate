@@ -413,6 +413,56 @@
         "title": "CompleteUploadResponse",
         "type": "object"
       },
+      "ConnectBody": {
+        "properties": {
+          "grant": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Grant",
+            "type": "string"
+          },
+          "repos": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Repos",
+            "type": "array"
+          }
+        },
+        "required": [
+          "grant",
+          "repos"
+        ],
+        "title": "ConnectBody",
+        "type": "object"
+      },
+      "ConnectedOut": {
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "name",
+          "job_id"
+        ],
+        "title": "ConnectedOut",
+        "type": "object"
+      },
       "DocumentPreviewOut": {
         "properties": {
           "chunks": {
@@ -655,6 +705,49 @@
         "title": "ForgotPasswordBody",
         "type": "object"
       },
+      "GitHubStatusOut": {
+        "properties": {
+          "available": {
+            "description": "False until the server's GitHub App is configured",
+            "title": "Available",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "available"
+        ],
+        "title": "GitHubStatusOut",
+        "type": "object"
+      },
+      "GrantBody": {
+        "properties": {
+          "grant": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Grant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant"
+        ],
+        "title": "GrantBody",
+        "type": "object"
+      },
+      "GrantOut": {
+        "properties": {
+          "grant": {
+            "description": "Short-lived proof that this installation is yours",
+            "title": "Grant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant"
+        ],
+        "title": "GrantOut",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -688,6 +781,47 @@
           "version"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "InstallLinkOut": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "InstallLinkOut",
+        "type": "object"
+      },
+      "InstallationBody": {
+        "properties": {
+          "code": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "installation_id": {
+            "exclusiveMinimum": 0.0,
+            "title": "Installation Id",
+            "type": "integer"
+          },
+          "state": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "installation_id",
+          "code",
+          "state"
+        ],
+        "title": "InstallationBody",
         "type": "object"
       },
       "JobOut": {
@@ -1037,6 +1171,51 @@
           "expected_revision"
         ],
         "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "RepoOut": {
+        "properties": {
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "full_name": {
+            "title": "Full Name",
+            "type": "string"
+          },
+          "html_url": {
+            "title": "Html Url",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "private": {
+            "title": "Private",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "full_name",
+          "private",
+          "description",
+          "html_url",
+          "connected"
+        ],
+        "title": "RepoOut",
         "type": "object"
       },
       "ResendBody": {
@@ -1462,7 +1641,8 @@
               "queued",
               "failed",
               "never",
-              "paused"
+              "paused",
+              "partial"
             ],
             "title": "Status",
             "type": "string"
@@ -1512,6 +1692,26 @@
           "sources"
         ],
         "title": "SourcesEvent",
+        "type": "object"
+      },
+      "SyncOut": {
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "done: synced now; queued: the worker finishes it",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "SyncOut",
         "type": "object"
       },
       "TokenEvent": {
@@ -2294,6 +2494,215 @@
         ]
       }
     },
+    "/api/v1/sources/github/connect": {
+      "post": {
+        "operationId": "connect_api_v1_sources_github_connect_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectedOut"
+                  },
+                  "title": "Response Connect Api V1 Sources Github Connect Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connect repos as sources (each starts syncing)",
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/v1/sources/github/install": {
+      "post": {
+        "operationId": "install_api_v1_sources_github_install_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallLinkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Start installing the GitHub App",
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/v1/sources/github/installations": {
+      "post": {
+        "operationId": "installation_api_v1_sources_github_installations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallationBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish the install: verify it's yours, get a grant for picking repos",
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/v1/sources/github/repos": {
+      "post": {
+        "operationId": "repos_api_v1_sources_github_repos_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RepoOut"
+                  },
+                  "title": "Response Repos Api V1 Sources Github Repos Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Repos the app can see",
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/v1/sources/github/status": {
+      "get": {
+        "operationId": "github_status_api_v1_sources_github_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Whether GitHub can be connected",
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/v1/sources/{source_id}": {
+      "delete": {
+        "operationId": "disconnect_api_v1_sources__source_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disconnect a source and delete what it indexed",
+        "tags": [
+          "github"
+        ]
+      }
+    },
     "/api/v1/sources/{source_id}/runs": {
       "get": {
         "operationId": "list_runs_api_v1_sources__source_id__runs_get",
@@ -2350,6 +2759,49 @@
         "summary": "Recent ingestion runs and their errors",
         "tags": [
           "sources"
+        ]
+      }
+    },
+    "/api/v1/sources/{source_id}/sync": {
+      "post": {
+        "operationId": "sync_now_api_v1_sources__source_id__sync_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync a repo now",
+        "tags": [
+          "github"
         ]
       }
     },

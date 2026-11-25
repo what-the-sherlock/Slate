@@ -25,6 +25,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "tiktoken>=0.8",
     "openai>=1.55",
+    "cryptography>=43",
 ]
 
 [dependency-groups]

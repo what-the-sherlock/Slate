@@ -333,6 +333,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sources/github/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Connect repos as sources (each starts syncing) */
+        post: operations["connect_api_v1_sources_github_connect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/github/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start installing the GitHub App */
+        post: operations["install_api_v1_sources_github_install_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/github/installations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finish the install: verify it's yours, get a grant for picking repos */
+        post: operations["installation_api_v1_sources_github_installations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/github/repos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Repos the app can see */
+        post: operations["repos_api_v1_sources_github_repos_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/github/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether GitHub can be connected */
+        get: operations["github_status_api_v1_sources_github_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/{source_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Disconnect a source and delete what it indexed */
+        delete: operations["disconnect_api_v1_sources__source_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sources/{source_id}/runs": {
         parameters: {
             query?: never;
@@ -344,6 +446,23 @@ export interface paths {
         get: operations["list_runs_api_v1_sources__source_id__runs_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/{source_id}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sync a repo now */
+        post: operations["sync_now_api_v1_sources__source_id__sync_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -547,6 +666,28 @@ export interface components {
              */
             status: "upload" | "duplicate" | "processing" | "visibility_differs" | "indexed";
         };
+        /** ConnectBody */
+        ConnectBody: {
+            /** Grant */
+            grant: string;
+            /** Repos */
+            repos: string[];
+        };
+        /** ConnectedOut */
+        ConnectedOut: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+        };
         /** DocumentPreviewOut */
         DocumentPreviewOut: {
             /** Chunks */
@@ -645,6 +786,27 @@ export interface components {
              */
             turnstile_token: string;
         };
+        /** GitHubStatusOut */
+        GitHubStatusOut: {
+            /**
+             * Available
+             * @description False until the server's GitHub App is configured
+             */
+            available: boolean;
+        };
+        /** GrantBody */
+        GrantBody: {
+            /** Grant */
+            grant: string;
+        };
+        /** GrantOut */
+        GrantOut: {
+            /**
+             * Grant
+             * @description Short-lived proof that this installation is yours
+             */
+            grant: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -663,6 +825,20 @@ export interface components {
              * @example 0.1.0
              */
             version: string;
+        };
+        /** InstallLinkOut */
+        InstallLinkOut: {
+            /** Url */
+            url: string;
+        };
+        /** InstallationBody */
+        InstallationBody: {
+            /** Code */
+            code: string;
+            /** Installation Id */
+            installation_id: number;
+            /** State */
+            state: string;
         };
         /** JobOut */
         JobOut: {
@@ -812,6 +988,21 @@ export interface components {
              * @enum {string}
              */
             status: "ready" | "not_ready";
+        };
+        /** RepoOut */
+        RepoOut: {
+            /** Connected */
+            connected: boolean;
+            /** Description */
+            description: string | null;
+            /** Full Name */
+            full_name: string;
+            /** Html Url */
+            html_url: string;
+            /** Id */
+            id: number;
+            /** Private */
+            private: boolean;
         };
         /** ResendBody */
         ResendBody: {
@@ -977,7 +1168,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "synced" | "syncing" | "queued" | "failed" | "never" | "paused";
+            status: "synced" | "syncing" | "queued" | "failed" | "never" | "paused" | "partial";
             /**
              * Visibility
              * @enum {string}
@@ -994,6 +1185,19 @@ export interface components {
              * @constant
              */
             v: 1;
+        };
+        /** SyncOut */
+        SyncOut: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @description done: synced now; queued: the worker finishes it
+             */
+            status: string;
         };
         /** TokenEvent */
         TokenEvent: {
@@ -1582,6 +1786,174 @@ export interface operations {
             };
         };
     };
+    connect_api_v1_sources_github_connect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectedOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    install_api_v1_sources_github_install_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallLinkOut"];
+                };
+            };
+        };
+    };
+    installation_api_v1_sources_github_installations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstallationBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    repos_api_v1_sources_github_repos_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GrantBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepoOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    github_status_api_v1_sources_github_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubStatusOut"];
+                };
+            };
+        };
+    };
+    disconnect_api_v1_sources__source_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_runs_api_v1_sources__source_id__runs_get: {
         parameters: {
             query?: {
@@ -1602,6 +1974,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_now_api_v1_sources__source_id__sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncOut"];
                 };
             };
             /** @description Validation Error */

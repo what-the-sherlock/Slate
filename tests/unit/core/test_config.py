@@ -33,7 +33,6 @@ def test_settings_prod_rejects_short_session_secret() -> None:
             database_url="postgresql://a",
             database_url_direct="postgresql://b",
             session_secret="short",
-            trusted_ip_header="x-vercel-forwarded-for",
         )
 
 
@@ -50,3 +49,22 @@ def test_settings_require_database_url_raises_clearly_when_missing() -> None:
 def test_settings_rejects_unknown_log_level() -> None:
     with pytest.raises(ValidationError, match="invalid LOG_LEVEL"):
         make(log_level="LOUD")
+
+
+def test_the_trusted_ip_header_is_required_for_the_api_in_prod_but_not_the_worker() -> None:
+    worker = make(
+        env="prod",
+        database_url="postgresql://a",
+        database_url_direct="postgresql://b",
+        session_secret="x" * 40,
+    )  # loads fine: the worker never sees client IPs
+    with pytest.raises(RuntimeError, match="TRUSTED_IP_HEADER"):
+        worker.require_api_settings()
+    api = make(
+        env="prod",
+        database_url="postgresql://a",
+        database_url_direct="postgresql://b",
+        session_secret="x" * 40,
+        trusted_ip_header="x-vercel-forwarded-for",
+    )
+    api.require_api_settings()

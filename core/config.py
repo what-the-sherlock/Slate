@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     github_dispatch_token: SecretStr | None = None
     github_repo: str | None = None
     github_token: SecretStr | None = None
+    # GitHub App (ADR-0023): users install it on their repos. All five are needed for
+    # the connect flow; the worker needs only the id and the private key.
+    github_app_id: str | None = None
+    github_app_slug: str | None = None  # from the app's public URL: github.com/apps/<slug>
+    github_app_client_id: str | None = None
+    github_app_client_secret: SecretStr | None = None
+    github_app_private_key: SecretStr | None = None  # the .pem contents (\n escapes ok)
     discord_bot_token: SecretStr | None = None
 
     sentry_dsn: SecretStr | None = None
@@ -124,9 +131,6 @@ class Settings(BaseSettings):
             "DATABASE_URL": self.database_url,
             "DATABASE_URL_DIRECT": self.database_url_direct,
             "SESSION_SECRET": self.session_secret,
-            # Without it every visitor shares the proxy's IP: one rate-limit bucket for
-            # the whole internet (security review, ADR-0021).
-            "TRUSTED_IP_HEADER": self.trusted_ip_header,
         }
         missing = sorted(name for name, value in required.items() if value is None)
         if missing:
@@ -142,6 +146,15 @@ class Settings(BaseSettings):
     @property
     def turnstile_configured(self) -> bool:
         return bool(self.turnstile_site_key and self.turnstile_secret_key)
+
+    def require_api_settings(self) -> None:
+        """Checks only the API needs (the worker runs with ENV=prod but serves no requests).
+
+        Behind Vercel the socket peer is the proxy: without TRUSTED_IP_HEADER every visitor
+        would share one rate-limit bucket (security review, ADR-0021).
+        """
+        if self.env is Env.PROD and not self.trusted_ip_header:
+            raise RuntimeError("missing required setting in prod for the API: TRUSTED_IP_HEADER")
 
     def require_database_url(self, *, direct: bool = False) -> str:
         """Return the pooled (API) or direct (migrations, worker) URL, or fail clearly."""

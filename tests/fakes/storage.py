@@ -47,6 +47,25 @@ class InMemoryIndex:
         self.data_classes: dict[DocumentId, str] = {}
         self._next_chunk = 0
 
+    # ---- helpers for InMemorySources (GitHub sync: checksums and pruning)
+    def checksums(self, source_id: object, prefix: str) -> dict[str, str]:
+        return {
+            ext: self._docs[doc_id][1].checksum
+            for (src, ext), doc_id in self._by_key.items()
+            if src == source_id and ext.startswith(prefix) and doc_id in self._docs
+        }
+
+    def delete(self, source_id: object, external_ids: Sequence[str]) -> int:
+        n = 0
+        for ext in external_ids:
+            doc_id = self._by_key.pop((source_id, ext), None)
+            if doc_id is None:
+                continue
+            self._docs.pop(doc_id, None)
+            self._chunks = [c for c in self._chunks if c.document_id != doc_id]
+            n += 1
+        return n
+
     # ---- DocumentStore
     async def upsert_document(self, ws: WorkspaceId, doc: DocumentUpsert) -> DocumentId:
         key = (doc.source_id, doc.external_id)

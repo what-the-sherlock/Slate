@@ -4,7 +4,7 @@ import { Globe, Lock, Plug, Plus, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { LogoTile } from "@/components/brand";
+import { connectorName, LogoTile } from "@/components/brand";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { Pill, SourceStatusPill } from "@/components/status-pill";
@@ -127,7 +127,7 @@ function SourcesTable({ rows }: { rows: Source[] }) {
                     <LogoTile connector={s.connector} size={28} />
                     <span className="min-w-0">
                       <span className="block truncate text-body font-medium text-fg">{s.name}</span>
-                      <span className="block text-data text-fg-subtle capitalize">{s.connector}</span>
+                      <span className="block text-data text-fg-subtle">{connectorName(s.connector)}</span>
                     </span>
                   </Link>
                 </td>

@@ -13,7 +13,7 @@ class SourceOut(BaseModel):
     connector: str
     visibility: Literal["only_me", "workspace", "public", "mixed"]
     data_class: Literal["public", "private"]
-    status: Literal["synced", "syncing", "queued", "failed", "never", "paused"]
+    status: Literal["synced", "syncing", "queued", "failed", "never", "paused", "partial"]
     documents: int
     last_synced_at: datetime | None
     last_error: str | None

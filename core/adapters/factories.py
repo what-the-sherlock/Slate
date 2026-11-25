@@ -13,6 +13,7 @@ import structlog
 
 from core.adapters.email.dev import AllowAllHumanVerifier, LogEmailSender
 from core.adapters.email.smtp import SmtpEmailSender
+from core.adapters.github.app import GitHubApp
 from core.adapters.openai.chat import DEFAULT_MODEL as DEFAULT_CHAT_MODEL
 from core.adapters.openai.chat import OpenAIChatModel
 from core.adapters.openai.embedder import OpenAIEmbedder
@@ -25,6 +26,7 @@ from core.adapters.postgres.auth import (
 )
 from core.adapters.postgres.chat import PostgresChatStore
 from core.adapters.postgres.documents import PostgresDocumentStore
+from core.adapters.postgres.jobs import PostgresJobQueue
 from core.adapters.postgres.rate_limit import PostgresRateLimiter
 from core.adapters.postgres.search import PostgresSearchIndex
 from core.adapters.postgres.sources import PostgresSourceStore
@@ -42,8 +44,10 @@ from core.domain.emails import OutgoingEmail
 from core.domain.errors import UpstreamUnavailable
 from core.ports.auth import HumanVerifier
 from core.ports.email import EmailSender
+from core.ports.storage import BlobStore
 from core.services.answer import AnswerService
 from core.services.auth import AuthPolicy, AuthService
+from core.services.github import GitHubService, GitHubSync
 from core.services.ingest import IngestService
 from core.services.search import SearchService
 
@@ -124,8 +128,14 @@ def answer_service(settings: Settings, uow: UnitOfWork) -> AnswerService | None:
 def ingest_service(settings: Settings, uow: UnitOfWork) -> IngestService | None:
     """The upload pipeline, or None when storage or the OpenAI key isn't configured."""
     blobs = s3_blob_store(settings)
+    if blobs is None:
+        return None
+    return _ingest(settings, uow, blobs)
+
+
+def _ingest(settings: Settings, uow: UnitOfWork, blobs: BlobStore) -> IngestService | None:
     key = settings.openai_api_key.get_secret_value().strip() if settings.openai_api_key else ""
-    if blobs is None or not key:  # blank counts as "not configured"
+    if not key:  # blank counts as "not configured"
         return None
     return IngestService(
         blobs,
@@ -142,6 +152,58 @@ def ingest_service(settings: Settings, uow: UnitOfWork) -> IngestService | None:
         PostgresUsageLedger(uow),
         limits=spend_limits(settings),
     )
+
+
+class _NoBlobs:
+    """Connector syncs index documents directly and never touch upload storage."""
+
+    def __getattr__(self, name: str) -> object:
+        raise UpstreamUnavailable("Upload storage isn't configured on this server.")
+
+
+def github_api(settings: Settings) -> GitHubApp:
+    s = settings
+    return GitHubApp(
+        app_id=s.github_app_id,
+        slug=s.github_app_slug,
+        client_id=s.github_app_client_id,
+        client_secret=s.github_app_client_secret.get_secret_value()
+        if s.github_app_client_secret
+        else None,
+        private_key=s.github_app_private_key.get_secret_value()
+        if s.github_app_private_key
+        else None,
+    )
+
+
+def _github_key(settings: Settings) -> bytes:
+    """Signs the install state and repo-picker grants; its own label, like the code key."""
+    if settings.session_secret is None:
+        return secrets.token_bytes(32)
+    root = settings.session_secret.get_secret_value().encode()
+    return hmac.new(root, b"slate/github/v1", hashlib.sha256).digest()
+
+
+def github_service(settings: Settings, uow: UnitOfWork) -> GitHubService:
+    return GitHubService(
+        github_api(settings),
+        PostgresSourceStore(uow),
+        PostgresJobQueue(uow),
+        PostgresRateLimiter(uow),
+        SystemClock(),
+        secret=_github_key(settings),
+    )
+
+
+def github_sync(settings: Settings, uow: UnitOfWork) -> GitHubSync | None:
+    """The sync_github handler, or None without the app's key or an OpenAI key."""
+    api = github_api(settings)
+    if not (settings.github_app_id and settings.github_app_private_key):
+        return None
+    ingest = _ingest(settings, uow, s3_blob_store(settings) or _NoBlobs())  # type: ignore[arg-type]
+    if ingest is None:
+        return None
+    return GitHubSync(api, PostgresSourceStore(uow), PostgresJobQueue(uow), ingest, FormatParser())
 
 
 def email_sender(settings: Settings) -> EmailSender | None:

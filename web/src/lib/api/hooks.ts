@@ -129,3 +129,15 @@ export function useChatMessages(sessionId: string | null) {
     staleTime: Infinity, // new turns are appended locally while streaming
   });
 }
+
+export type GitHubRepo = components["schemas"]["RepoOut"];
+
+/** Whether this server's GitHub App is configured (the GitHub tile is live only then). */
+export function useGitHubStatus(enabled = true) {
+  return useQuery({
+    queryKey: ["github-status"] as const,
+    queryFn: async () => unwrap(await api.GET("/api/v1/sources/github/status")),
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+}

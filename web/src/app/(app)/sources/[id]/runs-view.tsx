@@ -2,14 +2,15 @@
 
 import { ArrowLeft, History } from "lucide-react";
 import Link from "next/link";
-import { LogoTile } from "@/components/brand";
+import { connectorName, LogoTile } from "@/components/brand";
 import { EmptyState } from "@/components/empty-state";
 import { Kpi, PanelLabel, PanelRow } from "@/components/panel";
 import { Pill, SourceStatusPill, type PillVariant } from "@/components/status-pill";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiProblem, errorMessage } from "@/lib/api/client";
-import { useRuns, useSources } from "@/lib/api/hooks";
+import { useMe, useRuns, useSources } from "@/lib/api/hooks";
 import { absoluteTime, formatCount, relativeTime } from "@/lib/format";
+import { DangerZone, SyncNowButton } from "./source-actions";
 
 const RUN_STATUS: Record<string, { variant: PillVariant; label: string }> = {
   succeeded: { variant: "success", label: "Succeeded" },
@@ -20,11 +21,21 @@ const RUN_STATUS: Record<string, { variant: PillVariant; label: string }> = {
   cancelled: { variant: "outline", label: "Cancelled" },
 };
 
+const RUN_KIND: Record<string, string> = {
+  full: "First sync",
+  incremental: "Sync",
+  upload: "Upload",
+  prune: "Cleanup",
+  webhook: "Webhook",
+};
+
 /** Source detail (UI_DESIGN §4.5): header, stats and run history with errors. */
 export function RunsView({ sourceId }: { sourceId: string }) {
   const sources = useSources();
   const runs = useRuns(sourceId);
+  const me = useMe();
   const source = sources.data?.find((s) => s.id === sourceId);
+  const canManage = me.data?.role === "owner" || me.data?.role === "admin";
   const notFound = runs.error instanceof ApiProblem && runs.error.status === 404;
 
   return (
@@ -39,11 +50,12 @@ export function RunsView({ sourceId }: { sourceId: string }) {
             {source ? <LogoTile connector={source.connector} size={32} /> : <Skeleton className="size-8 rounded-md" />}
             <div className="min-w-0">
               <h1 className="truncate text-page font-semibold tracking-[-0.02em] text-fg">{source?.name ?? " "}</h1>
-              <p className="text-caption text-fg-subtle capitalize">{source?.connector}</p>
+              <p className="text-caption text-fg-subtle">{source ? connectorName(source.connector) : ""}</p>
             </div>
             {source ? (
-              <span className="ml-auto">
+              <span className="ml-auto flex items-center gap-3">
                 <SourceStatusPill status={source.status} />
+                {me.data?.role !== "viewer" ? <SyncNowButton source={source} /> : null}
               </span>
             ) : null}
           </div>
@@ -80,7 +92,9 @@ export function RunsView({ sourceId }: { sourceId: string }) {
             </p>
           ) : runs.data.length === 0 ? (
             <EmptyState icon={History} title="No runs yet">
-              Runs appear here when files are processed.
+              {source?.connector === "github"
+                ? "The first sync starts right after connecting. Repositories re-sync every hour."
+                : "Runs appear here when files are processed."}
             </EmptyState>
           ) : (
             <ul className="divide-y divide-border border-b border-border">
@@ -90,7 +104,7 @@ export function RunsView({ sourceId }: { sourceId: string }) {
                   <li key={run.id} className="px-4 py-3 transition-colors hover:bg-subtle sm:px-8">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-caption">
                       <Pill variant={st.variant}>{st.label}</Pill>
-                      <span className="font-medium text-fg capitalize">{run.kind}</span>
+                      <span className="font-medium text-fg">{RUN_KIND[run.kind] ?? run.kind}</span>
                       <span className="text-fg-subtle tabular-nums">
                         {run.docs_changed} changed · {run.docs_failed} failed
                       </span>
@@ -98,6 +112,7 @@ export function RunsView({ sourceId }: { sourceId: string }) {
                         {relativeTime(run.started_at)}
                       </time>
                     </div>
+                    {run.error_summary ? <p className="mt-1.5 text-caption text-fg-muted">{run.error_summary}</p> : null}
                     {run.errors.length ? (
                       <ul className="mt-2 flex flex-col gap-1.5">
                         {run.errors.map((e, i) => (
@@ -114,6 +129,7 @@ export function RunsView({ sourceId }: { sourceId: string }) {
               })}
             </ul>
           )}
+          {source ? <DangerZone source={source} canManage={canManage} /> : null}
         </>
       )}
     </div>

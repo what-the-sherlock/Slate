@@ -16,6 +16,8 @@ from alembic.script import ScriptDirectory
 from core.adapters.factories import (
     answer_service,
     auth_service,
+    github_service,
+    github_sync,
     ingest_service,
     s3_blob_store,
     search_service,
@@ -35,6 +37,7 @@ from core.ports.system import HealthProbe
 from core.services.answer import AnswerService
 from core.services.auth import AuthService
 from core.services.catalog import CatalogService
+from core.services.github import GitHubService
 from core.services.inline import InlineRunner
 from core.services.search import SearchService
 from core.services.uploads import UploadService
@@ -54,6 +57,8 @@ class Container:
     search: SearchService | None = None
     answers: AnswerService | None = None  # None without an OpenAI key
     chats: ChatStore | None = None
+    github: GitHubService | None = None
+    github_inline: InlineRunner | None = None  # runs a first/manual sync right away
 
 
 @lru_cache(maxsize=1)
@@ -67,6 +72,7 @@ def expected_migration_head() -> str | None:
 @lru_cache(maxsize=1)
 def get_container() -> Container:
     settings = get_settings()
+    settings.require_api_settings()
     engine = create_engine(settings.require_database_url(), EngineKind.POOLED)
     uow = make_uow(create_session_factory(engine))
     return Container(
@@ -80,6 +86,8 @@ def get_container() -> Container:
         search=search_service(settings, uow),
         answers=answer_service(settings, uow),
         chats=PostgresChatStore(uow),
+        github=github_service(settings, uow),
+        github_inline=_github_inline(settings, uow),
     )
 
 
@@ -95,6 +103,13 @@ def _upload_service(settings: Settings, uow: UnitOfWork) -> UploadService | None
         SystemClock(),
         root_secret=settings.session_secret.get_secret_value().encode(),
     )
+
+
+def _github_inline(settings: Settings, uow: UnitOfWork) -> InlineRunner | None:
+    sync = github_sync(settings, uow)
+    if sync is None:
+        return None
+    return InlineRunner(PostgresJobQueue(uow), sync.handle_inline, runner_id="api-inline")
 
 
 def _inline_runner(settings: Settings, uow: UnitOfWork) -> InlineRunner | None:

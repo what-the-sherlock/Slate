@@ -211,3 +211,36 @@ Format: number, title, status, context, decision, consequences. Add new ADRs at 
 **Open:** a Content-Security-Policy for the web app (`img-src 'self' data:` and friends) belongs in M7 polish; leading-zero markers like `[01]` are accepted as 1 (harmless).
 **Gate tuning (2026-11-25, `evals.run --embedder openai`, `fa7e091`):** best-similarity ranges overlap (answerable min 0.245, no-answer max 0.353), so cosine similarity alone can't separate them on this corpus. The default is 0.20, deliberately low: a false abstention loses a real answer, while a gate miss only costs one cheap call that the sentinel then catches. On this set the gate now abstains on na-004 alone, and the other 3 no-answer cases rely on the sentinel (measured by `evals.answers`).
 **Answer evals (2026-11-25):** 53 cases. Abstention 0.943, citation validity 1.000, no injection followed. The 3 false abstentions were the model being over-cautious with the right document retrieved (a fact under a heading; two bare-keyword queries). The prompt now says titles and section headings are part of a source, and that a keyword means "say what the sources say about it". The targeted re-run fixed all 3 and still abstained on all 4 no-answer cases, but exposed an assembly bug: neighbour chunks from *another* section were merged without their heading. A Q2 item inside the Q1 passage was answered as "Q1 2027". A neighbour from a different section now carries its heading as `[heading]` (`AnswerService._assemble`; regression test). Lesson: widening context must preserve each piece's provenance.
+
+## ADR-0023: GitHub via a GitHub App; docs + issues/PRs; tarball instead of clone
+**Status:** Accepted (2026-11-25, M4).
+**Context:** Open sign-up (ADR-0021) means every account connects its *own* repositories. The owner chose (2026-11-25): a GitHub App (not personal access tokens), index docs plus issues and PRs (no code yet: embedding a codebase would use a workspace's $0.25 monthly allowance in one sync), hourly sync without webhooks, and no dispatch token yet.
+**Decision:**
+1. **Install flow, no stored secrets.**
+   - `install_link` signs a 15-minute `state` bound to the user and workspace.
+   - The app has "Request user authorization (OAuth) during installation" on, so GitHub redirects back with `installation_id`, `code` and `state`.
+   - The API checks the state, exchanges the code for a user token, and confirms through `GET /user/installations` that this user can access that installation, then revokes the token. Installation ids are sequential, so without this check anyone could claim someone else's installation and index their private repos.
+   - A signed 30-minute grant then authorises listing and connecting repos, so the picker needs no table.
+   - The worker mints 1-hour installation tokens from the app's private key (an RS256 JWT signed with `cryptography`, the one new dependency) and keeps them in memory only. Fernet credentials aren't needed.
+2. **One source per repo** (name `owner/repo`, unique per workspace), always **workspace-only and private data**, even for a public repo (security review). Anyone can sign up and connect a public repo, so making it visible to all accounts would let spam or injected text reach everyone's answers. A public repo made private later must also never stay public.
+3. **Content.**
+   - Docs come from one tarball download per changed default branch: Markdown, MDX, text, reStructuredText and well-known root files. Vendored, generated and hidden directories are skipped. Caps: 256 KB per file, 500 files and a 50 MB tarball. Symlinks and anything that isn't a regular file are ignored.
+   - Issues and PRs come from REST with `since`. Each one, with up to 100 comments, becomes one Markdown document, capped at 100k characters; at most 300 issues per sync.
+   - Unchanged files are skipped by checksum before any spend. Files gone from the repo are pruned.
+   - This replaces ARCHITECTURE's `git clone`: a tarball is one API call, needs no `git` binary, and keeps tokens out of clone URLs.
+4. **Pipeline reuse** (rules 2 and 3): `GitHubApi` only fetches. `GitHubSync` turns results into `DocumentUpsert`s and calls `IngestService.index_document`, so spend caps, idempotency, ACL triggers and run history are shared with uploads.
+5. **Scheduling.**
+   - Worker housekeeping queues `sync_github` for each due repo, keyed per source per hour.
+   - Connecting queues an initial sync. "Sync now" runs that waiting initial job, or otherwise a manual one (one per repo per 5 minutes).
+   - In the API these run **inline** with a 90 s budget and stop cleanly at it: progress is checkpointed, the run is marked `partial`, and a continuation job is queued.
+   - GitHub rate limits are honoured (`Retry-After` and `x-ratelimit-reset`) and saved as a partial run that the queue retries.
+6. **Disconnect** deletes the source; documents, chunks and runs cascade. Nothing changes on GitHub.
+**Consequences:** No webhooks, so a push is searchable within the next hourly sync or straight after "Sync now", which meets the M4 done-when. Code search waits for a later phase and an explicit budget decision. `TRUSTED_IP_HEADER` is now required for the API only (`Settings.require_api_settings`): the worker also runs with `ENV=prod` and would otherwise refuse to start. `sync.yml` now passes the worker its OpenAI, storage and GitHub App secrets.
+**Security review (2026-11-25), fixed:**
+- Repos are always workspace-only and private data.
+- The grant carries only the repos *this user* can read through the installation (`/user/installations/{id}/repositories` with their own token), so an org member can't index repos the app sees but they can't.
+- The tarball is read in streaming mode with caps of 50k entries and 200 MB unpacked.
+- The deadline is checked before each GitHub call.
+- Pagination follows only `api.github.com` links, and token-bearing calls don't follow redirects.
+
+**Accepted:** the inline runner's 120 s timeout stays the hard outer bound, inside Vercel's 300 s; a GitHub rate-limit wait can still use part of it.

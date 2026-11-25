@@ -30,6 +30,8 @@ def _status(s: SourceSummary) -> str:
         return "syncing" if s.last_run_status == "running" else "queued"
     if s.last_run_status == "failed":
         return "failed"
+    if s.last_run_status == "partial":
+        return "partial"  # stopped early (budget, rate limit, items that failed): see last_error
     return "synced" if s.last_synced_at else "never"
 
 

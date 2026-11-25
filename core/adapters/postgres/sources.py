@@ -2,15 +2,42 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import text
 
 from core.adapters.postgres.uow import UnitOfWork
 from core.domain.data_class import DataClass, classify
+from core.domain.errors import Conflict
 from core.domain.ids import DocumentId, RunId, SourceId, WorkspaceId
 from core.domain.principals import PUBLIC, workspace_principal
-from core.ports.sources import ExistingUpload
+from core.ports.sources import ExistingUpload, SourceRecord
+
+_SOURCE_COLS = (
+    "id, workspace_id, connector, name, visibility, data_class, status, config, checkpoint,"
+    " last_synced_at"
+)
+
+
+_GET_SOURCE = f"SELECT {_SOURCE_COLS} FROM sources WHERE id = :id AND workspace_id = :ws"  # noqa: S608
+
+
+def _source(r: Any) -> SourceRecord:  # reason: RowMapping values are Any
+    return SourceRecord(
+        id=SourceId(r["id"]),
+        workspace_id=WorkspaceId(r["workspace_id"]),
+        connector=str(r["connector"]),
+        name=str(r["name"]),
+        visibility=tuple(r["visibility"]),
+        data_class=str(r["data_class"]),
+        status=str(r["status"]),
+        config=dict(r["config"] or {}),
+        checkpoint=dict(r["checkpoint"]) if r["checkpoint"] is not None else None,
+        last_synced_at=r["last_synced_at"],
+    )
+
 
 _UPLOAD_SOURCE_NAMES = {DataClass.PRIVATE: "Uploads", DataClass.PUBLIC: "Public uploads"}
 
@@ -146,6 +173,136 @@ class PostgresSourceStore:
                 )
             ).one()
         return int(row[0]), int(row[1])
+
+    async def create_source(
+        self,
+        ws: WorkspaceId,
+        *,
+        connector: str,
+        name: str,
+        config: dict[str, object],
+        visibility: Sequence[str],
+        data_class: DataClass,
+    ) -> SourceId:
+        async with self._uow() as s:
+            row = (
+                await s.execute(
+                    text(
+                        "INSERT INTO sources (workspace_id, connector, name, config, visibility,"
+                        " data_class) VALUES (:ws, :c, :n, CAST(:cfg AS jsonb),"
+                        " CAST(:v AS text[]), :dc)"
+                        " ON CONFLICT (workspace_id, name) DO NOTHING RETURNING id"
+                    ),
+                    {
+                        "ws": ws,
+                        "c": connector,
+                        "n": name,
+                        "cfg": json.dumps(config),
+                        "v": list(visibility),
+                        "dc": data_class.value,
+                    },
+                )
+            ).first()
+        if row is None:
+            raise Conflict(f"{name} is already connected.")
+        return SourceId(row[0])
+
+    async def get_source(self, ws: WorkspaceId, source_id: SourceId) -> SourceRecord | None:
+        async with self._uow() as s:
+            row = (
+                (
+                    await s.execute(
+                        text(_GET_SOURCE),
+                        {"id": source_id, "ws": ws},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        return None if row is None else _source(row)
+
+    async def sources_by_connector(self, ws: WorkspaceId, connector: str) -> list[SourceRecord]:
+        async with self._uow() as s:
+            rows = (
+                (
+                    await s.execute(
+                        text(
+                            f"SELECT {_SOURCE_COLS} FROM sources"  # noqa: S608
+                            " WHERE workspace_id = :ws AND connector = :c ORDER BY name"
+                        ),
+                        {"ws": ws, "c": connector},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [_source(r) for r in rows]
+
+    async def save_checkpoint(
+        self, source_id: SourceId, checkpoint: dict[str, object], *, synced: bool
+    ) -> None:
+        stamp = ", last_synced_at = now()" if synced else ""
+        async with self._uow() as s:
+            await s.execute(
+                text(f"UPDATE sources SET checkpoint = CAST(:cp AS jsonb){stamp} WHERE id = :id"),  # noqa: S608
+                {"id": source_id, "cp": json.dumps(checkpoint)},
+            )
+
+    async def due_sources(self, connector: str, limit: int) -> list[tuple[WorkspaceId, SourceId]]:
+        async with self._uow() as s:
+            rows = (
+                await s.execute(
+                    text(
+                        "SELECT workspace_id, id FROM sources WHERE connector = :c"
+                        " AND status = 'active' AND (last_synced_at IS NULL"
+                        "  OR last_synced_at + schedule_interval <= now())"
+                        " ORDER BY last_synced_at NULLS FIRST LIMIT :n"
+                    ),
+                    {"c": connector, "n": limit},
+                )
+            ).all()
+        return [(WorkspaceId(r[0]), SourceId(r[1])) for r in rows]
+
+    async def document_checksums(self, source_id: SourceId, prefix: str) -> dict[str, str]:
+        async with self._uow() as s:
+            rows = (
+                await s.execute(
+                    text(
+                        "SELECT external_id, checksum FROM documents WHERE source_id = :s"
+                        " AND starts_with(external_id, :p) AND deleted_at IS NULL"
+                    ),
+                    {"s": source_id, "p": prefix},
+                )
+            ).all()
+        return {str(r[0]): str(r[1]) for r in rows}
+
+    async def delete_documents(self, source_id: SourceId, external_ids: Sequence[str]) -> int:
+        if not external_ids:
+            return 0
+        async with self._uow() as s:
+            rows = (
+                await s.execute(
+                    text(
+                        "DELETE FROM documents WHERE source_id = :s"
+                        " AND external_id = ANY(CAST(:ids AS text[])) RETURNING id"
+                    ),
+                    {"s": source_id, "ids": list(external_ids)},
+                )
+            ).all()
+        return len(rows)
+
+    async def delete_source(self, ws: WorkspaceId, source_id: SourceId) -> bool:
+        async with self._uow() as s:
+            row = (
+                await s.execute(
+                    text(
+                        "DELETE FROM sources WHERE id = :id AND workspace_id = :ws"
+                        " AND connector <> 'upload' RETURNING id"
+                    ),
+                    {"id": source_id, "ws": ws},
+                )
+            ).first()
+        return row is not None
 
     async def blob_in_use(self, blob_key: str) -> bool:
         async with self._uow() as s:

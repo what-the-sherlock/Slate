@@ -21,7 +21,13 @@ from decimal import Decimal
 
 import structlog
 
-from core.adapters.factories import ingest_service, s3_blob_store, workersai_embedder
+from core.adapters.factories import (
+    github_service,
+    github_sync,
+    ingest_service,
+    s3_blob_store,
+    workersai_embedder,
+)
 from core.adapters.postgres.auth import PostgresAccountStore
 from core.adapters.postgres.documents import PostgresDocumentStore
 from core.adapters.postgres.engine import (
@@ -37,6 +43,7 @@ from core.adapters.postgres.usage import PostgresGenerationStore, PostgresUsageL
 from core.config import Settings, get_settings
 from core.logs import configure_logging
 from core.services.backfill import BackfillReport, Provider, backfill_generation
+from core.services.github import SYNC_GITHUB
 from core.services.maintenance import sweep_abandoned_uploads, sweep_unverified_accounts
 from core.services.uploads import PROCESS_UPLOAD
 from worker.handlers import NOOP, noop
@@ -53,6 +60,11 @@ def build_handlers(settings: Settings, uow: UnitOfWork) -> dict[str, Handler]:
     else:
         # Jobs of that kind simply wait in the queue until the config is fixed.
         log.warning("upload_pipeline_disabled", reason="storage or OPENAI_API_KEY not configured")
+    sync = github_sync(settings, uow)
+    if sync is not None:
+        handlers[SYNC_GITHUB] = sync.handle
+    else:
+        log.warning("github_sync_disabled", reason="GitHub App or OPENAI_API_KEY not configured")
     return handlers
 
 
@@ -62,6 +74,13 @@ async def housekeeping(settings: Settings, uow: UnitOfWork) -> None:
         await sweep_unverified_accounts(PostgresAccountStore(uow), datetime.now(UTC))
     except Exception as e:
         log.warning("sweep_failed", sweep="unverified_accounts", error_type=type(e).__name__)
+    try:
+        # Hourly: queue a sync for every repo whose interval has passed (ADR-0023).
+        queued = await github_service(settings, uow).enqueue_due()
+        if queued:
+            log.info("github_syncs_queued", count=queued)
+    except Exception as e:
+        log.warning("sweep_failed", sweep="github_schedule", error_type=type(e).__name__)
     blobs = s3_blob_store(settings)
     if blobs is None:
         return
