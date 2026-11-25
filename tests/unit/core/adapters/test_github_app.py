@@ -194,3 +194,33 @@ async def test_a_tarball_with_too_many_entries_is_cut_off(monkeypatch: pytest.Mo
     body = _tarball({f"docs/{i}.md": b"x" for i in range(10)})
     app, _ = make(lambda r: httpx.Response(200, content=body))
     assert len([f async for f in app.doc_files(1, "o/r", "main")]) == 3
+
+
+@pytest.mark.parametrize(
+    "mangle",
+    [
+        lambda p: p,
+        lambda p: p.replace("\n", "\n"),  # literal \n in the env var
+        lambda p: p.replace("\n", " "),  # newlines turned into spaces (the production bug)
+        lambda p: f'"{p}"',  # pasted with quotes
+        lambda p: base64.b64encode(p.encode()).decode(),  # whole file base64-encoded
+    ],
+    ids=["as-is", "escaped", "spaces", "quoted", "base64"],
+)
+def test_pasted_keys_in_any_common_shape_still_sign(mangle: Callable[[str], str]) -> None:
+    token = app_jwt("123", mangle(PEM), now=1_000_000)
+    head, body, sig = token.split(".")
+    KEY.public_key().verify(
+        _unb64(sig), f"{head}.{body}".encode(), padding.PKCS1v15(), hashes.SHA256()
+    )
+
+
+async def test_a_broken_key_is_a_clear_error_not_a_500() -> None:
+    from core.domain.errors import UpstreamUnavailable
+
+    app = GitHubApp(
+        app_id="1", slug="s", client_id="c", client_secret="x", private_key="-----BEGIN junk",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200))),
+    )  # fmt: skip
+    with pytest.raises(UpstreamUnavailable, match="private key"):
+        await app.repo(1, "o/r")

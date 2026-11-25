@@ -60,12 +60,34 @@ def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
+_PEM = re.compile(r"-----BEGIN ([A-Z ]+)-----(.*?)-----END \1-----", re.S)
+NL = chr(10)
+
+
+def normalise_pem(raw: str) -> str:
+    """A valid PEM from however the key was pasted into an env var: real newlines, literal
+    backslash-n, newlines turned into spaces, surrounding quotes, or the whole file
+    base64-encoded (secret fields mangle multi-line values in all of these ways)."""
+    text = raw.strip().strip('"').strip("'").replace(chr(92) + "n", NL).replace(chr(13), "")
+    if "-----BEGIN" not in text:
+        try:
+            text = base64.b64decode("".join(text.split()), validate=True).decode()
+        except ValueError:
+            raise ValueError("not a PEM key") from None
+    m = _PEM.search(text)
+    if not m:
+        raise ValueError("not a PEM key")
+    label, body = m.group(1), "".join(m.group(2).split())
+    lines = [body[i : i + 64] for i in range(0, len(body), 64)]
+    return NL.join([f"-----BEGIN {label}-----", *lines, f"-----END {label}-----", ""])
+
+
 def app_jwt(app_id: str, private_key_pem: str, now: float | None = None) -> str:
     """A GitHub App JWT (RS256), valid ~10 minutes, backdated 60 s for clock drift."""
     issued = int(now if now is not None else time.time()) - 60
     header = _b64url(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
     payload = _b64url(json.dumps({"iat": issued, "exp": issued + 540, "iss": app_id}).encode())
-    key = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
+    key = serialization.load_pem_private_key(normalise_pem(private_key_pem).encode(), password=None)
     if not isinstance(key, rsa.RSAPrivateKey):
         raise ValueError("GITHUB_APP_PRIVATE_KEY must be an RSA key")
     signature = key.sign(f"{header}.{payload}".encode(), padding.PKCS1v15(), hashes.SHA256())
@@ -176,7 +198,15 @@ class GitHubApp:
             return cached[0]
         if not self._app_id or not self._key:
             raise UpstreamUnavailable("The GitHub App isn't configured on this server.")
-        jwt = app_jwt(self._app_id, self._key)
+        try:
+            jwt = app_jwt(self._app_id, self._key)
+        except ValueError:
+            # A config problem, not the user's: say so plainly (never echo the key).
+            log.error("github.private_key_invalid")
+            raise UpstreamUnavailable(
+                "The GitHub App's private key on the server is malformed. "
+                "Paste the whole .pem file into GITHUB_APP_PRIVATE_KEY."
+            ) from None
         r = await self._send(
             "POST",
             f"{API}/app/installations/{installation_id}/access_tokens",
