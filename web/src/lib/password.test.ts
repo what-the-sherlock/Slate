@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { PASSWORD_RULES } from "./setup-form";
+import { CODE, normaliseCode, passwordOk } from "./password";
 
 // The hints must agree with core/domain/auth.py validate_password, or the form would show
 // every rule met and the server would still reject the password.
-const allMet = (pw: string) => PASSWORD_RULES.every((r) => r.test(pw));
-
 describe("PASSWORD_RULES", () => {
   it.each([
     ["11 characters", "a".repeat(11), false],
@@ -16,6 +14,14 @@ describe("PASSWORD_RULES", () => {
     ["inner spaces only", "correct horse battery", true],
     ["empty", "", false],
   ])("%s -> %s", (_name, pw, expected) => {
-    expect(allMet(pw)).toBe(expected);
+    expect(passwordOk(pw)).toBe(expected);
+  });
+});
+
+describe("one-time codes", () => {
+  it("accepts six digits, including pasted ones with spaces", () => {
+    expect(CODE.test(normaliseCode(" 042 137 "))).toBe(true);
+    expect(CODE.test(normaliseCode("04213"))).toBe(false);
+    expect(CODE.test(normaliseCode("04213a"))).toBe(false);
   });
 });

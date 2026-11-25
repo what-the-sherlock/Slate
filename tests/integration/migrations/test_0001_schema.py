@@ -6,6 +6,7 @@ Every test runs in a transaction that is rolled back, so nothing is left on the 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
@@ -305,8 +306,9 @@ async def test_check_constraints_reject_invalid_values(tx: AsyncConnection, sql:
     ws = await scalar(tx, NEW_WORKSPACE)
     user = await scalar(
         tx,
-        "INSERT INTO users (email, name, password_hash)"
-        " VALUES ('u' || gen_random_uuid() || '@x.dev', 'u', 'h') RETURNING id",
+        "INSERT INTO users (email, email_canonical, name, password_hash)"
+        " SELECT e, e, 'u', 'h' FROM (SELECT 'u' || gen_random_uuid() || '@x.dev' AS e) x"
+        " RETURNING id",
     )
     with pytest.raises(IntegrityError, match="check"):
         await tx.execute(text(sql), {"ws": ws, "user": user})
@@ -320,14 +322,53 @@ async def test_job_idempotency_key_is_unique(tx: AsyncConnection) -> None:
         await tx.execute(text(insert), {"ws": ws})
 
 
-async def test_guest_needs_no_password_but_members_do(tx: AsyncConnection) -> None:
-    await tx.execute(
-        text(
-            "INSERT INTO users (email, name, is_guest)"
-            " VALUES ('guest-' || gen_random_uuid() || '@x.dev', 'Guest', true)"
-        )
-    )
-    with pytest.raises(IntegrityError, match="users_login_method"):
+async def test_every_user_needs_a_password_and_a_canonical_email(tx: AsyncConnection) -> None:
+    # 0004 (ADR-0021): no guest; every account signs in with a password.
+    with pytest.raises(IntegrityError, match="password_hash"):
         await tx.execute(
-            text("INSERT INTO users (email, name) VALUES ('n-' || gen_random_uuid() || '@x', 'n')")
+            text(
+                "INSERT INTO users (email, email_canonical, name)"
+                " SELECT e, e, 'n' FROM (SELECT 'n-' || gen_random_uuid() || '@x.dev' AS e) x"
+            )
+        )
+
+
+async def test_one_inbox_one_account(tx: AsyncConnection) -> None:
+    insert = (
+        "INSERT INTO users (email, email_canonical, name, password_hash) VALUES (:e, :c, 'n', 'h')"
+    )
+    canonical = f"dup-{uuid4()}@gmail.com"
+    await tx.execute(text(insert), {"e": canonical, "c": canonical})
+    with pytest.raises(IntegrityError, match="users_email_canonical_key"):
+        await tx.execute(text(insert), {"e": "x." + canonical, "c": canonical.upper()})
+
+
+async def test_a_user_belongs_to_one_workspace_until_invites_exist(tx: AsyncConnection) -> None:
+    user = await scalar(
+        tx,
+        "INSERT INTO users (email, email_canonical, name, password_hash)"
+        " SELECT e, e, 'u', 'h' FROM (SELECT 'm' || gen_random_uuid() || '@x.dev' AS e) x"
+        " RETURNING id",
+    )
+    first, second = await scalar(tx, NEW_WORKSPACE), await scalar(tx, NEW_WORKSPACE)
+    member = "INSERT INTO memberships (workspace_id, user_id, role) VALUES (:w, :u, 'owner')"
+    await tx.execute(text(member), {"w": first, "u": user})
+    with pytest.raises(IntegrityError, match="memberships_one_per_user"):
+        await tx.execute(text(member), {"w": second, "u": user})
+
+
+async def test_email_codes_hold_only_32_byte_hashes(tx: AsyncConnection) -> None:
+    user = await scalar(
+        tx,
+        "INSERT INTO users (email, email_canonical, name, password_hash)"
+        " SELECT e, e, 'u', 'h' FROM (SELECT 'c' || gen_random_uuid() || '@x.dev' AS e) x"
+        " RETURNING id",
+    )
+    with pytest.raises(IntegrityError, match="email_codes_code_hash_check"):
+        await tx.execute(
+            text(
+                "INSERT INTO email_codes (user_id, purpose, code_hash, expires_at)"
+                " VALUES (:u, 'verify_email', '\x0102', now())"
+            ),
+            {"u": user},
         )

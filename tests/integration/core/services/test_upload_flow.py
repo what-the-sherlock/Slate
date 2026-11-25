@@ -58,8 +58,9 @@ async def member(uow: UnitOfWork) -> AsyncIterator[Identity]:
         user = (
             await s.execute(
                 text(
-                    "INSERT INTO users (email, name, password_hash)"
-                    " VALUES ('up-' || gen_random_uuid() || '@t.dev', 'U', 'h') RETURNING id"
+                    "INSERT INTO users (email, email_canonical, name, password_hash)"
+                    " SELECT e, e, 'U', 'h' FROM (SELECT 'up-' || gen_random_uuid() || '@t.dev' AS e) x"
+                    " RETURNING id"
                 )
             )
         ).scalar_one()
@@ -71,7 +72,7 @@ async def member(uow: UnitOfWork) -> AsyncIterator[Identity]:
         email="u@t.dev",
         name="U",
         role=Role.MEMBER,
-        is_guest=False,
+        email_verified=True,
         principals=Principals.for_user(u, w),
         csrf_secret="c",
     )

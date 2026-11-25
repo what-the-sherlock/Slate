@@ -26,6 +26,8 @@ from core.domain.jobs import JobStatus
 from core.domain.signed_tokens import sign, verify
 from core.domain.uploads import (
     ALLOWED_DESCRIPTION,
+    MAX_DOCUMENTS_PER_WORKSPACE,
+    MAX_STORED_BYTES_PER_WORKSPACE,
     MAX_UPLOAD_BYTES,
     MIME,
     SNIFF_BYTES,
@@ -137,6 +139,7 @@ class UploadService:
         if await self._in_flight(identity.workspace_id, sha256, identity):
             return BeginResult(UploadStatus.PROCESSING, name)
 
+        await self._check_workspace_quota(identity.workspace_id, size)
         who = f"upload:{identity.user_id}"
         if not await self._limiter.try_spend(f"{who}:begin", 1, BEGIN_LIMIT):
             raise RateLimited(
@@ -244,6 +247,19 @@ class UploadService:
     async def _in_flight(self, ws: WorkspaceId, sha256: str, identity: Identity) -> bool:
         job = await self._jobs.find_by_key(_job_key(ws, external_id_for(sha256, identity.user_id)))
         return job is not None and job.status in _IN_FLIGHT
+
+    async def _check_workspace_quota(self, ws: WorkspaceId, size: int) -> None:
+        """Storage per workspace (ADR-0021). Re-uploads of a known file returned earlier."""
+        documents, stored = await self._sources.upload_usage(ws)
+        if documents >= MAX_DOCUMENTS_PER_WORKSPACE:
+            message = (
+                f"Your workspace has reached its limit of {MAX_DOCUMENTS_PER_WORKSPACE} documents."
+            )
+            raise ValidationFailed(message, extra={"fields": {"file": message}})
+        if stored + size > MAX_STORED_BYTES_PER_WORKSPACE:
+            limit_mb = MAX_STORED_BYTES_PER_WORKSPACE // (1024 * 1024)
+            message = f"This file would take your workspace over its {limit_mb} MB storage limit."
+            raise ValidationFailed(message, extra={"fields": {"file": message}})
 
     @staticmethod
     def _require_uploader(identity: Identity, visibility: Visibility) -> None:

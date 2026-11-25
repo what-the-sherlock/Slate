@@ -49,19 +49,21 @@ class Principals:
 
     @classmethod
     def for_user(
-        cls,
-        user_id: UserId,
-        workspace_id: WorkspaceId,
-        group_ids: Iterable[GroupId] = (),
-        *,
-        is_guest: bool = False,
+        cls, user_id: UserId, workspace_id: WorkspaceId, group_ids: Iterable[GroupId] = ()
     ) -> Principals:
-        """Guests get only their own principal and ``public`` (SECURITY.md)."""
-        found = {user_principal(user_id), PUBLIC}
-        if not is_guest:
-            found.add(workspace_principal(workspace_id))
-            found.update(group_principal(g) for g in group_ids)
+        """A workspace member: themselves, the workspace, their groups and ``public``."""
+        found = {user_principal(user_id), workspace_principal(workspace_id), PUBLIC}
+        found.update(group_principal(g) for g in group_ids)
         return cls(tuple(sorted(found)))
+
+    @classmethod
+    def for_outsider(cls, user_id: UserId) -> Principals:
+        """Someone entitled to nothing in a workspace but its public content.
+
+        Used by the isolation tests and the eval harness: whatever they retrieve must
+        contain no private document (EVALS.md "Isolation", exactly 0).
+        """
+        return cls(tuple(sorted({user_principal(user_id), PUBLIC})))
 
     def as_list(self) -> list[str]:
         return list(self.values)

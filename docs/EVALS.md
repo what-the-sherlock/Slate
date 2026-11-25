@@ -18,7 +18,7 @@ Retrieval quality is a feature with a number attached. No change to parsing, chu
   visibility: public         # public | private; private cases run only with the owner's principals
 ```
 
-Mix the question types: single-hop lookup, multi-hop (two sources), follow-up (with history), keyword-heavy (identifiers, error codes), "no answer exists" (must trigger insufficient evidence), and guest-isolation (the guest must not get the private answer).
+Mix the question types: single-hop lookup, multi-hop (two sources), follow-up (with history), keyword-heavy (identifiers, error codes), "no answer exists" (must trigger insufficient evidence), and isolation (an outsider, entitled to public content only, must not get the private answer).
 
 ## Metrics
 
@@ -29,7 +29,7 @@ Mix the question types: single-hop lookup, multi-hop (two sources), follow-up (w
 | nDCG@10 | graded ranking | track |
 | Citation validity | share of `[n]` that point to a retrieved chunk supporting the claim | ≥ 0.95 |
 | Abstention accuracy | "no answer" cases correctly abstain | ≥ 0.9 |
-| Isolation | guest leakage on private cases | exactly 0 |
+| Isolation | outsider ("guest") leakage on private cases | exactly 0 |
 | Latency p50/p95 | retrieval and time-to-first-token | track |
 | Cost per question | from `usage_ledger` | track |
 
@@ -39,7 +39,7 @@ Retrieval metrics are computed without an LLM. Answer metrics use point coverage
 
 - The corpus lives in its own workspace (`slate-evals`, ADR-0020), never in a real one. Load it with `uv run python -m evals.load` (idempotent by checksum; the first load embeds ~6k tokens with OpenAI, about $0.0001).
 - `uv run python -m evals.run --embedder none|openai|bge-m3 [--config <name>]` writes `evals/results/<date>_<git-sha>_<config>.json` and a row in `eval_runs`. `none` is the keyword lane alone and costs nothing. `bge-m3` needs `uv run python -m worker backfill` first (public chunks only, ADR-0012).
-- Every case also runs as a guest; a private document in a guest's results is a leak, and the run exits non-zero.
+- Every case also runs as an outsider (`Principals.for_outsider`, reported as "guest" in results; the guest login itself is gone, ADR-0021); a private document in its results is a leak, and the run exits non-zero.
 - Retrieval goes through `hybrid_retrieve`, the same function the Search API uses, so the numbers are what users get. Metrics are computed over unique documents in the top 10 chunks.
 - `eval.yml` is a manual or labelled workflow, never on every push. It uses the budget guard, and evals cost no more than $1 a month.
 - Compare against the last `main` baseline. A regression of more than 2 points in Recall@10 blocks the change unless justified in the PR.

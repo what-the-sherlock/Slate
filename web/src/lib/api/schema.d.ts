@@ -4,17 +4,17 @@
  */
 
 export interface paths {
-    "/api/v1/auth/guest": {
+    "/api/v1/auth/config": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** What the sign-in screens need */
+        get: operations["auth_config_api_v1_auth_config_get"];
         put?: never;
-        /** Start a read-only guest session */
-        post: operations["guest_api_v1_auth_guest_post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -55,7 +55,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/setup": {
+    "/api/v1/auth/password/forgot": {
         parameters: {
             query?: never;
             header?: never;
@@ -64,25 +64,76 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create the workspace and its owner (first run only) */
-        post: operations["setup_api_v1_auth_setup_post"];
+        /** Email a password reset code (same answer whether or not the account exists) */
+        post: operations["forgot_password_api_v1_auth_password_forgot_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/status": {
+    "/api/v1/auth/password/reset": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Whether first-run setup has happened */
-        get: operations["setup_status_api_v1_auth_status_get"];
+        get?: never;
         put?: never;
-        post?: never;
+        /** Set a new password with a reset code (signs out every session) */
+        post: operations["reset_password_api_v1_auth_password_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create an account and its personal workspace, then sign in */
+        post: operations["signup_api_v1_auth_signup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify your email with the emailed code */
+        post: operations["verify_api_v1_auth_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/verify/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Email a new verification code */
+        post: operations["resend_api_v1_auth_verify_resend_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -269,6 +320,19 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AuthConfig */
+        AuthConfig: {
+            /**
+             * Signups Enabled
+             * @description False while sign-up is closed (kill switch).
+             */
+            signups_enabled: boolean;
+            /**
+             * Turnstile Site Key
+             * @description Public Cloudflare Turnstile site key; None when no widget is needed (dev).
+             */
+            turnstile_site_key: string | null;
+        };
         /** BeginUploadBody */
         BeginUploadBody: {
             /**
@@ -351,6 +415,16 @@ export interface components {
             /** Uri */
             uri: string;
         };
+        /** ForgotPasswordBody */
+        ForgotPasswordBody: {
+            /** Email */
+            email: string;
+            /**
+             * Turnstile Token
+             * @default
+             */
+            turnstile_token: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -401,8 +475,10 @@ export interface components {
         };
         /** MeResponse */
         MeResponse: {
-            /** Is Guest */
-            is_guest: boolean;
+            /** Email Verified */
+            email_verified: boolean;
+            /** Is Platform Admin */
+            is_platform_admin: boolean;
             /**
              * Role
              * @enum {string}
@@ -469,6 +545,23 @@ export interface components {
              * @enum {string}
              */
             status: "ready" | "not_ready";
+        };
+        /** ResendBody */
+        ResendBody: {
+            /**
+             * Turnstile Token
+             * @default
+             */
+            turnstile_token: string;
+        };
+        /** ResetPasswordBody */
+        ResetPasswordBody: {
+            /** Code */
+            code: string;
+            /** Email */
+            email: string;
+            /** Password */
+            password: string;
         };
         /** RunErrorOut */
         RunErrorOut: {
@@ -564,8 +657,8 @@ export interface components {
              */
             notices: string[];
         };
-        /** SetupBody */
-        SetupBody: {
+        /** SignupBody */
+        SignupBody: {
             /**
              * Email
              * @example ada@acme.dev
@@ -581,23 +674,15 @@ export interface components {
             /** Setup Token */
             setup_token?: string | null;
             /**
-             * Workspace Name
-             * @example Acme
+             * Turnstile Token
+             * @default
              */
-            workspace_name: string;
-        };
-        /** SetupStatus */
-        SetupStatus: {
+            turnstile_token: string;
             /**
-             * Requires Setup Token
-             * @description Whether setup asks for the server's code.
+             * Website
+             * @default
              */
-            requires_setup_token: boolean;
-            /**
-             * Set Up
-             * @description False until the first owner has created the workspace.
-             */
-            set_up: boolean;
+            website: string;
         };
         /** SourceOut */
         SourceOut: {
@@ -645,6 +730,14 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** VerifyBody */
+        VerifyBody: {
+            /**
+             * Code
+             * @example 042137
+             */
+            code: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -654,7 +747,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    guest_api_v1_auth_guest_post: {
+    auth_config_api_v1_auth_config_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -669,7 +762,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MeResponse"];
+                    "application/json": components["schemas"]["AuthConfig"];
                 };
             };
         };
@@ -725,7 +818,7 @@ export interface operations {
             };
         };
     };
-    setup_api_v1_auth_setup_post: {
+    forgot_password_api_v1_auth_password_forgot_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -734,7 +827,71 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SetupBody"];
+                "application/json": components["schemas"]["ForgotPasswordBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_password_api_v1_auth_password_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetPasswordBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    signup_api_v1_auth_signup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignupBody"];
             };
         };
         responses: {
@@ -758,14 +915,18 @@ export interface operations {
             };
         };
     };
-    setup_status_api_v1_auth_status_get: {
+    verify_api_v1_auth_verify_post: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyBody"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -773,7 +934,47 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SetupStatus"];
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resend_api_v1_auth_verify_resend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResendBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

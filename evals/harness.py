@@ -98,7 +98,9 @@ async def run_cases(
 ) -> Report:
     path_of = {v: p for p, v in doc_ids.items()}
     owner = Principals.for_user(EVAL_OWNER, ws)
-    guest = Principals.for_user(EVAL_GUEST, ws, is_guest=True)
+    # An outsider: entitled to public content only (the guest login is gone, ADR-0021,
+    # but the leak check is unchanged: any private document they get is a leak).
+    guest = Principals.for_outsider(EVAL_GUEST)
     results: list[CaseResult] = []
     for case in cases:
         started = time.perf_counter()

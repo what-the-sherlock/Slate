@@ -10,11 +10,20 @@ from fastapi.testclient import TestClient
 from api.deps import Container, get_container
 from api.main import create_app
 from core.config import Settings
-from core.services.auth import AuthService
+from core.domain.budget import SpendLimits
+from core.services.auth import AuthPolicy, AuthService
 from core.services.catalog import CatalogService
 from core.services.search import SearchService
 from core.services.uploads import UploadService
-from tests.fakes.auth import FakeHasher, InMemoryAccounts, InMemorySessions, InMemoryThrottle
+from tests.fakes.auth import (
+    FakeHasher,
+    FakeHumanVerifier,
+    FakeMailer,
+    InMemoryAccounts,
+    InMemoryCodes,
+    InMemorySessions,
+    InMemoryThrottle,
+)
 from tests.fakes.catalog import InMemoryCatalog
 from tests.fakes.jobs import FakeJobQueue
 from tests.fakes.models import FakeEmbedder
@@ -31,15 +40,30 @@ def probe() -> FakeHealthProbe:
 
 
 @pytest.fixture
-def auth() -> AuthService:
+def mailer() -> FakeMailer:
+    return FakeMailer()
+
+
+@pytest.fixture
+def human() -> FakeHumanVerifier:
+    return FakeHumanVerifier()
+
+
+@pytest.fixture
+def auth(mailer: FakeMailer, human: FakeHumanVerifier) -> AuthService:
     clock = FakeClock()
-    accounts = InMemoryAccounts()
+    accounts = InMemoryAccounts(clock=clock)
     return AuthService(
-        accounts,
-        InMemorySessions(accounts, clock),
-        InMemoryThrottle(clock),
-        FakeHasher(),
-        clock,
+        accounts=accounts,
+        sessions=InMemorySessions(accounts, clock),
+        throttle=InMemoryThrottle(clock),
+        hasher=FakeHasher(),
+        codes=InMemoryCodes(clock),
+        rate=InMemoryRateLimiter(clock),
+        human=human,
+        mailer=mailer,
+        clock=clock,
+        policy=AuthPolicy(code_key=b"k" * 32),
     )
 
 
@@ -79,7 +103,7 @@ def search(index: InMemoryIndex) -> SearchService:
         InMemoryGenerations(),  # nothing embedded: keyword lane only
         InMemoryLedger(),
         InMemoryRateLimiter(FakeClock()),
-        monthly_budget_usd=Decimal(5),
+        limits=SpendLimits.monthly_only(Decimal(5)),
     )
 
 

@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import text
 
 from core.adapters.postgres.uow import UnitOfWork
+from core.domain.budget import Spend
 from core.domain.errors import Conflict
-from core.domain.ids import GenerationId
+from core.domain.ids import GenerationId, WorkspaceId
 from core.ports.usage import GenerationInfo, UsageEntry
 
 
@@ -48,6 +50,29 @@ class PostgresUsageLedger:
                 )
             ).scalar_one()
         return Decimal(value)
+
+    async def spend(self, ws: WorkspaceId) -> Spend:
+        async with self._uow() as s:
+            row = (
+                await s.execute(
+                    text(
+                        "SELECT coalesce(sum(cost_usd), 0),"
+                        " coalesce(sum(cost_usd) FILTER (WHERE day >= :today), 0),"
+                        " coalesce(sum(cost_usd) FILTER (WHERE workspace_id = :ws), 0),"
+                        " coalesce(sum(cost_usd) FILTER"
+                        "   (WHERE workspace_id = :ws AND day >= :today), 0)"
+                        " FROM usage_ledger"
+                        " WHERE day >= date_trunc('month', CAST(:today AS date))::date"
+                    ),
+                    {"ws": ws, "today": datetime.now(UTC).date()},  # UTC days (budget.py)
+                )
+            ).one()
+        return Spend(
+            month_all=Decimal(row[0]),
+            day_all=Decimal(row[1]),
+            month_workspace=Decimal(row[2]),
+            day_workspace=Decimal(row[3]),
+        )
 
 
 class PostgresGenerationStore:

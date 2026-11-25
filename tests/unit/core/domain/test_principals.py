@@ -13,10 +13,11 @@ def test_principals_member_gets_user_workspace_groups_and_public() -> None:
     assert set(p.values) == {f"user:{u}", f"workspace:{w}", f"group:{g}", PUBLIC}
 
 
-def test_principals_guest_never_gets_workspace_or_groups() -> None:
-    u, w, g = UserId(uuid4()), WorkspaceId(uuid4()), GroupId(uuid4())
-    p = Principals.for_user(u, w, [g], is_guest=True)
+def test_an_outsider_gets_only_self_and_public() -> None:
+    u = UserId(uuid4())
+    p = Principals.for_outsider(u)
     assert set(p.values) == {f"user:{u}", PUBLIC}
+    assert not any(v.startswith(("workspace:", "group:")) for v in p.values)
 
 
 def test_principals_are_sorted_and_deduplicated() -> None:

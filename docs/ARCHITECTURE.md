@@ -79,7 +79,8 @@ All timestamps are `timestamptz` in UTC. IDs are `uuid` (`gen_random_uuid()`) un
 ```sql
 -- identity
 workspaces(id, name, slug UNIQUE, settings jsonb, created_at)
-users(id, email citext UNIQUE, name, password_hash, is_guest bool default false, created_at, disabled_at)
+users(id, email citext UNIQUE, email_canonical citext UNIQUE, name, password_hash NOT NULL, email_verified_at, created_at, disabled_at)   -- 0004, ADR-0021
+email_codes(user_id, purpose, code_hash bytea(32), expires_at, attempts, consumed_at, created_at, PRIMARY KEY (user_id, purpose))   -- HMAC'd one-time codes
 memberships(workspace_id, user_id, role CHECK (role IN ('owner','admin','member','viewer')), PRIMARY KEY (workspace_id, user_id))
 groups(id, workspace_id, name, external_ref)            -- external_ref reserved for Phase 4 sync
 group_members(group_id, user_id, PRIMARY KEY (group_id, user_id))
@@ -136,12 +137,13 @@ eval_runs(id, git_sha, generation_id, config jsonb, metrics jsonb, created_at)
 ## 5. Access control
 
 - **Principals** (strings): `user:<uuid>`, `group:<uuid>`, `workspace:<uuid>`, `public`.
-- A user's principals are `user:<id>`, their groups, and `workspace:<id>` if they are a non-guest member. The guest user gets `user:<guest_id>` and `public` only.
+- **Accounts (ADR-0021):** anyone can sign up; each account gets its own workspace and is its `owner`, so users are isolated by `workspace_id` before any ACL applies. A user's principals are `user:<id>`, `workspace:<id>`, their groups and `public`. `Principals.for_outsider` (`user:<id>`, `public`) models someone entitled to nothing but public content; the isolation tests use it.
 - A **source's** `visibility` is a principal list. Defaults: GitHub public repos `['workspace:<id>','public']`, Discord demo server `['workspace:<id>','public']`, Gmail `['user:<owner_id>']`, uploads `['user:<uploader>']` unless shared.
 - A **document's** `acl` is the connector-supplied ACL if present (Phase 4), else the source's visibility. Chunks copy it.
 - **Enforcement:** every retrieval query includes `workspace_id = :ws AND acl && :principals`. Document preview, citation resolution and download endpoints re-check with the same function.
 - **Roles** (`owner` > `admin` > `member` > `viewer`) gate actions: managing sources and users, uploading, chatting. Role checks live in services, not routers.
-- Test requirement: a seeded fixture with private and public docs, where the guest never sees private content in search, chat context, citations or previews.
+- **Verification:** an account must verify its email (6-digit code) before it can change data or spend money; until then it can only verify, resend and sign out.
+- Test requirement: a seeded fixture with private and public docs, where an outsider never sees private content in search, chat context, citations or previews, and another account sees nothing from this workspace at all.
 
 ## 6. Connectors
 
@@ -232,13 +234,13 @@ sequenceDiagram
 
 ## 9. API surface (v1, initial)
 
-`POST /api/v1/auth/login|logout`, `GET /api/v1/me`, `GET|POST /api/v1/sources`, `POST /api/v1/sources/{id}/sync`, `GET /api/v1/sources/{id}/runs`, `POST /api/v1/uploads`, `POST /api/v1/uploads/complete`, `GET /api/v1/auth/status`, `POST /api/v1/auth/setup|guest`, `GET /api/v1/documents/{id}` (preview, ACL-checked), `POST /api/v1/search`, `POST /api/v1/chat` (SSE), `GET /api/v1/chat/sessions`, `POST /api/v1/messages/{id}/feedback`, `POST /api/v1/webhooks/{connector}`, `GET /healthz`, `GET /readyz`.
+`GET /api/v1/auth/config`, `POST /api/v1/auth/signup|login|logout`, `POST /api/v1/auth/verify`, `POST /api/v1/auth/verify/resend`, `POST /api/v1/auth/password/forgot|reset`, `GET /api/v1/me`, `GET|POST /api/v1/sources`, `POST /api/v1/sources/{id}/sync`, `GET /api/v1/sources/{id}/runs`, `POST /api/v1/uploads`, `POST /api/v1/uploads/complete`, `GET /api/v1/documents/{id}` (preview, ACL-checked), `POST /api/v1/search`, `POST /api/v1/chat` (SSE), `GET /api/v1/chat/sessions`, `POST /api/v1/messages/{id}/feedback`, `POST /api/v1/webhooks/{connector}`, `GET /healthz`, `GET /readyz`.
 
 Errors use RFC 9457 `application/problem+json` with a stable `type` URI per domain error. List endpoints use cursor pagination.
 
 ## 10. Configuration (env vars, all read in `core/config.py`)
 
-`ENV` (`dev|test|prod`), `DATABASE_URL` (pooled), `DATABASE_URL_DIRECT`, `SESSION_SECRET`, `CREDENTIALS_FERNET_KEY`, `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL`, `OPENAI_EMBED_MODEL`, `EMBED_DIMS=1024`, `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `UPLOADS_BUCKET` (Neon Object Storage, ADR-0014), `GITHUB_DISPATCH_TOKEN`, `GITHUB_REPO`, `GITHUB_APP_*` or `GITHUB_TOKEN`, `DISCORD_BOT_TOKEN`, `MONTHLY_LLM_BUDGET_USD=5`, `SENTRY_DSN`, `LOG_LEVEL`.
+`ENV` (`dev|test|prod`), `OWNER_EMAIL`, `SETUP_TOKEN`, `SIGNUPS_ENABLED`, `SMTP_HOST|PORT|SECURITY|USERNAME|PASSWORD`, `MAIL_FROM`, `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `DAILY_LLM_BUDGET_USD`, `WORKSPACE_MONTHLY_BUDGET_USD`, `WORKSPACE_DAILY_BUDGET_USD`, `DATABASE_URL` (pooled), `DATABASE_URL_DIRECT`, `SESSION_SECRET`, `CREDENTIALS_FERNET_KEY`, `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL`, `OPENAI_EMBED_MODEL`, `EMBED_DIMS=1024`, `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `UPLOADS_BUCKET` (Neon Object Storage, ADR-0014), `GITHUB_DISPATCH_TOKEN`, `GITHUB_REPO`, `GITHUB_APP_*` or `GITHUB_TOKEN`, `DISCORD_BOT_TOKEN`, `MONTHLY_LLM_BUDGET_USD=5`, `SENTRY_DSN`, `LOG_LEVEL`.
 
 `.env.example` lists them all with comments. The app refuses to start in `prod` if a required one is missing.
 
@@ -251,7 +253,7 @@ Errors use RFC 9457 `application/problem+json` with a stable `type` URI per doma
 
 ## 12. Cost guard
 
-Every model call goes through an adapter that writes to `usage_ledger`. Before an LLM call, `BudgetGuard` checks month-to-date spend against `MONTHLY_LLM_BUDGET_USD`. At 80% it logs a warning. At 100% it routes to the free providers, or returns a clear error for private data, which must never go to free tiers.
+Every model call goes through an adapter that writes to `usage_ledger`. Before a paid call, the caller checks four caps in one ledger query (`core/domain/budget.py`, ADR-0021): global per month (`MONTHLY_LLM_BUDGET_USD`, the hard stop), global per day, and per workspace per month and per day. At 80% of the monthly cap it logs a warning. Only verified accounts may spend at all. At 100% it routes to the free providers, or returns a clear error for private data, which must never go to free tiers.
 
 ## 13. Scaling path (not now)
 

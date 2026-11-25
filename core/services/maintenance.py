@@ -6,6 +6,8 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 
+from core.domain.auth import UNVERIFIED_ACCOUNT_TTL
+from core.ports.auth import AccountStore
 from core.ports.sources import SourceStore
 from core.ports.storage import BlobStore
 
@@ -37,4 +39,14 @@ async def sweep_abandoned_uploads(blobs: BlobStore, sources: SourceStore) -> int
         deleted += 1
     if deleted:
         log.info("swept_abandoned_uploads", count=deleted)
+    return deleted
+
+
+async def sweep_unverified_accounts(accounts: AccountStore, now: datetime) -> int:
+    """Delete sign-ups never verified within UNVERIFIED_ACCOUNT_TTL, with their empty
+    personal workspaces (ADR-0021). Unverified accounts can't upload or spend, so there's
+    nothing of theirs in storage; this only stops abandoned or bot sign-ups piling up."""
+    deleted = await accounts.delete_unverified_before(now - UNVERIFIED_ACCOUNT_TTL)
+    if deleted:
+        log.info("swept_unverified_accounts", count=deleted)
     return deleted

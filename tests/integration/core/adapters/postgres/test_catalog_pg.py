@@ -52,7 +52,7 @@ async def test_guest_sees_only_public_sources_and_counts(uow: UnitOfWork, ws: Wo
     await _doc(uow, ws, public, "{public}", "public")
 
     catalog = PostgresCatalog(uow)
-    guest = Principals.for_user(UserId(uuid4()), ws, is_guest=True)
+    guest = Principals.for_outsider(UserId(uuid4()))
     member = Principals.for_user(owner, ws)
 
     guest_view = {s.name: s.documents for s in await catalog.sources(ws, guest)}
@@ -70,6 +70,6 @@ async def test_runs_of_invisible_sources_are_not_found(uow: UnitOfWork, ws: Work
     from core.domain.errors import NotFound
 
     private = await PostgresSourceStore(uow).upload_source(ws, DataClass.PRIVATE)
-    guest = Principals.for_user(UserId(uuid4()), ws, is_guest=True)
+    guest = Principals.for_outsider(UserId(uuid4()))
     with pytest.raises(NotFound):
         await PostgresCatalog(uow).runs(ws, guest, private, 10)

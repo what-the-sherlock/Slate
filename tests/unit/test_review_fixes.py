@@ -169,7 +169,7 @@ def _identity(ws: WorkspaceId, role: Role) -> Identity:
         email="m@x.dev",
         name="M",
         role=role,
-        is_guest=False,
+        email_verified=True,
         principals=Principals.for_user(u, ws),
         csrf_secret="c",
     )

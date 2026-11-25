@@ -17,7 +17,7 @@ Status: approved direction (2026-11-24), **revised by ADR-0017** (Seekworthy des
 - **Light theme only.** No dark mode at the demo. Tokens are structured so a dark set can be added later (Answerline's dark values are in Appendix B).
 - **Connectors screen** shows the four in-scope connectors (Upload, GitHub, Discord, Gmail import) plus non-interactive **"Coming later"** tiles for Slack, Notion, Google Drive and Confluence (roadmap Phase 3). They are labelled clearly and can't be clicked.
 - **Brand logos are always full colour**, official artwork, never recoloured.
-- **Sign-in page** follows the Trakkr screenshot layout, adapted to our palette and to email + password + guest access. Copy approved as written in §4.1.
+- **Sign-in page** follows the Trakkr screenshot layout, adapted to our palette and to email + password sign-in and sign-up (ADR-0021). Copy approved as written in §4.1.
 - **Product name: Slate.** The logo will be supplied by the owner; until then use the placeholder in §3.12.
 - **Dependencies in §12 are approved.** Each is still added only in the milestone that first uses it.
 
@@ -277,7 +277,7 @@ Every component lists its states. **A component isn't done until every listed st
 | Element | Spec | Example |
 | --- | --- | --- |
 | **Status pill** | Padding 4×10, `--radius-sm`, 13/500, optional 14 px leading icon or 6 px dot | Variants below |
-| **Tag** | Padding 3×9, `--radius-sm`, 1 px `--accent-border`, `--accent-strong` text, 12/500 | "Most chosen" style. Used for "Later", "Guest", "Owner" |
+| **Tag** | Padding 3×9, `--radius-sm`, 1 px `--accent-border`, `--accent-strong` text, 12/500 | "Most chosen" style. Used for "Later", "Owner" |
 | **Count badge** | Height 18, min-width 18, padding 0×5, `--radius-full`, `--bg-emphasis`, 12/500 tabular | "Sources 5" |
 | **Citation badge** | See §3.10 | |
 | **Filter chip** | Height 28, padding 0×10, `--radius-full`, 1 px `--border-strong`. Active: `--accent-subtle` fill, `--accent-border`, `--accent-strong` text, trailing × | Search filters |
@@ -317,7 +317,7 @@ shadcn's Sonner wrapper, styled to our tokens.
 
 ### 3.6 Banners and inline alerts
 
-- **Banner:** full width at the top of the main region, under the page header, 40 px tall, 13/500 text with a 16 px icon, an optional link action on the right, and optional dismissal (remembered for the session). Variants: `info` (accent tint), `warning`, `danger`. Used for guest mode, budget at 80% or 100%, being offline and maintenance.
+- **Banner:** full width at the top of the main region, under the page header, 40 px tall, 13/500 text with a 16 px icon, an optional link action on the right, and optional dismissal (remembered for the session). Variants: `info` (accent tint), `warning`, `danger`. Used for budget at 80% or 100%, being offline and maintenance.
 - **Inline alert (callout):** inside content, `--radius-md`, 1 px semantic border, semantic fill, padding 12×14, a 16 px icon, title 14/500, body 13. Used for a source's last sync failing, a connector setup error and the insufficient-evidence reply.
 
 ### 3.7 Lists, rows and tables
@@ -346,7 +346,7 @@ Built on Answerline's "live feed" table and Beautiful UI's records table and tas
 - **Top:** the workspace block (24 px logo tile plus workspace name 14/500). There's a single workspace, so it isn't a switcher and has no chevron. Below it, a **New chat** button (`secondary`, full width, `square-pen` icon, kbd hint `Ctrl/⌘ Shift O`).
 - **Primary nav** (items 32 px, `--radius-md`, 16 px icon, 14/500 label, the gliding highlight from §2.7): Chat, Search, Sources, Settings. Settings shows only for owners and admins. The active item has a `--bg` fill, a 1 px `--border` and `--fg` text. Inactive items use `--fg-muted`.
 - **Recent chats:** a section label in `caption` style ("Today", "Yesterday", "Previous 7 days", "Older"), then items 32 px, single line with ellipsis. The current chat is highlighted. The list loads 30, then more on scroll (cursor pagination). Rename and delete wait until the API supports them; don't show a ⋯ menu that does nothing.
-- **Bottom:** a user button (24 px avatar, name, and role in `caption`) that opens a menu: role shown, Keyboard shortcuts, Sign out. Guests see a "Guest" tag and a "Sign in" item.
+- **Bottom:** a user button (24 px avatar, name, and role in `caption`) that opens a menu: role shown, Keyboard shortcuts, Sign out.
 - **Phone (< 768 px):** the sidebar becomes a left drawer (280 px, `--overlay` backdrop) opened from a menu icon in a 56 px top bar.
 
 **Page header** (inside main): height 56, padding 0×32, `h2` title on the left, page actions on the right, 1 px `--border` underneath once the page scrolls (not at rest).
@@ -370,7 +370,7 @@ This adapts Answerline's "What do clients say" answer block.
 
 ### 3.12 Avatars and identity
 
-- 24 px (lists, sidebar) and 32 px (settings). Circle, `--bg-emphasis` fill, initials in 12/600 `--fg-muted` (one or two letters). The guest avatar is a dashed 1 px `--border-strong` outline with a `user` icon.
+- 24 px (lists, sidebar) and 32 px (settings). Circle, `--bg-emphasis` fill, initials in 12/600 `--fg-muted` (one or two letters).
 - **Product name:** **Slate**, in UI copy, the page `<title>` ("Search · Slate"), metadata and the favicon.
 - **Logo (owner-supplied, ADR-0017):** the Slate mark, traced by hand from the owner's PNG into one SVG path (`LogoMark`, 524 × 432 viewBox, even-odd fill, `currentColor`). `<Logo />` puts it in white at 62% width on a solid `--accent` tile (`--radius-md`, `--shadow-xs`, 24 px in the app, 28 px on the auth bar) beside the "Slate" wordmark in `ui` 600, −0.02em. The favicon (`app/icon.svg`) is the same tile.
 
@@ -380,9 +380,9 @@ This adapts Answerline's "What do clients say" answer block.
 
 Build order follows `ROADMAP.md`. Each screen lists layout, states and behaviour.
 
-### 4.1 Sign in and Setup (M1; guest entry finished in M6; Seekworthy hero since ADR-0017)
+### 4.1 Sign in, Sign up, Verify, Reset (M1; open sign-up since ADR-0021; Seekworthy hero since ADR-0017)
 
-Both screens share one frame (`web/src/app/(auth)/auth-frame.tsx`), modelled on Seekworthy's onboarding hero. Slate has **no open sign-up** (owner decision, ADR-0017): Setup creates the one-time owner account, teammates join through invite links (M7), and visitors use the read-only demo.
+All four screens share one frame (`web/src/app/(auth)/auth-frame.tsx`), modelled on Seekworthy's onboarding hero. **Anyone can sign up** (ADR-0021): each account gets its own private workspace, and is never asked to name it. There is no guest and no setup wizard.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
@@ -395,8 +395,8 @@ Both screens share one frame (`web/src/app/(auth)/auth-frame.tsx`), modelled on 
 │ │        ╭──────────────────────────────────────────────╮        │ │
 │ │        │ ✉  you@company.com              [Continue →] │        │ │  pill bar, rounded-2xl
 │ │        ╰──────────────────────────────────────────────╯        │ │
-│ │        ✓ Cited answers  ✓ Permission-aware  ✓ Read-only demo   │ │  white 13
-│ │              No account? Explore the live demo →               │ │
+│ │   ✓ Cited answers  ✓ Permission-aware  ✓ Your own workspace    │ │  white 13
+│ │                 No account? Create one free →                  │ │
 │ │     ┌──────────────────────────────────────────────────────┐   │ │
 │ │     │ How it works          Built on free-tier infrastructure│   │ │  overlaps the bottom edge
 │ │     │ 1 Connect sources │ 2 Ask a question │ 3 Check the answer│ │ │
@@ -407,10 +407,12 @@ Both screens share one frame (`web/src/app/(auth)/auth-frame.tsx`), modelled on 
 - **Panel (`GrainPanel`):** inset 12 px (20 from `sm`), radius 24 (28). Background: an 8% white radial wash top-left over `linear-gradient(180deg, --hero-deep 0%, --hero-mid 55%, --hero-light 100%)` (`#3050F0` → `#4260F1` → `#8396F6`). **Grain:** Seekworthy's `noise.png` (an opaque mid-grey tile) at 160 px with `mix-blend-overlay`, in two layers: the base at `--grain-base` 0.45, and a second, offset copy at `--grain-boost` 0.4 masked to fade out from top to bottom. Overlay grain is ~2.5× weaker on dark blue than on light, so the second layer makes the texture read evenly from top to bottom. Mid-grey averages to no change under overlay, so the average colour and contrast are unaffected. **Contrast:** white on `--hero-mid` is 5.05:1 and on `--hero-deep` 5.95:1; no white text may sit below the 55% stop.
 - **Entrance:** headline, then subtitle (+80 ms), then form (+160 ms), each fading up 8 px; the card slides up 24 px (+320 ms). Off under reduced motion.
 - **Sign-in bar:** a white `rounded-2xl` pill with a white ring and a deep blue shadow; on focus the ring widens to 4 px of white/45. Inside: a 20 px `mail` icon, a 16 px input, and Continue. **Continue is tinted (`--accent-subtle`) until the email looks valid, then solid `--accent` with a glow** (`data-state="idle|ready"`). It still submits while tinted, so an invalid email gets a message, never a dead button. On phones its label is visually hidden and the arrow remains.
-- **Two steps, one `<form>`:** after Continue the pill grows into a white card (fade + scale from 0.98): the email read-only with "Change", the password (autofocused) and a full-width "Sign in". The email input stays mounted (`autocomplete="username"`), and the password uses `current-password`. A failed login always says "Email or password is incorrect." (`SECURITY.md`).
-- **Below the bar:** an email-format error replaces the trust row as a white pill (`role=alert`). Otherwise the trust row reads "Cited answers · Permission-aware · Read-only demo". Then "No account? **Explore the live demo →**", which signs in as the guest and lands on Home.
-- **Session expired** (`?reason=expired`): a white pill above the bar.
-- **Setup: steps in the pill bar** (owner decision). The same bar as sign-in shows one question at a time: Name your workspace → What's your name? → Your work email → Create a password → Enter the setup code (only when the server requires one). Above the bar, "Step N of M" in mono; below it, the live password rules (on the password step), else the step's hint, else its question, all in white; then a Back link and progress dots (the current one stretched). Enter continues. Each step is checked locally (`stepProblem`) before moving on, and Continue is tinted until the step is valid. It's one `<form>`: answered inputs stay mounted (visually hidden, `tabIndex=-1`, `aria-hidden`) with their `autocomplete`, so autofill and password managers work. A server field error jumps back to the step that owns it, with the message as a white pill. "Already set up? Sign in" sits in the top bar (`AuthFrame aside`).
+- **Two steps, one `<form>`:** after Continue the pill grows into a white card (fade + scale from 0.98): the email read-only with "Change", the password (autofocused) with "Forgot password?" beside its label, and a full-width "Sign in". An unverified account goes to Verify after signing in. The email input stays mounted (`autocomplete="username"`), and the password uses `current-password`. A failed login always says "Email or password is incorrect." (`SECURITY.md`).
+- **Below the bar:** an email-format error replaces the trust row as a white pill (`role=alert`). Otherwise the trust row reads "Cited answers · Permission-aware · Your own private workspace". Then "No account? **Create one free →**" (to Sign up).
+- **Session expired** (`?reason=expired`) or **password changed** (`?reason=reset`): a white pill above the bar.
+- **Sign up: steps in the pill bar** (owner decision). The same bar as sign-in shows one question at a time: What's your name? → Your email → Create a password → Enter the setup code (only when the server says the address is `OWNER_EMAIL`'s). Above the bar, "Step N of M" in mono; below it, the live password rules (on the password step), else the step's hint, else its question, all in white; then a Back link and progress dots (the current one stretched). Enter continues. Each step is checked locally (`stepProblem`) before moving on, and Continue is tinted until the step is valid. It's one `<form>`: answered inputs stay mounted (visually hidden, `tabIndex=-1`, `aria-hidden`) with their `autocomplete`, so autofill and password managers work. A server field error jumps back to the step that owns it, with the message as a white pill. "Already have an account? Sign in" sits in the top bar (`AuthFrame aside`). **Bot defences:** the Cloudflare Turnstile widget (`components/turnstile.tsx`, interaction-only, so most people never see it) mounts with the form so the check is done by the last step, and a honeypot `website` field sits off-screen (`aria-hidden`, `tabIndex=-1`). When sign-up is closed, the form is replaced by "Sign-ups are closed right now. Sign in".
+- **Verify** (`/verify`): "Check your inbox." The pill bar takes the 6-digit code (`inputMode=numeric`, `autocomplete=one-time-code`, mono with wide tracking); "Sent to *email*" above, "The code expires 15 minutes after it was sent." below. Then "Send a new code" (needs a fresh bot check) and "Use a different account" (signs out). The app shell sends any unverified account here.
+- **Forgot password** (`/forgot-password`): a white card asks for the email (prefilled from sign-in), then for the code and a new password with the live rules. The request step always says "If *email* has an account, we sent it a code", so it can't be used to find accounts. Success goes to Sign in with `?reason=reset`.
 
 **How it works** (`(auth)/how-it-works/`): a white card, `rounded-t-2xl`, max 1060 px, with an upward shadow and a 48 px header ("How it works" / "Built on free-tier infrastructure"). Three columns. Each has a real `h3`, a screen-reader-only sentence and an `aria-hidden` illustration of fixed height (148 px; no layout shift). The columns tell **one story on one clock** (`useClock`, 18 s loop, 50 ms ticks; every beat is a constant in `how-it-works/timeline.ts`): sources are connected → someone asks with @ → Slate thinks → a cited answer streams in.
 
@@ -429,14 +431,13 @@ Loop rules (`lib/motion.ts`): the whole card pauses while hovered or focused, wh
 - **Sidebar** (`components/app-shell.tsx`): a 56 px header with the logo, whose hairline lines up with the page bar. Then "New chat", a divider, and the nav: Home, Chat, Search, Sources. Items are `caption` with 15 px icons and radius-sm; the active item has an `--accent-subtle` fill and `--accent` text. The footer holds System status, the account (20 px initials avatar, name, role, sign-out icon button) and the collapse toggle. Collapsed, it's a 60 px icon rail labelled with `title` and `aria-label`. The state is kept in `localStorage` (`slate.sidebar.collapsed`) and read with `useSyncExternalStore`, so the server renders it expanded and hydration never mismatches.
 - **Below `lg` (1024 px):** a 56 px top bar with a menu button opens the same sidebar as a 260 px drawer over an `--overlay` backdrop. Escape or a backdrop click closes it.
 - **Page bar** (`PageHeader`): at least 56 px tall, full-bleed, with a hairline below. Title in `page`, an optional one-line `caption` description, and actions on the right.
-- **Guest banner** across the top of main for the guest: 36 px, `--accent-subtle`, "You're exploring as a guest. Answers use public sources only." with a "Sign in" link. It isn't dismissable. Its wording must not suggest how much private content exists.
 
 ### 4.3 Chat (M3)
 
 **Empty (new chat):**
 
-- Vertically centred column, 640 px wide. A 64 px orb in `breathing` (the assistant's idle presence), then `h1` "What do you want to know?", then 14 `--fg-subtle` "Searching 4 sources · 1,284 documents you can access" (from the API; the guest sees their own numbers).
-- The composer (below), then 3–4 **suggested questions** as `secondary` `sm` buttons that wrap. Suggestions are curated per workspace and must be answerable from public sources, so guests get good first answers.
+- Vertically centred column, 640 px wide. A 64 px orb in `breathing` (the assistant's idle presence), then `h1` "What do you want to know?", then 14 `--fg-subtle` "Searching 4 sources · 1,284 documents you can access" (from the API; each account sees its own numbers).
+- The composer (below), then 3–4 **suggested questions** as `secondary` `sm` buttons that wrap. Suggestions come from the workspace's own documents; an empty workspace suggests uploading or loading sample data instead.
 
 **Composer** (Beautiful UI prompt bar):
 
@@ -452,7 +453,7 @@ Loop rules (`lib/motion.ts`): the whole card pauses while hovered or focused, wh
 - **Question bar:** full column width, `--bg-subtle`, 1 px `--border` top and bottom, padding 14×16, the question in 15/500 `--fg`. On the right, once sources arrive: "5 sources" (13 `--fg-subtle`, with a `layers` icon), which opens the panel.
 - **Source strip:** directly under the question bar, a horizontal scroll row of source chips (§3.10) that stagger in when the `sources` event arrives.
 - **Answer:** `prose`, max 720, 16 px below the strip. Inline citation badges.
-- **Answer footer** (after `done`): `ghost` `sm` icon buttons for Copy (copies the answer with citations turned into footnotes: `[1] Title — URL`), thumbs up and thumbs down. Down opens a small popover with reasons ("Wrong", "Missing information", "Bad sources", "Other") and an optional comment. Submitting shows "Thanks, feedback saved" as a toast. To the right, 12 `--fg-subtle` meta: "4.2 s · gpt-x-mini". Hidden for guests: the model name. Not shown: token or cost numbers (those belong in Settings).
+- **Answer footer** (after `done`): `ghost` `sm` icon buttons for Copy (copies the answer with citations turned into footnotes: `[1] Title — URL`), thumbs up and thumbs down. Down opens a small popover with reasons ("Wrong", "Missing information", "Bad sources", "Other") and an optional comment. Submitting shows "Thanks, feedback saved" as a toast. To the right, 12 `--fg-subtle` meta: "4.2 s · gpt-x-mini". Not shown: token or cost numbers (those belong in Settings).
 - **Scrolling:** auto-scroll follows the stream only while the user is at the bottom. If they scroll up, it stops, and a floating "↓ Jump to latest" pill appears above the composer.
 
 **Answer lifecycle, mapped to the SSE contract** (`ARCHITECTURE.md` §8; no invented events):
@@ -505,7 +506,7 @@ The stage label is in an `aria-live="polite"` region; it announces stage changes
 - Header: `h2` "Sources", plus a live indicator when anything is syncing (pulse dot and "Syncing 1 source"), and a `primary` "Add source" button (owner and admin only).
 - **Table** (Answerline feed style): Source (logo tile, name 14/500, location 12 `--fg-subtle`, such as "aashu/slate" or "Demo server · 6 channels"), Visibility (`outline` pill with an icon: `lock` Only me / `users` Workspace / `globe` Public), Status (pill, §3.3), Documents (right, tabular), Last synced (relative time), and a row ⋯ menu (Sync now, Edit, Pause or Resume, separator, Delete).
 - "Sync now" sets the pill to `neutral` "Queued" immediately, with the toast "Sync queued. The worker usually starts within a minute." Then it becomes `accent` "Syncing" once the run starts. (The worker is GitHub Actions; it is honestly not instant.)
-- **Viewers and guests** see the table read-only, without the Add button, row menus or credentials.
+- **Viewers** see the table read-only, without the Add button, row menus or credentials.
 - **Empty:** icon `plug`, "No sources yet", "Connect GitHub, Discord or Gmail, or upload files, to start asking questions.", with the action "Add source".
 
 **Add source dialog** (560 px; a sheet on phone): title "Add a source".
@@ -543,7 +544,7 @@ The stage label is in an `aria-live="polite"` region; it announces stage changes
 ### 4.6 Settings (M7; owner and admin)
 
 - Left sub-nav (Members, Usage). Content max width 800.
-- **Members:** a table (avatar, name, email, role select, joined). Owners can change roles; the select is disabled for oneself with the tooltip "You can't change your own role". The guest account is listed with a "Guest" tag and a fixed "Viewer" role. Inviting users waits until there's an API for it; don't add a dead button.
+- **Members:** a table (avatar, name, email, role select, joined). Owners can change roles; the select is disabled for oneself with the tooltip "You can't change your own role". Inviting users waits until there's an API for it; don't add a dead button.
 - **Usage (budget):** a card with the month-to-date spend shown big ("$1.84 of $5.00"), a progress bar (turns warning at 80% and danger at 100%), and "Resets Dec 1". Below it, a small daily-spend bar chart for the month (follow the `dataviz` guidance when building it), then a breakdown table: Provider (16 px mark: OpenAI and Gemini from the Answerline export; Groq and Cloudflare from their brand kits), Model, Kind (embed, chat, rewrite), Tokens in/out, Cost. At 80% and above, the matching banner from §3.6 shows app-wide for the owner.
 
 ### 4.7 System pages
@@ -561,9 +562,9 @@ The stage label is in an `aria-live="polite"` region; it announces stage changes
 
 The landing page after sign-in (`/home`), and the reference implementation of the **panel grammar** (`components/panel.tsx`): full-bleed cells, never floating cards; 1 px hairlines drawn by rows (bottom) and cells (right); `PanelLabel` eyebrows; `tabular-nums` figures. Search and Chat must be built the same way.
 
-- **Page bar:** "Home", with "Welcome back, {first name}" (or "Exploring the public demo" for the guest), and an "Add source" `primary` button for members who can add. It links to `/sources?add=1`, which opens the Add source dialog; closing the dialog clears the parameter.
+- **Page bar:** "Home", with "Welcome back, {first name}" , and an "Add source" `primary` button for members who can add. It links to `/sources?add=1`, which opens the Add source dialog; closing the dialog clears the parameter.
 - **KPI strip** (`PanelRow cols={4}` of `Kpi`; 2×2 on mobile): Sources ("N need attention" when any failed), Documents, Processing (a live pulse dot while above zero) and Last sync (hover for the absolute time). Every figure comes from `GET /api/v1/sources`. There is **no extra endpoint**, and polling follows the Sources rule: only while something is queued or syncing, and only while the tab is visible.
-- **Row 2:** "Recent sources" (2/3 width) lists the five most recently synced, each with logo tile, name, document count, time and status pill, plus "View all ›". Empty: a dashed `--bg-subtle` call to action, "Add your first source" with "Upload files" (or "Nothing shared with you yet" for viewers and guests). "Get started" (1/3) has three steps: Connect a source (ticked once one exists), Search everything (M2) and Ask with citations (M3), the last two tagged "Soon".
+- **Row 2:** "Recent sources" (2/3 width) lists the five most recently synced, each with logo tile, name, document count, time and status pill, plus "View all ›". Empty: a dashed `--bg-subtle` call to action, "Add your first source" with "Upload files" (or "Nothing shared with you yet" for viewers). "Get started" (1/3) has three steps: Connect a source (ticked once one exists), Search everything (M2) and Ask with citations (M3), the last two tagged "Soon".
 - **States:** skeletons in place of each figure and row while loading; an inline danger alert with Retry if the list fails.
 
 ## 5. Thinking orbs
@@ -671,7 +672,7 @@ Single-key shortcuts never fire while focus is in an input.
 
 ## 11. Polish checklist (definition of done for any UI work)
 
-- [ ] Every state is designed and built: loading (skeleton after 150 ms), empty, error (with retry and reference), partial, success, disabled, and the guest/viewer version.
+- [ ] Every state is designed and built: loading (skeleton after 150 ms), empty, error (with retry and reference), partial, success, disabled, and the viewer and unverified-account versions.
 - [ ] No layout shift when data, fonts or images load. Skeletons match the real dimensions.
 - [ ] Long content handled: 200-character titles, long file paths, 4-digit counts, empty strings, non-Latin names.
 - [ ] Keyboard-only pass done. Focus order is logical, focus is visible, Esc works.

@@ -16,6 +16,10 @@ from core.domain.ids import UserId, WorkspaceId
 from core.domain.principals import PUBLIC, user_principal, workspace_principal
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+# Per workspace (ADR-0021): open sign-up must not fill Neon's 1 GB database or 5 GB
+# bucket. Counted over live uploaded documents.
+MAX_DOCUMENTS_PER_WORKSPACE = 50
+MAX_STORED_BYTES_PER_WORKSPACE = 100 * 1024 * 1024
 SNIFF_BYTES = 8192
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 

@@ -5,21 +5,14 @@ from fastapi.testclient import TestClient
 
 from core.domain.ids import JobId, SourceId, UserId, WorkspaceId
 from core.ports.catalog import JobView, SourceSummary
+from tests.fakes.auth import FakeMailer
 from tests.fakes.catalog import InMemoryCatalog
-
-SAME_SITE = {"x-requested-with": "slate"}
-SETUP = {
-    "workspace_name": "Acme",
-    "name": "Ada",
-    "email": "ada@acme.dev",
-    "password": "correct horse battery",
-}
+from tests.unit.api.accounts import sign_up
 
 
-def owner(client: TestClient) -> dict[str, object]:
-    r = client.post("/api/v1/auth/setup", json=SETUP, headers=SAME_SITE)
-    assert r.status_code == 201
-    return r.json()
+def owner(client: TestClient, mailer: FakeMailer) -> dict[str, object]:
+    sign_up(client, mailer)
+    return client.get("/api/v1/me").json()
 
 
 def summary(ws: WorkspaceId, **kw: object) -> SourceSummary:
@@ -41,9 +34,9 @@ def summary(ws: WorkspaceId, **kw: object) -> SourceSummary:
 
 
 def test_sources_list_derives_status_and_visibility(
-    client: TestClient, catalog: InMemoryCatalog
+    client: TestClient, catalog: InMemoryCatalog, mailer: FakeMailer
 ) -> None:
-    me = owner(client)
+    me = owner(client, mailer)
     ws = WorkspaceId(UUID(str(me["workspace_id"])))
     catalog.source_rows += [
         (ws, summary(ws)),
@@ -71,8 +64,10 @@ def test_sources_require_sign_in(client: TestClient) -> None:
     assert client.get("/api/v1/sources").status_code == 401
 
 
-def test_jobs_are_private_to_their_uploader(client: TestClient, catalog: InMemoryCatalog) -> None:
-    me = owner(client)
+def test_jobs_are_private_to_their_uploader(
+    client: TestClient, catalog: InMemoryCatalog, mailer: FakeMailer
+) -> None:
+    me = owner(client, mailer)
     ws = WorkspaceId(UUID(str(me["workspace_id"])))
     mine, theirs = JobId(uuid4()), JobId(uuid4())
     my_id = UserId(UUID(str(me["user"]["id"])))  # type: ignore[index]

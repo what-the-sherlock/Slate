@@ -45,8 +45,8 @@ def identity(
         email="a@b.c",
         name="A",
         role=role,
-        is_guest=guest,
-        principals=Principals.for_user(u, w, is_guest=guest),
+        email_verified=True,
+        principals=(Principals.for_outsider(u) if guest else Principals.for_user(u, w)),
         csrf_secret="c",
     )
 
@@ -323,3 +323,34 @@ async def test_daily_byte_budget_is_enforced(env: Env) -> None:
             sha256="f" * 64,
             visibility=Visibility.ONLY_ME,
         )
+
+
+# ---------------------------------------------------------------- workspace quotas (ADR-0021)
+
+
+async def test_upload_is_refused_at_the_workspace_document_limit(env: Env) -> None:
+    from core.domain.uploads import MAX_DOCUMENTS_PER_WORKSPACE
+
+    who = identity()
+    env.sources.usage[who.workspace_id] = (MAX_DOCUMENTS_PER_WORKSPACE, 0)
+    with pytest.raises(ValidationFailed, match="limit of 50 documents") as info:
+        await env.begin(who)
+    assert "file" in info.value.extra["fields"]  # type: ignore[operator]
+    assert env.blobs.upload_policies == {}  # no presigned URL was issued
+
+
+async def test_upload_is_refused_over_the_workspace_storage_limit(env: Env) -> None:
+    from core.domain.uploads import MAX_STORED_BYTES_PER_WORKSPACE
+
+    who = identity()
+    env.sources.usage[who.workspace_id] = (1, MAX_STORED_BYTES_PER_WORKSPACE - len(PDF) + 1)
+    with pytest.raises(ValidationFailed, match="100 MB"):
+        await env.begin(who)
+    env.sources.usage[who.workspace_id] = (1, MAX_STORED_BYTES_PER_WORKSPACE - len(PDF))
+    assert (await env.begin(who)).status is UploadStatus.UPLOAD  # exactly at the limit is fine
+
+
+async def test_another_workspaces_usage_does_not_count(env: Env) -> None:
+    full, mine = identity(), identity()
+    env.sources.usage[full.workspace_id] = (10_000, 10**12)
+    assert (await env.begin(mine)).status is UploadStatus.UPLOAD

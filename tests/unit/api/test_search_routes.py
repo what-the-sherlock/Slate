@@ -5,23 +5,12 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from api.security import CSRF_HEADER
 from core.domain.documents import DocumentUpsert, NewChunk
 from core.domain.ids import SourceId, WorkspaceId
 from core.domain.principals import PUBLIC, workspace_principal
+from tests.fakes.auth import FakeMailer
 from tests.fakes.storage import InMemoryIndex
-
-SAME_SITE = {"x-requested-with": "slate"}
-SETUP = {
-    "workspace_name": "Acme",
-    "name": "Ada",
-    "email": "ada@acme.dev",
-    "password": "correct horse battery",
-}
-
-
-def csrf(client: TestClient) -> dict[str, str]:
-    return {CSRF_HEADER: client.cookies.get("slate_csrf") or ""}
+from tests.unit.api.accounts import csrf, sign_up
 
 
 async def seed(index: InMemoryIndex, ws: WorkspaceId) -> dict[str, UUID]:
@@ -43,8 +32,8 @@ async def seed(index: InMemoryIndex, ws: WorkspaceId) -> dict[str, UUID]:
 
 
 @pytest.fixture
-async def world(client: TestClient, index: InMemoryIndex) -> dict[str, UUID]:
-    assert client.post("/api/v1/auth/setup", json=SETUP, headers=SAME_SITE).status_code == 201
+async def world(client: TestClient, index: InMemoryIndex, mailer: FakeMailer) -> dict[str, UUID]:
+    sign_up(client, mailer)
     ws = WorkspaceId(UUID(client.get("/api/v1/me").json()["workspace_id"]))
     return await seed(index, ws)
 
@@ -82,15 +71,18 @@ def test_search_validates_input(
     assert r.status_code == 422
 
 
-def test_guest_search_and_preview_see_only_public(
-    client: TestClient, world: dict[str, UUID]
+def test_another_account_sees_nothing_from_this_workspace(
+    client: TestClient, world: dict[str, UUID], mailer: FakeMailer
 ) -> None:
+    # ADR-0021: every sign-up gets its own workspace. Even a PUBLIC document in Ada's
+    # workspace is out of Bob's reach: search and preview are scoped by workspace first.
     client.post("/api/v1/auth/logout", headers=csrf(client))
     client.cookies.clear()
-    assert client.post("/api/v1/auth/guest", headers=SAME_SITE).status_code in {200, 201}
+    sign_up(client, mailer, email="bob@acme.dev", name="Bob")
     r = client.post("/api/v1/search", json={"query": "paid leave"}, headers=csrf(client))
-    assert {h["title"] for h in r.json()["hits"]} == {"Handbook"}
-    assert client.get(f"/api/v1/documents/{world['handbook']}").status_code == 200
+    assert r.status_code == 200, r.text
+    assert r.json()["hits"] == []
+    assert client.get(f"/api/v1/documents/{world['handbook']}").status_code == 404
     hidden = client.get(f"/api/v1/documents/{world['internal']}")
     missing = client.get(f"/api/v1/documents/{uuid4()}")
     assert hidden.status_code == missing.status_code == 404
@@ -103,3 +95,10 @@ def test_preview_returns_chunks(client: TestClient, world: dict[str, UUID]) -> N
     assert r.json()["chunks"] == [
         {"ordinal": 0, "heading_path": "Leave", "content": "Paid leave cover rota is internal."}
     ]
+
+
+def test_unverified_accounts_cannot_search(client: TestClient, mailer: FakeMailer) -> None:
+    headers = sign_up(client, mailer, verify=False)
+    r = client.post("/api/v1/search", json={"query": "leave"}, headers=headers)
+    assert r.status_code == 403
+    assert r.json()["reason"] == "email_unverified"

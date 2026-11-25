@@ -15,7 +15,7 @@ export type DocumentPreview = components["schemas"]["DocumentPreviewOut"];
 
 export const keys = {
   me: ["me"] as const,
-  status: ["auth-status"] as const,
+  authConfig: ["auth-config"] as const,
   sources: ["sources"] as const,
   runs: (id: string) => ["runs", id] as const,
   job: (id: string) => ["job", id] as const,
@@ -36,10 +36,12 @@ export function useMe() {
   });
 }
 
-export function useSetupStatus() {
+/** What the sign-in screens need: whether sign-up is open, and the Turnstile site key. */
+export function useAuthConfig() {
   return useQuery({
-    queryKey: keys.status,
-    queryFn: async () => unwrap(await api.GET("/api/v1/auth/status")),
+    queryKey: keys.authConfig,
+    queryFn: async () => unwrap(await api.GET("/api/v1/auth/config")),
+    staleTime: 5 * 60_000,
   });
 }
 

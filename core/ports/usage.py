@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Protocol
 
+from core.domain.budget import Spend
 from core.domain.ids import GenerationId, WorkspaceId
 
 
@@ -25,6 +26,10 @@ class UsageLedger(Protocol):
     async def record(self, entry: UsageEntry) -> None: ...
 
     async def month_to_date_usd(self) -> Decimal: ...
+
+    async def spend(self, ws: WorkspaceId) -> Spend:
+        """This month's and today's spend, globally and for ``ws``, in one round trip."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status:** Milestones 1 and 2 complete (2026-11-25; evals recorded in `docs/EVALS.md`: hybrid OpenAI Recall@10 1.000, MRR 0.930, 0 guest leaks). Next: M3 cited chat, starting with the deferred Vercel + SSE spike.
+**Status:** Milestones 1 and 2 complete (2026-11-25; evals recorded in `docs/EVALS.md`: hybrid OpenAI Recall@10 1.000, MRR 0.930, 0 guest leaks). Pre-M3 accounts slice built (ADR-0021: open sign-up, personal workspaces, email codes, Turnstile, spend caps); awaiting the owner's integration run, migration and security review. Vercel is deployed (https://slate-livid-nine.vercel.app/), so M3 starts with the SSE spike against the real URL.
 
 Update this line and tick items as work completes. Only the current milestone is in scope.
 
@@ -33,9 +33,17 @@ Update this line and tick items as work completes. Only the current milestone is
 - [x] Eval harness and the first 50 questions (51); baselines recorded for keyword-only, OpenAI and BGE-M3
 - Done when: Recall@10 is recorded for both embedders; the guest-isolation test passes
 
+### Pre-M3 — Open sign-up (ADR-0021)
+- [x] Sign-up with a personal workspace per account; `OWNER_EMAIL` + `SETUP_TOKEN` for the owner; guest and setup wizard removed (migration 0004)
+- [x] Email verification and password reset by 6-digit code (SMTP); unverified accounts can't spend; 48 h sweep
+- [x] Spam protection: Turnstile, honeypot, per-IP and global sign-up limits, canonical email, disposable domains, kill switch
+- [x] Spend caps per workspace and globally, per day and month; storage quota per workspace
+- [ ] Owner: integration tests + `alembic upgrade head` on the test branch, then prod; Brevo/Gmail SMTP and Turnstile keys in Vercel; security review
+
 ### M3 — Cited chat (days 9–11)
+- [ ] SSE spike through the Vercel rewrite (ADR-0010 → Accepted or superseded)
 - [ ] Rewrite → retrieve → assemble → stream (SSE) → validate citations → persist
-- [ ] Insufficient-evidence path; feedback; budget guard; provider router by data class
+- [ ] Insufficient-evidence path; feedback; budget guard (reuse `core/domain/budget.py`); provider router by data class; chat ramp for new accounts (ADR-0021)
 - Done when: every `[n]` opens its passage; abstention cases pass
 
 ### M4 — GitHub (days 12–13)
@@ -45,8 +53,8 @@ Update this line and tick items as work completes. Only the current milestone is
 ### M5 — Discord (days 14–15)
 - [ ] Bot, backfill, incremental with `after=`, thread/window grouping, channel visibility
 
-### M6 — Gmail + guest demo (days 16–17)
-- [ ] Gmail OAuth connector, Internal Workspace app (ADR-0015; thread = document, always private); guest login on the landing page
+### M6 — Gmail + demo data (days 16–17)
+- [ ] Gmail OAuth connector, Internal Workspace app (ADR-0015; thread = document, always private; owner's org only, others import `.mbox`); "Load sample data" for new workspaces (ADR-0021)
 
 ### M7 — Polish (days 18–21)
 - [ ] Filters (source, date), sync status, ingestion history; README with diagram and eval table; demo video; buffer

@@ -1,17 +1,20 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { cn } from "@/lib/utils";
-import { ArrowLeft, ArrowRight, Building2, Check, KeyRound, Lock, Mail, User, type LucideIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, KeyRound, Lock, Mail, User, type LucideIcon } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { PasswordToggle } from "@/components/password-toggle";
+import { Turnstile } from "@/components/turnstile";
 import { Spinner } from "@/components/ui/button";
 import { api, ApiProblem, errorMessage, unwrap } from "@/lib/api/client";
-import { useSetupStatus } from "@/lib/api/hooks";
+import { keys, useAuthConfig } from "@/lib/api/hooks";
+import { EMAIL, PASSWORD_RULES, passwordOk } from "@/lib/password";
+import { cn } from "@/lib/utils";
 import { heroSurface } from "../auth-frame";
 
-type Field = "workspace_name" | "name" | "email" | "password" | "setup_token";
+type Field = "name" | "email" | "password" | "setup_token";
 
 type FieldSpec = {
   id: Field;
@@ -24,12 +27,12 @@ type FieldSpec = {
 };
 
 const FIELDS: FieldSpec[] = [
-  { id: "workspace_name", label: "Name your workspace", type: "text", autoComplete: "organization", placeholder: "Acme", icon: Building2 },
   { id: "name", label: "What's your name?", type: "text", autoComplete: "name", placeholder: "Ada Lovelace", icon: User },
-  { id: "email", label: "Your work email", type: "email", autoComplete: "username", placeholder: "name@company.com", icon: Mail },
+  { id: "email", label: "Your email", type: "email", autoComplete: "username", placeholder: "name@company.com", icon: Mail, hint: "We'll send a 6-digit code to verify it." },
   { id: "password", label: "Create a password", type: "password", autoComplete: "new-password", placeholder: "At least 12 characters", icon: Lock },
 ];
 
+// Only shown when the server says this address is the owner's (OWNER_EMAIL needs SETUP_TOKEN).
 const TOKEN_FIELD: FieldSpec = {
   id: "setup_token",
   label: "Enter the setup code",
@@ -37,69 +40,52 @@ const TOKEN_FIELD: FieldSpec = {
   autoComplete: "off",
   placeholder: "Setup code",
   icon: KeyRound,
-  hint: "The SETUP_TOKEN configured on the server.",
+  hint: "This address is reserved for the owner. Enter the server's SETUP_TOKEN.",
 };
-
-/**
- * Live hints that mirror core/domain/auth.py validate_password (length only, per NIST
- * SP 800-63B). The server stays the authority; these only save a round trip.
- */
-export const PASSWORD_RULES: { label: string; test: (pw: string) => boolean }[] = [
-  { label: "At least 12 characters", test: (pw) => pw.length >= 12 && pw.length <= 256 },
-  { label: "No spaces at the start or end", test: (pw) => pw.length > 0 && pw.trim() === pw },
-];
-
-const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 /** The message that stops a step, or null when it may move on. The server stays the authority. */
 export function stepProblem(field: Field, value: string): string | null {
   switch (field) {
-    case "workspace_name":
-      return value.trim() ? null : "Enter a name for your workspace.";
     case "name":
       return value.trim() ? null : "Enter your name.";
     case "email":
       return EMAIL.test(value.trim()) ? null : "Enter an email like name@company.com.";
     case "password":
-      return PASSWORD_RULES.every((r) => r.test(value)) ? null : "Your password doesn't meet the rules yet.";
+      return passwordOk(value) ? null : "Your password doesn't meet the rules yet.";
     case "setup_token":
       return value.trim() ? null : "Enter the setup code.";
   }
 }
 
 /**
- * First-run setup as steps in the hero's pill bar (UI_DESIGN §4.1): one question at a time,
+ * Sign-up as steps in the hero's pill bar (UI_DESIGN §4.1, ADR-0021): one question at a time,
  * Enter to continue. It's one <form> throughout, and answered fields stay mounted (hidden, not
  * removed) with their autocomplete hints, so browser autofill and password managers still work.
- * A server field error jumps back to the step that owns it.
+ * A server field error jumps back to the step that owns it. Bot defences: the Turnstile widget
+ * (usually invisible) and a honeypot field people never see.
  */
-export function SetupForm() {
+export function SignUpForm() {
   const router = useRouter();
   const client = useQueryClient();
-  const status = useSetupStatus();
-  const [values, setValues] = useState<Record<Field, string>>({
-    workspace_name: "",
-    name: "",
-    email: "",
-    password: "",
-    setup_token: "",
-  });
+  const config = useAuthConfig();
+  const [values, setValues] = useState<Record<Field, string>>({ name: "", email: "", password: "", setup_token: "" });
+  const [needsToken, setNeedsToken] = useState(false);
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [human, setHuman] = useState<string | null>(null);
+  const resetHuman = useRef<() => void>(() => {});
+  const trap = useRef<HTMLInputElement>(null);
   const inputs = useRef<Partial<Record<Field, HTMLInputElement | null>>>({});
 
-  useEffect(() => {
-    if (status.data?.set_up) router.replace("/sign-in");
-  }, [status.data, router]);
-
-  const fields = status.data?.requires_setup_token ? [...FIELDS, TOKEN_FIELD] : FIELDS;
+  const fields = needsToken ? [...FIELDS, TOKEN_FIELD] : FIELDS;
   const index = Math.min(step, fields.length - 1);
   const current = fields[index] ?? FIELDS[0]!;
   const last = index === fields.length - 1;
   const ready = stepProblem(current.id, values[current.id]) === null;
   const rulesMet = PASSWORD_RULES.map((r) => r.test(values.password));
+  const closed = config.data?.signups_enabled === false;
 
   useEffect(() => {
     inputs.current[current.id]?.focus();
@@ -115,28 +101,55 @@ export function SetupForm() {
     const problem = stepProblem(current.id, values[current.id]);
     if (problem) return setError(problem);
     if (!last) return go(index + 1);
+    if (!human) return setError("Just a moment: we're checking you're not a bot.");
 
     setBusy(true);
     setError(null);
     try {
       unwrap(
-        await api.POST("/api/v1/auth/setup", {
-          body: { ...values, setup_token: values.setup_token || null },
+        await api.POST("/api/v1/auth/signup", {
+          body: {
+            name: values.name.trim(),
+            email: values.email.trim(),
+            password: values.password,
+            turnstile_token: human,
+            setup_token: values.setup_token || null,
+            website: trap.current?.value ?? "",
+          },
         }),
       );
-      await client.invalidateQueries();
-      router.replace("/home");
+      await client.invalidateQueries({ queryKey: keys.me });
+      router.replace("/verify");
     } catch (err) {
-      const owner = err instanceof ApiProblem ? fields.findIndex((f) => err.fields[f.id]) : -1;
-      const field = fields[owner];
-      if (err instanceof ApiProblem && field) {
-        setStep(owner);
-        setError(err.fields[field.id] ?? errorMessage(err));
+      resetHuman.current(); // the token was used, whatever the outcome
+      if (err instanceof ApiProblem && err.fields.setup_token && !needsToken) {
+        setNeedsToken(true);
+        setStep(FIELDS.length);
+        setError(null);
       } else {
-        setError(errorMessage(err));
+        const list = needsToken ? [...FIELDS, TOKEN_FIELD] : FIELDS;
+        const owner = err instanceof ApiProblem ? list.findIndex((f) => err.fields[f.id]) : -1;
+        const field = list[owner];
+        if (err instanceof ApiProblem && field) {
+          setStep(owner);
+          setError(err.fields[field.id] ?? errorMessage(err));
+        } else {
+          setError(errorMessage(err));
+        }
       }
       setBusy(false);
     }
+  }
+
+  if (closed) {
+    return (
+      <p role="status" className="rounded-full bg-bg px-4 py-2 text-body font-medium text-fg">
+        Sign-ups are closed right now.{" "}
+        <Link href="/sign-in" className="font-semibold text-brand underline-offset-[3px] hover:underline">
+          Sign in
+        </Link>
+      </p>
+    );
   }
 
   return (
@@ -144,6 +157,12 @@ export function SetupForm() {
       <p className="font-mono text-body text-white">
         Step {index + 1} of {fields.length}
       </p>
+
+      {/* Honeypot: off-screen, unfocusable and unlabelled for assistive tech. People never fill it. */}
+      <div className="absolute -left-[9999px] h-px w-px overflow-hidden" aria-hidden="true">
+        <label htmlFor="website">Website</label>
+        <input ref={trap} id="website" name="website" type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
+      </div>
 
       <div
         className={cn(
@@ -176,7 +195,7 @@ export function SetupForm() {
                   if (active) setError(null);
                 }}
                 aria-invalid={active && error ? true : undefined}
-                aria-describedby={active ? (error ? "setup-error" : f.id === "password" ? "password-rules" : undefined) : undefined}
+                aria-describedby={active ? (error ? "signup-error" : f.id === "password" ? "password-rules" : undefined) : undefined}
                 className="h-11 min-w-0 flex-1 bg-transparent text-[16px] text-fg outline-none placeholder:text-fg-subtle focus-visible:outline-none"
               />
               {f.id === "password" && active ? (
@@ -197,7 +216,7 @@ export function SetupForm() {
           )}
         >
           {busy ? <Spinner className="size-4" /> : null}
-          <span className="sr-only sm:not-sr-only">{last ? (busy ? "Creating…" : "Create workspace") : "Continue"}</span>
+          <span className="sr-only sm:not-sr-only">{last ? (busy ? "Creating…" : "Create account") : "Continue"}</span>
           {busy ? null : (
             <ArrowRight
               className="size-4 transition-transform duration-300 group-hover:translate-x-0.5 motion-reduce:transition-none"
@@ -211,7 +230,7 @@ export function SetupForm() {
       <div className="flex min-h-7 items-center justify-center">
         {error ? (
           <p
-            id="setup-error"
+            id="signup-error"
             role="alert"
             className="animate-in rounded-full bg-bg px-3 py-1 text-body font-medium text-danger duration-300 fade-in slide-in-from-top-1"
           >
@@ -235,6 +254,19 @@ export function SetupForm() {
           <p className="text-body text-white">{current.hint ?? current.label}</p>
         )}
       </div>
+
+      {/* Mounted from the start so the (usually invisible) check is done by the last step. */}
+      {config.data ? (
+        <Turnstile
+          siteKey={config.data.turnstile_site_key}
+          action="signup"
+          onToken={setHuman}
+          onError={setError}
+          onReady={(reset) => {
+            resetHuman.current = reset;
+          }}
+        />
+      ) : null}
 
       <div className="flex h-5 items-center gap-4">
         {index > 0 ? (

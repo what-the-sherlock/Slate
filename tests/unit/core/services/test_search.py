@@ -7,12 +7,13 @@ from uuid import uuid4
 import pytest
 
 from core.domain.auth import Identity, Role
+from core.domain.budget import SpendLimits
 from core.domain.documents import DocumentUpsert, NewChunk, SearchFilters, Vector
 from core.domain.errors import NotFound, RateLimited, UpstreamUnavailable, ValidationFailed
 from core.domain.ids import GenerationId, SessionId, SourceId, UserId, WorkspaceId
 from core.domain.principals import PUBLIC, Principals, user_principal, workspace_principal
 from core.domain.search import Lane
-from core.services.search import SearchService
+from core.services.search import SEARCH_LIMIT, SearchService
 from tests.fakes.models import FakeEmbedder
 from tests.fakes.rate_limit import InMemoryRateLimiter
 from tests.fakes.storage import InMemoryIndex
@@ -34,8 +35,8 @@ def identity(user: UserId, *, guest: bool = False) -> Identity:
         email="a@b.c",
         name="A",
         role=Role.VIEWER if guest else Role.OWNER,
-        is_guest=guest,
-        principals=Principals.for_user(user, WS, is_guest=guest),
+        email_verified=True,
+        principals=(Principals.for_outsider(user) if guest else Principals.for_user(user, WS)),
         csrf_secret="c",
     )
 
@@ -76,7 +77,7 @@ def make(
         gens,
         InMemoryLedger(Decimal(spent)),
         InMemoryRateLimiter(FakeClock()),
-        monthly_budget_usd=Decimal("5"),
+        limits=SpendLimits.monthly_only(Decimal(5)),
     )
     return svc, index, e
 
@@ -165,7 +166,7 @@ async def test_keyword_only_without_an_embedder() -> None:
 
 async def test_searches_are_rate_limited_per_user() -> None:
     svc, _, _ = make()
-    for _ in range(60):
+    for _ in range(SEARCH_LIMIT.budget):
         await svc.search(identity(OWNER), "leave")
     with pytest.raises(RateLimited):
         await svc.search(identity(OWNER), "leave")
@@ -188,3 +189,38 @@ async def test_preview_rechecks_access() -> None:
     assert preview.chunks[0].content.startswith("Salary bands")
     with pytest.raises(NotFound):
         await svc.preview(identity(GUEST, guest=True), private.document_id)
+
+
+async def test_degrades_to_keyword_when_this_workspace_used_its_allowance() -> None:
+    e = FakeEmbedder()
+    index, gens, ledger = InMemoryIndex(), InMemoryGenerations(), InMemoryLedger()
+    gens.present_gen = (GEN, e.model)
+    ledger.workspace_spent[WS] = Decimal("0.05")  # today's workspace allowance, all used
+    svc = SearchService(
+        index, e, gens, ledger, InMemoryRateLimiter(FakeClock()),
+        limits=SpendLimits(monthly_all=Decimal(5), daily_workspace=Decimal("0.05")),
+    )  # fmt: skip
+    await seed(index, e)
+    res = await svc.search(identity(OWNER), "leave")
+    assert res.lanes == (Lane.KEYWORD,)
+    assert "today's AI allowance" in res.notices[0]
+    assert res.hits  # keyword search still answers
+
+
+async def test_vector_searches_are_recorded_so_the_caps_can_stop_them() -> None:
+    svc, index, e = make()
+    await seed(index, e)
+    ledger = svc._ledger
+    await svc.search(identity(OWNER), "paid leave")
+    entries = ledger.entries  # type: ignore[attr-defined]
+    assert len(entries) == 1
+    assert entries[0].workspace_id == WS
+    assert entries[0].data_class == "private"  # a query may be about private content
+    assert entries[0].cost_usd > 0
+
+
+async def test_keyword_only_searches_cost_nothing() -> None:
+    svc, index, e = make(present=False)
+    await seed(index, e)
+    await svc.search(identity(OWNER), "leave")
+    assert svc._ledger.entries == []  # type: ignore[attr-defined]

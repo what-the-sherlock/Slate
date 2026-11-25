@@ -48,7 +48,7 @@ class World:
         return Principals.for_user(self.owner, self.ws)
 
     def guest_p(self) -> Principals:
-        return Principals.for_user(self.guest, self.ws, is_guest=True)
+        return Principals.for_outsider(self.guest)
 
 
 async def _scalar(uow: UnitOfWork, sql: str, **params: object) -> object:
@@ -91,13 +91,14 @@ async def world(uow: UnitOfWork) -> AsyncIterator[World]:
         "INSERT INTO workspaces (name, slug) VALUES ('s', 's-' || gen_random_uuid()) RETURNING id"
     )
     new_user = (
-        "INSERT INTO users (email, name, password_hash, is_guest)"
-        " VALUES ('s-' || gen_random_uuid() || '@t.dev', 'S', 'h', :g) RETURNING id"
+        "INSERT INTO users (email, email_canonical, name, password_hash)"
+        " SELECT e, e, 'S', 'h' FROM (SELECT 's-' || gen_random_uuid() || '@t.dev' AS e) x"
+        " RETURNING id"
     )
     ws = WorkspaceId(UUID(str(await _scalar(uow, new_ws))))
     other = WorkspaceId(UUID(str(await _scalar(uow, new_ws))))
-    owner = UserId(UUID(str(await _scalar(uow, new_user, g=False))))
-    guest = UserId(UUID(str(await _scalar(uow, new_user, g=True))))
+    owner = UserId(UUID(str(await _scalar(uow, new_user))))
+    guest = UserId(UUID(str(await _scalar(uow, new_user))))
     gen = GenerationId(
         int(
             str(

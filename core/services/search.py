@@ -17,6 +17,7 @@ from decimal import Decimal
 import structlog
 
 from core.domain.auth import Identity
+from core.domain.budget import SpendLimits
 from core.domain.documents import DocumentPreview, ScoredChunk, SearchFilters
 from core.domain.errors import RateLimited, UpstreamUnavailable, ValidationFailed
 from core.domain.ids import DocumentId, GenerationId, WorkspaceId
@@ -32,7 +33,7 @@ from core.domain.search import (
 from core.ports.models import Embedder
 from core.ports.rate_limit import Limit, RateLimiter
 from core.ports.storage import SearchIndex
-from core.ports.usage import GenerationStore, UsageLedger
+from core.ports.usage import GenerationStore, UsageEntry, UsageLedger
 
 log = structlog.get_logger(__name__)
 
@@ -42,7 +43,12 @@ MAX_SOURCE_FILTERS = 20
 PREVIEW_MAX_CHUNKS = 200
 # Each search may spend a (cheap) paid query embedding and two index scans, so a user
 # or a leaked session can't loop it freely. 60 a minute is far above human typing speed.
-SEARCH_LIMIT = Limit(budget=60, window=timedelta(minutes=1))
+SEARCH_LIMIT = Limit(budget=30, window=timedelta(minutes=1))
+# Daily too, so one account can't loop search all day (security review, ADR-0021).
+SEARCH_DAILY_LIMIT = Limit(budget=1000, window=timedelta(days=1))
+# Upper bound for one query embedding: 500 characters is ~150 tokens at $0.02 per million.
+QUERY_EMBED_USD = Decimal("0.00001")
+QUERY_USD_PER_M_TOKENS = Decimal("0.02")  # text-embedding-3-small
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,7 +123,7 @@ class SearchService:
         ledger: UsageLedger,
         limiter: RateLimiter,
         *,
-        monthly_budget_usd: Decimal,
+        limits: SpendLimits,
         candidates: int = CANDIDATES_PER_LANE,
         max_per_document: int = MAX_CHUNKS_PER_DOCUMENT,
     ) -> None:
@@ -126,7 +132,7 @@ class SearchService:
         self._generations = generations
         self._ledger = ledger
         self._limiter = limiter
-        self._budget = monthly_budget_usd
+        self._limits = limits
         self._candidates = candidates
         self._per_doc = max_per_document
 
@@ -149,7 +155,11 @@ class SearchService:
             raise ValidationFailed(f"Filter by at most {MAX_SOURCE_FILTERS} sources.")
         if not await self._limiter.try_spend(f"search:{identity.user_id}", 1, SEARCH_LIMIT):
             raise RateLimited("Too many searches. Wait a moment and try again.", retry_after_s=60)
-        plan, notice = await self._vector_plan()
+        if not await self._limiter.try_spend(
+            f"search-day:{identity.user_id}", 1, SEARCH_DAILY_LIMIT
+        ):
+            raise RateLimited("You've reached today's search limit.", retry_after_s=86400)
+        plan, notice = await self._vector_plan(identity.workspace_id)
         res = await hybrid_retrieve(
             self._index,
             identity.workspace_id,
@@ -161,17 +171,39 @@ class SearchService:
             max_per_document=self._per_doc,
             limit=limit,
         )
+        if plan is not None and Lane.VECTOR in res.lanes:
+            await self._record_query_embedding(identity.workspace_id, q)
         return replace(res, notices=(notice, *res.notices)) if notice else res
 
-    async def _vector_plan(self) -> tuple[VectorLane | None, str | None]:
+    async def _record_query_embedding(self, ws: WorkspaceId, q: str) -> None:
+        """Every paid call is in the ledger, or the spend caps can't see it (ARCHITECTURE §12).
+        Tokens are estimated (~4 characters each, rounded up); the data class is private
+        because a query may be about private content (fail closed, ADR-0012)."""
+        assert self._embedder is not None  # reason: only called when the vector lane ran
+        tokens = len(q) // 4 + 1
+        await self._ledger.record(
+            UsageEntry(
+                workspace_id=ws,
+                provider="openai",
+                model=self._embedder.model,
+                kind="embed",
+                data_class="private",
+                tokens_in=tokens,
+                tokens_out=0,
+                cost_usd=QUERY_USD_PER_M_TOKENS * tokens / Decimal(1_000_000),
+            )
+        )
+
+    async def _vector_plan(self, ws: WorkspaceId) -> tuple[VectorLane | None, str | None]:
         """Whether the vector lane may run, and with which embedder and generation."""
         if self._embedder is None:
             return None, None  # no embedding model configured (e.g. local dev without a key)
         gen = await self._generations.present()
         if gen is None or gen.model != self._embedder.model:
             return None, None  # nothing embedded with this model yet: keyword is all there is
-        if await self._ledger.month_to_date_usd() >= self._budget:
-            return None, "Meaning-based search is paused: this month's AI budget is used up."
+        # A query embedding costs a fraction of a cent; refuse once any cap is reached.
+        if reason := self._limits.refusal(await self._ledger.spend(ws), QUERY_EMBED_USD):
+            return None, f"Meaning-based search is paused. {reason}"
         return VectorLane(self._embedder, gen.id), None
 
     async def preview(self, identity: Identity, doc_id: DocumentId) -> DocumentPreview:

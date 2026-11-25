@@ -3,16 +3,42 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { ArrowRight, Lock, Mail } from "lucide-react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Button, Spinner } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { api, ApiProblem, errorMessage, unwrap } from "@/lib/api/client";
-import { keys, useSetupStatus } from "@/lib/api/hooks";
+import { keys } from "@/lib/api/hooks";
 import { PasswordToggle } from "@/components/password-toggle";
+import { EMAIL } from "@/lib/password";
 import { safeNext } from "@/lib/safe-next";
 import { fieldIcon, fieldInput, fieldLabel, fieldShell, heroSurface, TrustRow } from "../auth-frame";
 
-const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+/** After this long, say the server is waking up (Neon scales to zero; a cold start takes seconds). */
+export const SLOW_AFTER_MS = 3_000;
+/** Give up after this long so a stalled request never leaves the form stuck. */
+export const SIGN_IN_TIMEOUT_MS = 20_000;
+const TIMED_OUT = "The server took too long to respond. Try again.";
+
+class TimedOut extends Error {}
+
+/**
+ * Run a request with a deadline, calling onSlow once it passes SLOW_AFTER_MS. Not retried
+ * automatically: each sign-in attempt counts against the rate limit, so the user retries.
+ */
+async function withDeadline<T>(run: (signal: AbortSignal) => Promise<T>, onSlow: () => void): Promise<T> {
+  const controller = new AbortController();
+  const slow = setTimeout(onSlow, SLOW_AFTER_MS);
+  const deadline = setTimeout(() => controller.abort(), SIGN_IN_TIMEOUT_MS);
+  try {
+    return await run(controller.signal);
+  } catch (err) {
+    throw controller.signal.aborted ? new TimedOut(TIMED_OUT) : err;
+  } finally {
+    clearTimeout(slow);
+    clearTimeout(deadline);
+  }
+}
 
 /**
  * Two-step sign-in in one <form> (UI_DESIGN §4.1): the hero's email bar grows into a password
@@ -24,24 +50,31 @@ export function SignInForm() {
   const router = useRouter();
   const params = useSearchParams();
   const client = useQueryClient();
-  const status = useSetupStatus();
   const [step, setStep] = useState<"email" | "password">("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"signin" | "guest" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [slow, setSlow] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
+  const next = safeNext(params.get("next"), typeof window === "undefined" ? "" : window.location.origin);
 
   useEffect(() => {
-    if (status.data && !status.data.set_up) router.replace("/setup");
-  }, [status.data, router]);
+    if (step !== "password") return;
+    passwordRef.current?.focus();
+    // Load the destination while the user types, so the redirect after sign-in is instant.
+    router.prefetch(next);
+  }, [step, router, next]);
 
-  useEffect(() => {
-    if (step === "password") passwordRef.current?.focus();
-  }, [step]);
-
-  const expired = params.get("reason") === "expired";
+  const reason = params.get("reason");
+  const banner =
+    reason === "expired"
+      ? "Your session expired. Sign in again to continue."
+      : reason === "reset"
+        ? "Password changed. Sign in with your new password."
+        : null;
+  const markSlow = () => setSlow(true);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -50,28 +83,21 @@ export function SignInForm() {
       if (!EMAIL.test(email.trim())) return setError("Enter an email like name@company.com.");
       return setStep("password");
     }
-    setBusy("signin");
+    setBusy(true);
     try {
-      unwrap(await api.POST("/api/v1/auth/login", { body: { email: email.trim(), password } }));
-      await client.invalidateQueries({ queryKey: keys.me });
-      router.replace(safeNext(params.get("next"), window.location.origin));
+      const me = await withDeadline(
+        async (signal) => unwrap(await api.POST("/api/v1/auth/login", { body: { email: email.trim(), password }, signal })),
+        markSlow,
+      );
+      client.setQueryData(keys.me, me);
+      // An unverified account can sign in, but can't use the app until it verifies (ADR-0021).
+      router.replace(me.email_verified ? next : "/verify");
     } catch (err) {
       setError(err instanceof ApiProblem && err.status === 401 ? "Email or password is incorrect." : errorMessage(err));
       setPassword("");
-      setBusy(null);
-    }
-  }
-
-  async function asGuest() {
-    setError(null);
-    setBusy("guest");
-    try {
-      unwrap(await api.POST("/api/v1/auth/guest"));
-      await client.invalidateQueries({ queryKey: keys.me });
-      router.replace("/home");
-    } catch (err) {
-      setError(errorMessage(err));
-      setBusy(null);
+      setBusy(false);
+    } finally {
+      setSlow(false);
     }
   }
 
@@ -79,9 +105,9 @@ export function SignInForm() {
 
   return (
     <div className="flex flex-col items-center gap-4">
-      {expired ? (
+      {banner ? (
         <p role="status" className="rounded-full bg-bg px-3 py-1 text-body font-medium text-brand">
-          Your session expired. Sign in again to continue.
+          {banner}
         </p>
       ) : null}
       <form
@@ -150,9 +176,17 @@ export function SignInForm() {
               </button>
             </div>
             <div className="flex flex-col gap-2">
-              <label htmlFor="password" className={fieldLabel}>
-                Password
-              </label>
+              <div className="flex items-center justify-between">
+                <label htmlFor="password" className={fieldLabel}>
+                  Password
+                </label>
+                <Link
+                  href={`/forgot-password?email=${encodeURIComponent(email.trim())}`}
+                  className="text-caption font-medium text-brand underline-offset-[3px] hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div className={cn(fieldShell, "pr-1")}>
                 <Lock className={fieldIcon} strokeWidth={1.5} aria-hidden="true" />
                 <input
@@ -176,7 +210,7 @@ export function SignInForm() {
                 {error}
               </p>
             ) : null}
-            <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy === "signin"} disabled={!password}>
+            <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy} disabled={!password}>
               Sign in
             </Button>
           </div>
@@ -192,31 +226,24 @@ export function SignInForm() {
           >
             {error}
           </p>
+        ) : slow ? (
+          <p role="status" className="rounded-full bg-bg px-3 py-1 text-body font-medium text-fg-muted">
+            Waking up the server. This can take a few seconds…
+          </p>
         ) : (
-          <TrustRow items={["Cited answers", "Permission-aware", "Read-only demo"]} />
+          <TrustRow items={["Cited answers", "Permission-aware", "Your own private workspace"]} />
         )}
       </div>
 
       <p className="text-body text-white">
         No account?{" "}
-        <button
-          type="button"
-          onClick={asGuest}
-          disabled={busy !== null}
-          className="group inline-flex items-center gap-1 font-semibold text-white underline decoration-white/50 underline-offset-[3px] hover:decoration-white disabled:opacity-60"
+        <Link
+          href="/sign-up"
+          className="group inline-flex items-center gap-1 font-semibold text-white underline decoration-white/50 underline-offset-[3px] hover:decoration-white"
         >
-          {busy === "guest" ? (
-            <>
-              <Spinner className="size-3.5" />
-              Opening the demo…
-            </>
-          ) : (
-            <>
-              Explore the live demo
-              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" aria-hidden="true" />
-            </>
-          )}
-        </button>
+          Create one free
+          <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" aria-hidden="true" />
+        </Link>
       </p>
     </div>
   );

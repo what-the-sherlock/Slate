@@ -4,13 +4,15 @@
     uv run python scripts/bench_api.py [--base http://127.0.0.1:8000] [-n 20]
 
 Reads only the ``Server-Timing`` header the API sets (db-connect count and time), so
-it works against local or deployed APIs. Uses a guest session for the signed-in
-routes when the workspace has guest mode, and signs out at the end. No paid APIs.
+it works against local or deployed APIs. The signed-in routes need an existing account:
+pass ``--email`` and set BENCH_PASSWORD (never a flag, so it stays out of shell history).
+It signs out at the end. No paid APIs, and it never creates accounts.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import statistics
 import time
@@ -48,19 +50,22 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="http://127.0.0.1:8000")
     parser.add_argument("-n", type=int, default=20)
+    parser.add_argument("--email", help="an existing account; password from BENCH_PASSWORD")
     args = parser.parse_args()
+    password = os.environ.get("BENCH_PASSWORD", "")
 
     with httpx.Client(base_url=f"{args.base}/api/v1", headers=_HEADERS, timeout=30) as c:
         c.get("/healthz")  # warm the process (first import, container build)
-        for path in ("/healthz", "/readyz", "/auth/status"):
+        for path in ("/healthz", "/readyz", "/auth/config"):
             _sample(c, path, args.n)
-        if c.post("/auth/guest").status_code == 200:
+        login = {"email": args.email or "", "password": password}
+        if args.email and password and c.post("/auth/login", json=login).status_code == 200:
             for path in ("/me", "/sources"):
                 _sample(c, path, args.n)
             csrf = next((v for k, v in c.cookies.items() if "csrf" in k.lower()), "")
             c.post("/auth/logout", headers={"X-CSRF-Token": csrf})
         else:
-            print("guest mode unavailable: skipped signed-in routes")
+            print("no --email/BENCH_PASSWORD (or sign-in failed): skipped signed-in routes")
 
 
 if __name__ == "__main__":

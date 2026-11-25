@@ -6,7 +6,7 @@
   our cookies but can't *read* them, so it can't forge the header.
 * Outside dev the names carry the ``__Host-`` prefix, which browsers only accept with
   Secure, Path=/ and no Domain, so a subdomain can't plant cookies for us.
-* Pre-login POSTs (setup, login, guest) have no session to tie a CSRF token to, so they
+* Pre-login POSTs (signup, login, password reset) have no session to tie a CSRF token to, so they
   require ``X-Requested-With: slate``: a cross-site form can't set custom headers, and a
   cross-origin fetch that sets one needs a CORS preflight we never grant.
 """
@@ -117,18 +117,22 @@ async def require_csrf(
     return identity
 
 
-async def require_non_guest_mutation(
+UNVERIFIED_MESSAGE = "Verify your email address first. We sent you a 6-digit code."
+
+
+async def require_verified_mutation(
     identity: Annotated[Identity, Depends(require_csrf)],
 ) -> Identity:
-    """Default for state-changing routes: guests are read-only (SECURITY.md)."""
-    if identity.is_guest:
-        raise PermissionDenied("Guests can't make changes. Sign in to continue.")
+    """Default for state-changing routes: only verified accounts may change or spend
+    anything (ADR-0021). Unverified ones can only verify, resend and sign out."""
+    if not identity.email_verified:
+        raise PermissionDenied(UNVERIFIED_MESSAGE, extra={"reason": "email_unverified"})
     return identity
 
 
 def require_role(required: Role):
     async def dependency(
-        identity: Annotated[Identity, Depends(require_non_guest_mutation)],
+        identity: Annotated[Identity, Depends(require_verified_mutation)],
     ) -> Identity:
         if not identity.can(required):
             raise PermissionDenied("You don't have permission to do that.")
@@ -138,8 +142,8 @@ def require_role(required: Role):
 
 
 CurrentIdentity = Annotated[Identity, Depends(require_identity)]
-# State-changing routes use MutatingIdentity (guests refused). Only routes that a guest
-# must also be able to call (logout) use SessionMutatingIdentity explicitly.
-MutatingIdentity = Annotated[Identity, Depends(require_non_guest_mutation)]
+# State-changing routes use MutatingIdentity (CSRF + verified email). Only routes an
+# unverified account must also reach (logout, verify, resend) use SessionMutatingIdentity.
+MutatingIdentity = Annotated[Identity, Depends(require_verified_mutation)]
 SessionMutatingIdentity = Annotated[Identity, Depends(require_csrf)]
 SameSiteRequest = Depends(require_same_site_request)

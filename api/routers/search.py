@@ -16,7 +16,7 @@ from api.schemas.search import (
     SearchHitOut,
     SearchOut,
 )
-from api.security import CurrentIdentity, SessionMutatingIdentity
+from api.security import CurrentIdentity, MutatingIdentity
 from core.domain.documents import SearchFilters
 from core.domain.errors import UpstreamUnavailable
 from core.domain.ids import DocumentId, SourceId
@@ -37,9 +37,10 @@ Search = Annotated[SearchService, Depends(_search)]
 @router.post("/search", summary="Hybrid search over what you can see", response_model=SearchOut)
 async def search(
     body: SearchBody,
-    # POST + CSRF: it reads nothing it shouldn't, but it spends rate and budget, and a
-    # query in a URL would land in proxy and browser logs. Guests may search.
-    identity: SessionMutatingIdentity,
+    # POST + CSRF: it reads nothing it shouldn't, but it spends rate and budget (a paid
+    # query embedding), and a query in a URL would land in proxy and browser logs. So
+    # only verified accounts may search (ADR-0021).
+    identity: MutatingIdentity,
     service: Search,
 ) -> SearchOut:
     res = await service.search(

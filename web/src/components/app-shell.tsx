@@ -5,7 +5,6 @@ import {
   Activity,
   ChevronsLeft,
   House,
-  Info,
   LogOut,
   Menu,
   MessageSquare,
@@ -63,7 +62,7 @@ function useCollapsed(): [boolean, (next: boolean) => void] {
   ];
 }
 
-/** Signed-in shell (UI_DESIGN §3.9, §4.2): collapsible sidebar + main, guest banner, auth guard. */
+/** Signed-in shell (UI_DESIGN §3.9, §4.2): collapsible sidebar + main, auth and verification guard. */
 export function AppShell({ children }: { children: ReactNode }) {
   const me = useMe();
   const router = useRouter();
@@ -73,6 +72,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (me.data === null) router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`);
+    // Unverified accounts can't use the app yet (ADR-0021); the API refuses them too.
+    else if (me.data && !me.data.email_verified) router.replace("/verify");
   }, [me.data, router, pathname]);
 
   useEffect(() => {
@@ -82,7 +83,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [drawer]);
 
-  if (!me.data) {
+  if (!me.data || !me.data.email_verified) {
     return (
       <div className="flex flex-1 items-center justify-center" aria-busy="true">
         <Spinner className="size-5 text-fg-subtle" />
@@ -127,18 +128,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Button>
           <Logo />
         </div>
-        {me.data.is_guest ? (
-          <div
-            role="status"
-            className="flex h-9 items-center gap-2 border-b border-brand-border bg-brand-subtle px-4 text-caption font-medium text-brand sm:px-8"
-          >
-            <Info className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="truncate">You&apos;re exploring as a guest. Answers use public sources only.</span>
-            <Link href="/sign-in" className="ml-auto shrink-0 underline-offset-[3px] hover:underline">
-              Sign in
-            </Link>
-          </div>
-        ) : null}
+
         <main id="main" className="flex-1">
           {children}
         </main>
@@ -245,11 +235,11 @@ function Account({ me, collapsed }: { me: Me; collapsed: boolean }) {
     <span
       className={cn(
         "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold",
-        me.is_guest ? "border border-dashed border-border-strong text-fg-muted" : "bg-brand-subtle text-brand",
+        "bg-brand-subtle text-brand",
       )}
       aria-hidden="true"
     >
-      {me.is_guest ? "G" : initials}
+      {initials}
     </span>
   );
   const button = (
@@ -277,7 +267,7 @@ function Account({ me, collapsed }: { me: Me; collapsed: boolean }) {
       {avatar}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-caption font-medium text-fg">{me.user.name}</span>
-        <span className="block text-data text-fg-subtle capitalize">{me.is_guest ? "Guest" : me.role}</span>
+        <span className="block text-data text-fg-subtle capitalize">{me.role}</span>
       </span>
       <Tooltip>
         <TooltipTrigger asChild>{button}</TooltipTrigger>

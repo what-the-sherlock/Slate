@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 
 from core.adapters.parsers.formats import FormatParser
+from core.domain.budget import SpendLimits
 from core.domain.documents import SearchFilters
 from core.domain.errors import BudgetExceeded, ValidationFailed
 from core.domain.ids import JobId, SourceId, UserId, WorkspaceId
@@ -43,7 +44,7 @@ class Env:
             self.embedder,
             InMemoryGenerations(),
             self.ledger,
-            monthly_budget_usd=Decimal(5),
+            limits=SpendLimits.monthly_only(Decimal(5)),
         )
 
     async def job(
@@ -167,3 +168,12 @@ async def test_budget_exhausted_stops_before_any_model_call() -> None:
         await env.svc.process_upload(await env.job(MD))
     assert env.embedder.calls == []
     assert env.run_status() == "failed"
+
+
+async def test_a_workspace_over_its_allowance_cannot_embed_but_others_can() -> None:
+    env = Env()
+    env.svc._limits = SpendLimits(monthly_all=Decimal(5), monthly_workspace=Decimal("0.25"))
+    env.ledger.workspace_spent[WS] = Decimal("0.25")
+    with pytest.raises(BudgetExceeded, match="this month's AI allowance"):
+        await env.svc.process_upload(await env.job(MD))
+    assert env.embedder.calls == []

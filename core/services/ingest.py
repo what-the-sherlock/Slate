@@ -19,6 +19,7 @@ from uuid import UUID
 
 import structlog
 
+from core.domain.budget import SpendLimits
 from core.domain.chunking import chunk_sections, embedding_text
 from core.domain.data_class import classify
 from core.domain.documents import DocumentUpsert, NewChunk, Section
@@ -114,7 +115,7 @@ class IngestService:
         generations: GenerationStore,
         ledger: UsageLedger,
         *,
-        monthly_budget_usd: Decimal,
+        limits: SpendLimits,
     ) -> None:
         self._blobs = blobs
         self._documents = documents
@@ -124,7 +125,7 @@ class IngestService:
         self._embedder = embedder
         self._generations = generations
         self._ledger = ledger
-        self._budget = monthly_budget_usd
+        self._limits = limits
 
     async def process_upload(self, job: Job) -> None:
         payload = UploadPayload.from_job(job)
@@ -211,7 +212,7 @@ class IngestService:
                 "This document is too large to index (over 400,000 tokens of text)."
             )
         stage.name = "embed"
-        await self._check_budget(self._estimate_usd(total_tokens))
+        await self._check_budget(ws, self._estimate_usd(total_tokens))
         generation = await self._generations.ensure_present(
             self._embedder.model, self._embedder.dims
         )
@@ -246,17 +247,16 @@ class IngestService:
         price = PRICE_PER_M_TOKENS.get(self._embedder.model, DEFAULT_PRICE_PER_M)
         return price * tokens / Decimal(1_000_000)
 
-    async def _check_budget(self, upcoming_usd: Decimal = Decimal(0)) -> None:
-        """Refuse if this spend would cross the budget. Called before the first paid
-        call (with the whole document's estimate) and again before every batch.
+    async def _check_budget(self, ws: WorkspaceId, upcoming_usd: Decimal = Decimal(0)) -> None:
+        """Refuse if this spend would cross any cap: global or this workspace's, per day
+        or per month (core/domain/budget.py). Called before the first paid call (with the
+        whole document's estimate) and again before every batch.
         """
-        spent = await self._ledger.month_to_date_usd()
-        if spent + upcoming_usd > self._budget:
-            raise BudgetExceeded(
-                "This month's AI budget is used up; processing resumes next month."
-            )
-        if spent >= self._budget * Decimal("0.8"):
-            log.warning("budget_80_percent", spent_usd=str(spent), budget_usd=str(self._budget))
+        spend = await self._ledger.spend(ws)
+        if reason := self._limits.refusal(spend, upcoming_usd):
+            raise BudgetExceeded(reason)
+        if self._limits.near_global_limit(spend):
+            log.warning("budget_80_percent", spent_usd=str(spend.month_all))
 
     async def _embed(
         self, ws: WorkspaceId, data_class: str, title: str, chunks: Sequence[NewChunk]
@@ -266,7 +266,8 @@ class IngestService:
         for start in range(0, len(texts), EMBED_BATCH):
             batch = texts[start : start + EMBED_BATCH]
             await self._check_budget(
-                self._estimate_usd(sum(c.token_count for c in chunks[start : start + EMBED_BATCH]))
+                ws,
+                self._estimate_usd(sum(c.token_count for c in chunks[start : start + EMBED_BATCH])),
             )
             result = await self._embedder.embed_documents(batch)
             vectors.extend(result.vectors)

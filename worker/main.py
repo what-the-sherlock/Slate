@@ -16,11 +16,13 @@ import os
 import signal
 import socket
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import structlog
 
 from core.adapters.factories import ingest_service, s3_blob_store, workersai_embedder
+from core.adapters.postgres.auth import PostgresAccountStore
 from core.adapters.postgres.documents import PostgresDocumentStore
 from core.adapters.postgres.engine import (
     EngineKind,
@@ -35,7 +37,7 @@ from core.adapters.postgres.usage import PostgresGenerationStore, PostgresUsageL
 from core.config import Settings, get_settings
 from core.logs import configure_logging
 from core.services.backfill import BackfillReport, Provider, backfill_generation
-from core.services.maintenance import sweep_abandoned_uploads
+from core.services.maintenance import sweep_abandoned_uploads, sweep_unverified_accounts
 from core.services.uploads import PROCESS_UPLOAD
 from worker.handlers import NOOP, noop
 from worker.runner import Handler, RunLimits, RunSummary, Worker
@@ -55,13 +57,18 @@ def build_handlers(settings: Settings, uow: UnitOfWork) -> dict[str, Handler]:
 
 
 async def housekeeping(settings: Settings, uow: UnitOfWork) -> None:
+    # Housekeeping must never stop real work, so each sweep fails on its own.
+    try:
+        await sweep_unverified_accounts(PostgresAccountStore(uow), datetime.now(UTC))
+    except Exception as e:
+        log.warning("sweep_failed", sweep="unverified_accounts", error_type=type(e).__name__)
     blobs = s3_blob_store(settings)
     if blobs is None:
         return
     try:
         await sweep_abandoned_uploads(blobs, PostgresSourceStore(uow))
-    except Exception as e:  # housekeeping must never stop real work
-        log.warning("sweep_failed", error_type=type(e).__name__)
+    except Exception as e:
+        log.warning("sweep_failed", sweep="abandoned_uploads", error_type=type(e).__name__)
 
 
 def _worker_id(configured: str | None) -> str:

@@ -15,12 +15,16 @@ class InMemorySources:
         self.finished: dict[RunId, tuple[str, int, int, int, str | None]] = {}
         self.errors: list[tuple[RunId, str, str, bool]] = []
         self.used_blobs: set[str] = set()
+        self.usage: dict[WorkspaceId, tuple[int, int]] = {}  # (documents, bytes)
 
     async def upload_source(self, ws: WorkspaceId, data_class: DataClass) -> SourceId:
         key = (ws, data_class)
         if key not in self.sources:
             self.sources[key] = SourceId(self._ids.new_uuid())
         return self.sources[key]
+
+    async def upload_usage(self, ws: WorkspaceId) -> tuple[int, int]:
+        return self.usage.get(ws, (0, 0))
 
     async def find_upload(self, ws: WorkspaceId, external_id: str) -> ExistingUpload | None:
         return self.uploads.get((ws, external_id))

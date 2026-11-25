@@ -27,7 +27,7 @@ export function SourcesView() {
   const me = useMe();
   const sources = useSources();
   const [adding, setAdding] = useState(false);
-  const canAdd = !!me.data && !me.data.is_guest && me.data.role !== "viewer";
+  const canAdd = !!me.data && me.data.role !== "viewer";
   // Home's "Add source" links here with ?add=1: the URL itself opens the dialog.
   const params = useSearchParams();
   const router = useRouter();

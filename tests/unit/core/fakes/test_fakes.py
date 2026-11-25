@@ -90,7 +90,7 @@ async def test_index_upsert_is_idempotent_and_versions_on_checksum_change() -> N
 async def test_search_never_returns_chunks_outside_principals() -> None:
     idx, emb = InMemoryIndex(), FakeEmbedder(dims=32)
     await _seed(idx, emb)
-    guest = Principals.for_user(GUEST, WS, is_guest=True)
+    guest = Principals.for_outsider(GUEST)
     owner = Principals.for_user(OWNER, WS)
     q = await emb.embed_query("deploy")
     guest_hits = await idx.vector_search(WS, guest, q, GEN, 10, SearchFilters())
@@ -111,7 +111,7 @@ async def test_search_is_scoped_to_workspace() -> None:
 async def test_get_document_hides_existence_of_forbidden_docs() -> None:
     idx, emb = InMemoryIndex(), FakeEmbedder(dims=32)
     await _seed(idx, emb)
-    guest = Principals.for_user(GUEST, WS, is_guest=True)
+    guest = Principals.for_outsider(GUEST)
     private_id = idx._by_key[(SRC, "private-doc")]
     with pytest.raises(NotFound):
         await idx.get_document(WS, private_id, guest)
@@ -122,7 +122,7 @@ async def test_visibility_change_rewrites_chunk_acls_without_reembedding() -> No
     await _seed(idx, emb)
     calls_before = len(emb.calls)
     await idx.upsert_document(WS, _doc("private-doc", (PUBLIC,)))
-    guest = Principals.for_user(GUEST, WS, is_guest=True)
+    guest = Principals.for_outsider(GUEST)
     hits = await idx.keyword_search(WS, guest, "vault", 10, SearchFilters())
     assert len(hits) == 1
     assert len(emb.calls) == calls_before

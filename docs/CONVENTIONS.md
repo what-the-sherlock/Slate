@@ -51,7 +51,7 @@ These rules keep the codebase reliable and easy for humans and Claude to change.
 - `strict: true` and `noUncheckedIndexedAccess`. No `any`. Validate external data with zod.
 - Server Components by default. Use Client Components only for interactivity. Data fetching uses TanStack Query with the **generated** client (`pnpm gen:api` from the API's OpenAPI JSON). Never hand-write fetch types.
 - Components are small and accessible (labels, keyboard navigation, focus states). Use shadcn/ui primitives. Visual design follows `docs/UI_DESIGN.md`.
-- Colocate a component's test (`*.test.tsx`, Vitest + Testing Library). Playwright covers about 5 smoke flows: login, upload, search, chat with citation click-through, guest isolation.
+- Colocate a component's test (`*.test.tsx`, Vitest + Testing Library). Playwright covers about 5 smoke flows: login, upload, search, chat with citation click-through, sign-up + verify, cross-account isolation.
 
 ## Testing
 

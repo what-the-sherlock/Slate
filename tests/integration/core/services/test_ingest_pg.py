@@ -21,6 +21,7 @@ from core.adapters.postgres.uow import UnitOfWork
 from core.adapters.postgres.usage import PostgresGenerationStore, PostgresUsageLedger
 from core.adapters.s3.blob_store import S3BlobStore
 from core.config import Settings
+from core.domain.budget import SpendLimits
 from core.domain.data_class import DataClass
 from core.domain.errors import ValidationFailed
 from core.domain.ids import JobId, WorkspaceId
@@ -62,8 +63,9 @@ async def world(uow: UnitOfWork) -> AsyncIterator[tuple[WorkspaceId, UUID]]:
         user = (
             await s.execute(
                 text(
-                    "INSERT INTO users (email, name, password_hash)"
-                    " VALUES ('ing-' || gen_random_uuid() || '@t.dev', 'I', 'h') RETURNING id"
+                    "INSERT INTO users (email, email_canonical, name, password_hash)"
+                    " SELECT e, e, 'I', 'h' FROM (SELECT 'ing-' || gen_random_uuid() || '@t.dev' AS e) x"
+                    " RETURNING id"
                 )
             )
         ).scalar_one()
@@ -95,7 +97,7 @@ def service(uow: UnitOfWork, blobs: S3BlobStore) -> IngestService:
         FakeEmbedder(dims=1024),
         PostgresGenerationStore(uow),
         PostgresUsageLedger(uow),
-        monthly_budget_usd=Decimal(5),
+        limits=SpendLimits.monthly_only(Decimal(5)),
     )
 
 

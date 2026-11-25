@@ -4,10 +4,23 @@ worker/main.py), so both wire identical adapters from the same configuration.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import secrets
 from decimal import Decimal
 
+import structlog
+
+from core.adapters.email.dev import AllowAllHumanVerifier, LogEmailSender
+from core.adapters.email.smtp import SmtpEmailSender
 from core.adapters.openai.embedder import OpenAIEmbedder
 from core.adapters.parsers.formats import FormatParser
+from core.adapters.postgres.auth import (
+    PostgresAccountStore,
+    PostgresCodeStore,
+    PostgresLoginThrottle,
+    PostgresSessionStore,
+)
 from core.adapters.postgres.documents import PostgresDocumentStore
 from core.adapters.postgres.rate_limit import PostgresRateLimiter
 from core.adapters.postgres.search import PostgresSearchIndex
@@ -15,11 +28,22 @@ from core.adapters.postgres.sources import PostgresSourceStore
 from core.adapters.postgres.uow import UnitOfWork
 from core.adapters.postgres.usage import PostgresGenerationStore, PostgresUsageLedger
 from core.adapters.s3.blob_store import S3BlobStore, S3Settings
+from core.adapters.security.argon2_hasher import Argon2Hasher
+from core.adapters.system import SystemClock
 from core.adapters.tokenizer import TiktokenTokenizer
+from core.adapters.turnstile import TurnstileVerifier
 from core.adapters.workersai.embedder import WorkersAIEmbedder
-from core.config import Settings
+from core.config import Env, Settings
+from core.domain.budget import SpendLimits
+from core.domain.emails import OutgoingEmail
+from core.domain.errors import UpstreamUnavailable
+from core.ports.auth import HumanVerifier
+from core.ports.email import EmailSender
+from core.services.auth import AuthPolicy, AuthService
 from core.services.ingest import IngestService
 from core.services.search import SearchService
+
+log = structlog.get_logger(__name__)
 
 
 def s3_blob_store(settings: Settings) -> S3BlobStore | None:
@@ -53,6 +77,16 @@ def workersai_embedder(settings: Settings) -> WorkersAIEmbedder | None:
     return WorkersAIEmbedder(account, token)
 
 
+def spend_limits(settings: Settings) -> SpendLimits:
+    """The four spend caps (core/domain/budget.py), from settings."""
+    return SpendLimits(
+        monthly_all=Decimal(str(settings.monthly_llm_budget_usd)),
+        daily_all=Decimal(str(settings.daily_llm_budget_usd)),
+        monthly_workspace=Decimal(str(settings.workspace_monthly_budget_usd)),
+        daily_workspace=Decimal(str(settings.workspace_daily_budget_usd)),
+    )
+
+
 def search_service(settings: Settings, uow: UnitOfWork) -> SearchService:
     """Hybrid search. Without an OpenAI key it runs keyword-only (no spend in dev)."""
     return SearchService(
@@ -61,7 +95,7 @@ def search_service(settings: Settings, uow: UnitOfWork) -> SearchService:
         PostgresGenerationStore(uow),
         PostgresUsageLedger(uow),
         PostgresRateLimiter(uow),
-        monthly_budget_usd=Decimal(str(settings.monthly_llm_budget_usd)),
+        limits=spend_limits(settings),
     )
 
 
@@ -84,5 +118,77 @@ def ingest_service(settings: Settings, uow: UnitOfWork) -> IngestService | None:
         ),
         PostgresGenerationStore(uow),
         PostgresUsageLedger(uow),
-        monthly_budget_usd=Decimal(str(settings.monthly_llm_budget_usd)),
+        limits=spend_limits(settings),
+    )
+
+
+def email_sender(settings: Settings) -> EmailSender | None:
+    """SMTP when configured; the log stand-in only in dev; otherwise None (sign-up closes)."""
+    if settings.mail_configured and settings.smtp_host and settings.mail_from:
+        return SmtpEmailSender(
+            host=settings.smtp_host,
+            port=settings.smtp_port,
+            security=settings.smtp_security,
+            username=settings.smtp_username,
+            password=settings.smtp_password.get_secret_value() if settings.smtp_password else None,
+            sender=settings.mail_from,
+        )
+    return LogEmailSender() if settings.env is Env.DEV else None
+
+
+def human_verifier(settings: Settings) -> HumanVerifier | None:
+    """Turnstile when configured; allow-all only in dev; otherwise None (sign-up closes)."""
+    if settings.turnstile_configured and settings.turnstile_secret_key:
+        return TurnstileVerifier(settings.turnstile_secret_key.get_secret_value())
+    return AllowAllHumanVerifier() if settings.env is Env.DEV else None
+
+
+def _code_key(settings: Settings) -> bytes:
+    """HMAC key for one-time codes, derived from SESSION_SECRET with its own label so it
+    never equals a key used elsewhere. Without a secret (dev), a per-process random key:
+    codes then stop working on restart, which is fine locally."""
+    if settings.session_secret is None:
+        return secrets.token_bytes(32)
+    root = settings.session_secret.get_secret_value().encode()
+    return hmac.new(root, b"slate/email-codes/v1", hashlib.sha256).digest()
+
+
+class _Unavailable:
+    """Stands in for a missing mailer or bot check outside dev, so the service can be built;
+    sign-up is closed in that case and these are never reached through it."""
+
+    async def send(self, email: OutgoingEmail) -> None:
+        raise UpstreamUnavailable("Email isn't configured on this server.")
+
+    async def verify(self, token: str, ip: str | None) -> bool:
+        raise UpstreamUnavailable("The bot check isn't configured on this server.")
+
+
+def auth_service(settings: Settings, uow: UnitOfWork) -> AuthService:
+    """Auth wired from settings. Outside dev, sign-up stays closed unless both mail and
+    Turnstile are configured: without them it would be an open door for bots (fail closed)."""
+    mailer, human = email_sender(settings), human_verifier(settings)
+    ready = mailer is not None and human is not None
+    if settings.signups_enabled and not ready:
+        log.warning(
+            "signup_closed_unconfigured", mail=mailer is not None, turnstile=human is not None
+        )
+    missing = _Unavailable()
+    return AuthService(
+        accounts=PostgresAccountStore(uow),
+        sessions=PostgresSessionStore(uow),
+        throttle=PostgresLoginThrottle(uow),
+        hasher=Argon2Hasher(),
+        codes=PostgresCodeStore(uow),
+        rate=PostgresRateLimiter(uow),
+        human=human or missing,
+        mailer=mailer or missing,
+        clock=SystemClock(),
+        policy=AuthPolicy(
+            code_key=_code_key(settings),
+            owner_email=settings.owner_email,
+            setup_token=settings.setup_token.get_secret_value() if settings.setup_token else None,
+            setup_token_required=settings.env is not Env.DEV,  # any reachable env
+            signups_enabled=settings.signups_enabled and ready,
+        ),
     )

@@ -33,6 +33,7 @@ def test_settings_prod_rejects_short_session_secret() -> None:
             database_url="postgresql://a",
             database_url_direct="postgresql://b",
             session_secret="short",
+            trusted_ip_header="x-vercel-forwarded-for",
         )
 
 

@@ -132,6 +132,21 @@ class PostgresSourceStore:
                 {"r": run_id, "e": external_id, "st": stage, "m": message, "rt": retryable},
             )
 
+    async def upload_usage(self, ws: WorkspaceId) -> tuple[int, int]:
+        async with self._uow() as s:
+            row = (
+                await s.execute(
+                    text(
+                        "SELECT count(*), coalesce(sum((d.metadata->>'size')::bigint), 0)"
+                        " FROM documents d"
+                        " JOIN sources src ON src.id = d.source_id AND src.connector = 'upload'"
+                        " WHERE d.workspace_id = :ws AND d.deleted_at IS NULL"
+                    ),
+                    {"ws": ws},
+                )
+            ).one()
+        return int(row[0]), int(row[1])
+
     async def blob_in_use(self, blob_key: str) -> bool:
         async with self._uow() as s:
             used = (

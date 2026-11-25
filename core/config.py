@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from functools import lru_cache
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -54,7 +54,12 @@ class Settings(BaseSettings):
     cf_api_token: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
     groq_api_key: SecretStr | None = None
-    monthly_llm_budget_usd: float = Field(default=5.0, ge=0)
+    monthly_llm_budget_usd: float = Field(default=5.0, ge=0)  # the hard stop for all users
+    # Open sign-up (ADR-0021): a burst can't use the month in a day, and one workspace
+    # can't crowd out the rest. See core/domain/budget.py.
+    daily_llm_budget_usd: float = Field(default=0.50, ge=0)
+    workspace_monthly_budget_usd: float = Field(default=0.25, ge=0)
+    workspace_daily_budget_usd: float = Field(default=0.05, ge=0)
 
     # Neon Object Storage (ADR-0014): AWS-standard names, injected by `neon deploy`.
     aws_access_key_id: str | None = None
@@ -73,8 +78,24 @@ class Settings(BaseSettings):
     # Identifies this worker process in jobs.locked_by (sync.yml sets it from the run id).
     worker_id: str | None = None
 
-    # First-run setup code. In prod, setup is refused unless this is set (security review).
+    # Open sign-up (ADR-0021). The verified OWNER_EMAIL account is the platform admin;
+    # signing up with it needs SETUP_TOKEN, and in prod is refused while that's unset.
+    owner_email: str | None = None
     setup_token: SecretStr | None = None
+    signups_enabled: bool = True  # kill switch: false closes sign-up, login keeps working
+
+    # Outgoing mail for verification and reset codes: any SMTP relay (Brevo's free tier, or
+    # a Gmail app password). Unset in dev: codes are written to the API log instead.
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, gt=0, lt=65536)
+    smtp_security: Literal["starttls", "ssl"] = "starttls"  # 587 = STARTTLS, 465 = SSL
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    mail_from: str | None = None  # e.g. "Slate <no-reply@example.com>"
+
+    # Cloudflare Turnstile bot check on sign-up, resend and reset. Unset in dev: allowed.
+    turnstile_site_key: str | None = None  # public; served to the browser by /auth/config
+    turnstile_secret_key: SecretStr | None = None
     # Header the hosting platform sets to the real client IP, e.g. "x-vercel-forwarded-for".
     # Unset: use the socket peer. Never trust a header the client itself can set.
     trusted_ip_header: str | None = None
@@ -100,6 +121,9 @@ class Settings(BaseSettings):
             "DATABASE_URL": self.database_url,
             "DATABASE_URL_DIRECT": self.database_url_direct,
             "SESSION_SECRET": self.session_secret,
+            # Without it every visitor shares the proxy's IP: one rate-limit bucket for
+            # the whole internet (security review, ADR-0021).
+            "TRUSTED_IP_HEADER": self.trusted_ip_header,
         }
         missing = sorted(name for name, value in required.items() if value is None)
         if missing:
@@ -107,6 +131,14 @@ class Settings(BaseSettings):
         if self.session_secret and len(self.session_secret.get_secret_value()) < 32:
             raise ValueError("SESSION_SECRET must be at least 32 characters in prod")
         return self
+
+    @property
+    def mail_configured(self) -> bool:
+        return bool(self.smtp_host and self.mail_from)
+
+    @property
+    def turnstile_configured(self) -> bool:
+        return bool(self.turnstile_site_key and self.turnstile_secret_key)
 
     def require_database_url(self, *, direct: bool = False) -> str:
         """Return the pooled (API) or direct (migrations, worker) URL, or fail clearly."""

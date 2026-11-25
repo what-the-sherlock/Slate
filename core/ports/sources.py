@@ -47,6 +47,10 @@ class SourceStore(Protocol):
         self, run_id: RunId, *, external_id: str | None, stage: str, message: str, retryable: bool
     ) -> None: ...
 
+    async def upload_usage(self, ws: WorkspaceId) -> tuple[int, int]:
+        """(live uploaded documents, their total bytes) in this workspace."""
+        ...
+
     async def blob_in_use(self, blob_key: str) -> bool:
         """True if a document or an unfinished job still references this object."""
         ...

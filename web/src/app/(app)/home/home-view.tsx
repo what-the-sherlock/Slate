@@ -30,7 +30,7 @@ export function summarise(sources: Source[]) {
 export function HomeView() {
   const me = useMe();
   const sources = useSources();
-  const canAdd = !!me.data && !me.data.is_guest && me.data.role !== "viewer";
+  const canAdd = !!me.data && me.data.role !== "viewer";
   const firstName = me.data?.user.name.split(/\s+/)[0];
   const s = sources.data ? summarise(sources.data) : null;
   const recent = [...(sources.data ?? [])]
@@ -41,7 +41,7 @@ export function HomeView() {
     <>
       <PageHeader
         title="Home"
-        description={me.data?.is_guest ? "Exploring the public demo" : firstName ? `Welcome back, ${firstName}` : undefined}
+        description={firstName ? `Welcome back, ${firstName}` : undefined}
         actions={
           canAdd ? (
             <Button asChild variant="primary">

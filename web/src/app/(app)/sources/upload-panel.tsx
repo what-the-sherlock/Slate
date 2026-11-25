@@ -16,7 +16,7 @@ type Item = { id: string; file: File; phase: UploadPhase };
 const VISIBILITIES: { value: Visibility; label: string; hint: string; adminOnly?: boolean }[] = [
   { value: "only_me", label: "Only me", hint: "Private to you" },
   { value: "workspace", label: "Workspace", hint: "Everyone in the workspace" },
-  { value: "public", label: "Public", hint: "Guests can see it too", adminOnly: true },
+  { value: "public", label: "Public", hint: "Can also go to free AI providers", adminOnly: true },
 ];
 
 /** Dropzone + per-file progress (UI_DESIGN §3.2, §4.5). */

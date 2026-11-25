@@ -13,12 +13,7 @@ from pathlib import Path
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
-from core.adapters.factories import ingest_service, s3_blob_store, search_service
-from core.adapters.postgres.auth import (
-    PostgresAccountStore,
-    PostgresLoginThrottle,
-    PostgresSessionStore,
-)
+from core.adapters.factories import auth_service, ingest_service, s3_blob_store, search_service
 from core.adapters.postgres.catalog import PostgresCatalog
 from core.adapters.postgres.engine import EngineKind, create_engine, create_session_factory
 from core.adapters.postgres.health import PostgresHealthProbe
@@ -26,7 +21,6 @@ from core.adapters.postgres.jobs import PostgresJobQueue
 from core.adapters.postgres.rate_limit import PostgresRateLimiter
 from core.adapters.postgres.sources import PostgresSourceStore
 from core.adapters.postgres.uow import UnitOfWork, make_uow
-from core.adapters.security.argon2_hasher import Argon2Hasher
 from core.adapters.system import SystemClock
 from core.config import Settings, get_settings
 from core.ports.system import HealthProbe
@@ -68,15 +62,7 @@ def get_container() -> Container:
         settings=settings,
         health=PostgresHealthProbe(uow),
         expected_revision=expected_migration_head(),
-        auth=AuthService(
-            PostgresAccountStore(uow),
-            PostgresSessionStore(uow),
-            PostgresLoginThrottle(uow),
-            Argon2Hasher(),
-            SystemClock(),
-            setup_token=settings.setup_token.get_secret_value() if settings.setup_token else None,
-            setup_token_required=settings.env == "prod",
-        ),
+        auth=auth_service(settings, uow),
         catalog=CatalogService(PostgresCatalog(uow)),
         uploads=_upload_service(settings, uow),
         inline=_inline_runner(settings, uow),

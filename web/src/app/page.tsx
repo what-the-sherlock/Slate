@@ -3,19 +3,18 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { Spinner } from "@/components/ui/button";
-import { useMe, useSetupStatus } from "@/lib/api/hooks";
+import { useMe } from "@/lib/api/hooks";
 
-/** Entry: first run -> setup; signed out -> sign in; otherwise -> the app. */
+/** Entry: signed out -> sign in; unverified -> verify; otherwise -> the app (ADR-0021). */
 export default function Home() {
   const router = useRouter();
-  const status = useSetupStatus();
   const me = useMe();
 
   useEffect(() => {
-    if (status.data && !status.data.set_up) router.replace("/setup");
-    else if (me.data === null) router.replace("/sign-in");
+    if (me.data === null) router.replace("/sign-in");
+    else if (me.data && !me.data.email_verified) router.replace("/verify");
     else if (me.data) router.replace("/home");
-  }, [status.data, me.data, router]);
+  }, [me.data, router]);
 
   return (
     <main id="main" className="flex flex-1 items-center justify-center" aria-busy="true">

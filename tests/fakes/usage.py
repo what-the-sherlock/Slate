@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from core.domain.budget import Spend
 from core.domain.errors import Conflict
-from core.domain.ids import GenerationId
+from core.domain.ids import GenerationId, WorkspaceId
 from core.ports.usage import GenerationInfo, UsageEntry
 
 
@@ -11,6 +12,7 @@ class InMemoryLedger:
     def __init__(self, spent: Decimal = Decimal(0)) -> None:
         self.entries: list[UsageEntry] = []
         self.spent = spent
+        self.workspace_spent: dict[WorkspaceId, Decimal] = {}  # extra per-workspace spend
 
     async def record(self, entry: UsageEntry) -> None:
         self.entries.append(entry)
@@ -18,6 +20,14 @@ class InMemoryLedger:
 
     async def month_to_date_usd(self) -> Decimal:
         return self.spent
+
+    async def spend(self, ws: WorkspaceId) -> Spend:
+        """Everything counts as this month and today (the fake has no clock). Goes
+        through month_to_date_usd so tests that patch it still drive the global total."""
+        total = await self.month_to_date_usd()
+        mine = sum((e.cost_usd for e in self.entries if e.workspace_id == ws), Decimal(0))
+        mine += self.workspace_spent.get(ws, Decimal(0))
+        return Spend(month_all=total, day_all=total, month_workspace=mine, day_workspace=mine)
 
 
 class InMemoryGenerations:
