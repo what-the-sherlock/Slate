@@ -1,0 +1,312 @@
+# Retrieval eval cases over evals/corpus (synthetic, fictional company). See docs/EVALS.md.
+# expected_documents are corpus paths (stable across re-ingestion). An empty list means
+# "no answer exists": retrieval metrics skip it; M3 uses it for abstention.
+# visibility: private cases run with the owner's principals only. EVERY case is also run
+# as a guest, and any private document a guest receives counts as a leak (must be 0).
+
+# ---- single-hop, paraphrased (meaning matters more than exact words)
+- id: hb-leave-001
+  question: How many vacation days do staff get each year?
+  expected_documents: [handbook/leave-policy.md]
+  expected_answer_points: ["25 days"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: hb-leave-002
+  question: Can I keep holiday I didn't use, and until when?
+  expected_documents: [handbook/leave-policy.md]
+  expected_answer_points: ["5 days", "March 31"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: hb-leave-003
+  question: How long is the leave when someone has a baby or adopts?
+  expected_documents: [handbook/leave-policy.md]
+  expected_answer_points: ["20 weeks"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: hb-leave-004
+  question: When do I need a note from a doctor after being ill?
+  expected_documents: [handbook/leave-policy.md]
+  expected_answer_points: ["more than 3 days"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: hb-remote-001
+  question: Is there money to set up a desk at home?
+  expected_documents: [handbook/remote-work.md]
+  expected_answer_points: ["$600"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: hb-remote-002
+  question: What hours am I expected to be available for meetings?
+  expected_documents: [handbook/remote-work.md]
+  expected_answer_points: ["10:00 to 15:00 CET"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: hb-remote-003
+  question: How long can I work from a different country?
+  expected_documents: [handbook/remote-work.md]
+  expected_answer_points: ["30 days"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: hb-remote-004
+  question: Will the company pay for a shared office space membership?
+  expected_documents: [handbook/remote-work.md]
+  expected_answer_points: ["$150 per month"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: hb-exp-001
+  question: Up to what amount can my manager sign off a claim?
+  expected_documents: [handbook/expenses.md]
+  expected_answer_points: ["$2,000"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: hb-exp-002
+  question: How much can I spend on food per day on a business trip?
+  expected_documents: [handbook/expenses.md]
+  expected_answer_points: ["$65"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: hb-exp-003
+  question: Should I take the train or fly for a short trip?
+  expected_documents: [handbook/expenses.md]
+  expected_answer_points: ["trains under 5 hours"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: hb-sec-001
+  question: Where do I report a suspicious email?
+  expected_documents: [handbook/security-basics.md]
+  expected_answer_points: ["#sec-alerts"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: hb-sec-002
+  question: Which tool should I store my work passwords in?
+  expected_documents: [handbook/security-basics.md]
+  expected_answer_points: ["Vaultwarden"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: eng-oncall-001
+  question: How quickly must the most severe alerts be acknowledged?
+  expected_documents: [engineering/oncall.md]
+  expected_answer_points: ["5 minutes"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: eng-oncall-002
+  question: Do engineers get paid extra for being on call?
+  expected_documents: [engineering/oncall.md]
+  expected_answer_points: ["40 euros per day"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: eng-oncall-003
+  question: When does the on-call shift change hands?
+  expected_documents: [engineering/oncall.md]
+  expected_answer_points: ["Monday 09:00 CET"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: eng-deploy-001
+  question: Can I ship to production on a Friday afternoon?
+  expected_documents: [engineering/deploys.md]
+  expected_answer_points: ["freeze from 14:00 Friday"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: eng-deploy-002
+  question: On which days do regular releases go out?
+  expected_documents: [engineering/deploys.md]
+  expected_answer_points: ["Tuesday and Thursday"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: eng-arch-001
+  question: How often is the arrival-time prediction model retrained?
+  expected_documents: [engineering/architecture.md]
+  expected_answer_points: ["every Sunday"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: eng-arch-002
+  question: Which data centres does production run in?
+  expected_documents: [engineering/architecture.md]
+  expected_answer_points: ["Frankfurt", "Dublin"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: prod-price-001
+  question: What does the cheapest plan cost?
+  expected_documents: [product/pricing.md]
+  expected_answer_points: ["$49 per month"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: prod-price-002
+  question: Is there a discount if we pay for a whole year up front?
+  expected_documents: [product/pricing.md]
+  expected_answer_points: ["15%"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: prod-sla-001
+  question: What availability does the top tier promise?
+  expected_documents: [product/sla.md]
+  expected_answer_points: ["99.95%"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: prod-sla-002
+  question: What compensation do customers get when uptime falls short?
+  expected_documents: [product/sla.md]
+  expected_answer_points: ["10% credit per 0.1 point"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: prod-road-001
+  question: When will emissions reporting be available?
+  expected_documents: [product/roadmap.md]
+  expected_answer_points: ["Q2 2027"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: cust-faq-001
+  question: How long can a recipient keep using a tracking link?
+  expected_documents: [customers/faq.md]
+  expected_answer_points: ["90 days after delivery"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: cust-faq-002
+  question: How many shipping companies are integrated?
+  expected_documents: [customers/faq.md]
+  expected_answer_points: ["140"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: co-hist-001
+  question: Who started the company and where?
+  expected_documents: [company/history.md]
+  expected_answer_points: ["Ines Okafor", "Tomasz Wierzbicki", "Rotterdam"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+- id: co-hist-002
+  question: Who led the first big funding round?
+  expected_documents: [company/history.md]
+  expected_answer_points: ["Northgate Ventures"]
+  tags: [single-hop, paraphrase]
+  visibility: public
+
+# ---- keyword-heavy (identifiers, codes, commands: exact tokens matter)
+- id: kw-001
+  question: KF-2003
+  expected_documents: [engineering/api-errors.md]
+  expected_answer_points: ["rate limited", "Retry-After"]
+  tags: [keyword]
+  visibility: public
+- id: kw-002
+  question: what does KF-5002 mean
+  expected_documents: [engineering/api-errors.md]
+  expected_answer_points: ["carrier timeout"]
+  tags: [keyword]
+  visibility: public
+- id: kw-003
+  question: ERR_RECEIPT_MISSING
+  expected_documents: [handbook/expenses.md]
+  expected_answer_points: ["attach a receipt photo"]
+  tags: [keyword]
+  visibility: public
+- id: kw-004
+  question: kfctl rollback
+  expected_documents: [engineering/deploys.md]
+  expected_answer_points: ["kfctl rollback --to <release>"]
+  tags: [keyword]
+  visibility: public
+- id: kw-005
+  question: shipment-events topic
+  expected_documents: [engineering/architecture.md]
+  expected_answer_points: ["Kafka"]
+  tags: [keyword]
+  visibility: public
+- id: kw-006
+  question: Ledgerly
+  expected_documents: [handbook/expenses.md]
+  expected_answer_points: ["expense tool"]
+  tags: [keyword]
+  visibility: public
+- id: kw-007
+  question: extension 4400
+  expected_documents: [handbook/security-basics.md]
+  expected_answer_points: ["security hotline"]
+  tags: [keyword]
+  visibility: public
+- id: kw-008
+  question: Wayfinder MAE promotion
+  expected_documents: [engineering/architecture.md]
+  expected_answer_points: ["must beat the previous model"]
+  tags: [keyword]
+  visibility: public
+
+# ---- multi-hop (needs two documents)
+- id: mh-001
+  question: What happens if a SEV1 page is missed, and how do I undo a bad release?
+  expected_documents: [engineering/oncall.md, engineering/deploys.md]
+  tags: [multi-hop]
+  visibility: public
+- id: mh-002
+  question: Which plan has an uptime guarantee, and what does it cost per month?
+  expected_documents: [product/sla.md, product/pricing.md]
+  tags: [multi-hop]
+  visibility: public
+- id: mh-003
+  question: What is the API rate limit and which error code do I get when I hit it?
+  expected_documents: [engineering/api-errors.md]
+  tags: [multi-hop, keyword]
+  visibility: public
+- id: mh-004
+  question: If I work from Lisbon for a month, can I expense a coworking desk?
+  expected_documents: [handbook/remote-work.md, handbook/expenses.md]
+  tags: [multi-hop]
+  visibility: public
+
+# ---- private (owner only; the guest run must not receive these documents)
+- id: pv-001
+  question: What is the salary range for a senior engineer?
+  expected_documents: [finance/salary-bands.md]
+  expected_answer_points: ["96,000 to 120,000 euros"]
+  tags: [private, single-hop]
+  visibility: private
+- id: pv-002
+  question: How many months of runway do we have?
+  expected_documents: [finance/board-update-q3.md]
+  expected_answer_points: ["26 months"]
+  tags: [private, single-hop]
+  visibility: private
+- id: pv-003
+  question: Which customer did we lose in August?
+  expected_documents: [finance/board-update-q3.md]
+  expected_answer_points: ["Bluefin Logistics"]
+  tags: [private, single-hop]
+  visibility: private
+- id: pv-004
+  question: Project Heron
+  expected_documents: [legal/project-heron.md]
+  tags: [private, keyword]
+  visibility: private
+- id: pv-005
+  question: Why was billing down for four hours?
+  expected_documents: [engineering/postmortem-ledger-outage.md]
+  expected_answer_points: ["expired TLS certificate"]
+  tags: [private, single-hop]
+  visibility: private
+- id: pv-006
+  question: What did we change to stop certificates expiring again?
+  expected_documents: [engineering/postmortem-ledger-outage.md]
+  expected_answer_points: ["automated renewal", "alert 21 days before"]
+  tags: [private, paraphrase]
+  visibility: private
+
+# ---- no answer exists (retrieval metrics skip these; M3 must abstain)
+- id: na-001
+  question: What is the company's dental insurance provider?
+  expected_documents: []
+  tags: [no-answer]
+  visibility: public
+- id: na-002
+  question: How do I book a meeting room in the Berlin office?
+  expected_documents: []
+  tags: [no-answer]
+  visibility: public
+- id: na-003
+  question: What is the stock price today?
+  expected_documents: []
+  tags: [no-answer]
+  visibility: public
+- id: na-004
+  question: Who won the office chess tournament?
+  expected_documents: []
+  tags: [no-answer]
+  visibility: public

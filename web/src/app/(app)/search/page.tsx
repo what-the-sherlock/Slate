@@ -1,26 +1,13 @@
-import { Search } from "lucide-react";
-import Link from "next/link";
-import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
-import { Button } from "@/components/ui/button";
+import { Suspense } from "react";
+import { SearchView } from "./search-view";
 
 export const metadata = { title: "Search" };
 
+// SearchView keeps its state in the URL; useSearchParams needs a Suspense boundary.
 export default function SearchPage() {
   return (
-    <>
-      <PageHeader title="Search" />
-      <EmptyState
-        icon={Search}
-        title="Hybrid search is coming next"
-        action={
-          <Button asChild variant="secondary">
-            <Link href="/sources">Add sources meanwhile</Link>
-          </Button>
-        }
-      >
-        Search arrives in milestone 2. Uploaded documents are already split, embedded and indexed.
-      </EmptyState>
-    </>
+    <Suspense>
+      <SearchView />
+    </Suspense>
   );
 }

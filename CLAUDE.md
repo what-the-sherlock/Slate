@@ -70,7 +70,9 @@ uv run python scripts/export_openapi.py   regenerate openapi.json after API chan
 uv run python scripts/bench_api.py        latency + DB connects per route (API must be running)
 uv run python -m worker run               drain runnable jobs locally, then exit (--once: one job)
                                           (processing uploads calls OpenAI: only when you mean to spend)
-uv run python -m evals.run --embedder openai
+uv run python -m worker backfill          build the BGE-M3 generation from public chunks (Workers AI)
+uv run python -m evals.load               index the synthetic eval corpus (idempotent; first run ~$0.0001)
+uv run python -m evals.run --embedder none|openai|bge-m3   retrieval evals (none = keyword only, $0)
 pnpm -C web install | dev | lint | typecheck | test | gen:api
 ```
 

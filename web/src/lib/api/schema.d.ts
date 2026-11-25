@@ -89,6 +89,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview a document you can see (404 for missing and forbidden alike) */
+        get: operations["preview_api_v1_documents__document_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/healthz": {
         parameters: {
             query?: never;
@@ -157,6 +174,23 @@ export interface paths {
         get: operations["readyz_api_v1_readyz_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hybrid search over what you can see */
+        post: operations["search_api_v1_search_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -292,6 +326,31 @@ export interface components {
              */
             status: "upload" | "duplicate" | "processing" | "visibility_differs" | "indexed";
         };
+        /** DocumentPreviewOut */
+        DocumentPreviewOut: {
+            /** Chunks */
+            chunks: components["schemas"]["PreviewChunkOut"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Mime */
+            mime: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Source Name */
+            source_name: string;
+            /** Source Updated At */
+            source_updated_at: string | null;
+            /** Title */
+            title: string;
+            /** Uri */
+            uri: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -380,6 +439,15 @@ export interface components {
             /** Url */
             url: string;
         };
+        /** PreviewChunkOut */
+        PreviewChunkOut: {
+            /** Content */
+            content: string;
+            /** Heading Path */
+            heading_path: string | null;
+            /** Ordinal */
+            ordinal: number;
+        };
         /** ReadinessResponse */
         ReadinessResponse: {
             /** Database */
@@ -436,6 +504,65 @@ export interface components {
             started_at: string | null;
             /** Status */
             status: string;
+        };
+        /** SearchBody */
+        SearchBody: {
+            /**
+             * Limit
+             * @default 10
+             */
+            limit: number;
+            /** Query */
+            query: string;
+            /** Source Ids */
+            source_ids?: string[];
+            /** Updated After */
+            updated_after?: string | null;
+            /** Updated Before */
+            updated_before?: string | null;
+        };
+        /** SearchHitOut */
+        SearchHitOut: {
+            /** Chunk Id */
+            chunk_id: number;
+            /** Content */
+            content: string;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Heading Path */
+            heading_path: string | null;
+            /**
+             * Matched By
+             * @description Which retrieval lanes found this passage
+             */
+            matched_by: ("vector" | "keyword")[];
+            /** Ordinal */
+            ordinal: number;
+            /**
+             * Score
+             * @description Reciprocal rank fusion score; only the order matters
+             */
+            score: number;
+            /** Title */
+            title: string;
+        };
+        /** SearchOut */
+        SearchOut: {
+            /** Hits */
+            hits: components["schemas"]["SearchHitOut"][];
+            /**
+             * Lanes
+             * @description Lanes that actually ran
+             */
+            lanes: ("vector" | "keyword")[];
+            /**
+             * Notices
+             * @description Honest degradations to show the user
+             */
+            notices: string[];
         };
         /** SetupBody */
         SetupBody: {
@@ -651,6 +778,37 @@ export interface operations {
             };
         };
     };
+    preview_api_v1_documents__document_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     healthz_api_v1_healthz_get: {
         parameters: {
             query?: never;
@@ -747,6 +905,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadinessResponse"];
+                };
+            };
+        };
+    };
+    search_api_v1_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -32,11 +32,22 @@ class GenerationInfo:
     id: GenerationId
     model: str
     dims: int
+    status: str = "present"
+    data_scope: str = "all"  # 'public': only public chunks may be embedded (ADR-0012)
 
 
 class GenerationStore(Protocol):
     async def present(self) -> GenerationInfo | None:
         """The generation search serves from, or None before anything was embedded."""
+        ...
+
+    async def find(self, model: str) -> GenerationInfo | None:
+        """The present or future generation built by this model, if any."""
+        ...
+
+    async def ensure_future(self, model: str, dims: int, *, data_scope: str) -> GenerationInfo:
+        """This model's present/future generation, or a NEW 'future' one with its HNSW
+        index. Raises Conflict if a different model already holds 'future'."""
         ...
 
     async def ensure_present(self, model: str, dims: int) -> GenerationId:

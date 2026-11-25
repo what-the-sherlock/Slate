@@ -39,6 +39,8 @@ dev = [
     "pip-audit>=2.7",
     "pre-commit>=4.0",
     "boto3-stubs[s3]>=1.35",
+    "pyyaml>=6.0.4",
+    "types-pyyaml>=6.0.12.20261122",
 ]
 
 [tool.uv]
@@ -128,6 +130,8 @@ ignore_imports = [
     "api.deps -> core.adapters.**",
     "api.dev -> core.adapters.**",  # dev-only: selects the Windows event loop
     "worker.main -> core.adapters.**",
+    "evals.load -> core.adapters.**",
+    "evals.run -> core.adapters.**",
 ]
 
 [[tool.importlinter.contracts]]
@@ -142,8 +146,8 @@ type = "forbidden"
 source_modules = ["core.services", "core.ports"]
 forbidden_modules = ["core.adapters", "sqlalchemy", "fastapi"]
 
-# Composition roots (api.deps, worker.main, evals.run) get ignore_imports entries
-# for core.adapters in the slice that creates them.
+# Composition roots (api.deps, worker.main, evals.load, evals.run) are the only modules
+# allowed to import core.adapters.
 [[tool.importlinter.contracts]]
 name = "Only composition roots import adapters"
 type = "forbidden"
@@ -153,5 +157,7 @@ ignore_imports = [
     "api.deps -> core.adapters.**",
     "api.dev -> core.adapters.**",  # dev-only: selects the Windows event loop
     "worker.main -> core.adapters.**",
+    "evals.load -> core.adapters.**",
+    "evals.run -> core.adapters.**",
 ]
 allow_indirect_imports = true

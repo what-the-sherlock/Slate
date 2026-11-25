@@ -23,6 +23,24 @@ class InMemoryLedger:
 class InMemoryGenerations:
     def __init__(self) -> None:
         self.present_gen: tuple[GenerationId, str] | None = None
+        self.future_gen: GenerationInfo | None = None
+
+    async def find(self, model: str) -> GenerationInfo | None:
+        present = await self.present()
+        if present is not None and present.model == model:
+            return present
+        if self.future_gen is not None and self.future_gen.model == model:
+            return self.future_gen
+        return None
+
+    async def ensure_future(self, model: str, dims: int, *, data_scope: str) -> GenerationInfo:
+        found = await self.find(model)
+        if found is not None:
+            return found
+        if self.future_gen is not None:
+            raise Conflict("another model is being built")
+        self.future_gen = GenerationInfo(GenerationId(2), model, dims, "future", data_scope)
+        return self.future_gen
 
     async def present(self) -> GenerationInfo | None:
         if self.present_gen is None:

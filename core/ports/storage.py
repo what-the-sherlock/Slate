@@ -8,14 +8,16 @@ from datetime import datetime
 from typing import Protocol
 
 from core.domain.documents import (
+    ChunkToEmbed,
     Document,
+    DocumentPreview,
     DocumentUpsert,
     NewChunk,
     ScoredChunk,
     SearchFilters,
     Vector,
 )
-from core.domain.ids import DocumentId, GenerationId, WorkspaceId
+from core.domain.ids import ChunkId, DocumentId, GenerationId, WorkspaceId
 from core.domain.principals import Principals
 
 
@@ -59,6 +61,19 @@ class DocumentStore(Protocol):
         """
         ...
 
+    # Backfill (system work across all workspaces; never user-facing, never retrieval).
+    async def chunks_missing_embedding(
+        self, generation: GenerationId, *, public_only: bool, after: ChunkId | None, limit: int
+    ) -> list[ChunkToEmbed]:
+        """Live chunks with no vector in ``generation``, by ascending id (keyset paging)."""
+        ...
+
+    async def add_embeddings(
+        self, generation: GenerationId, items: Sequence[tuple[ChunkId, Vector]]
+    ) -> int:
+        """Insert vectors; existing (chunk, generation) pairs are left alone. Returns inserted."""
+        ...
+
 
 class SearchIndex(Protocol):
     """Every method filters by workspace and ACL *inside* the query (rule 1)."""
@@ -81,6 +96,12 @@ class SearchIndex(Protocol):
         k: int,
         filters: SearchFilters,
     ) -> list[ScoredChunk]: ...
+
+    async def document_preview(
+        self, ws: WorkspaceId, principals: Principals, doc_id: DocumentId, max_chunks: int
+    ) -> DocumentPreview:
+        """Raises NotFound for missing AND forbidden documents (no probing)."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

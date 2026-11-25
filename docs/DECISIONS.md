@@ -146,3 +146,25 @@ Format: number, title, status, context, decision, consequences. Add new ADRs at 
 - **Marquee shows integrations Slate doesn't have yet, unlabelled (owner's choice).** A reader shouldn't take the logo wall as a feature list: the connectors that exist are listed in ROADMAP.md and in the Add source dialog, which does label availability.
 - **`thinking-orbs` pulled forward from M3 to M1** for the sign-in "Ask" column, wrapped once in `components/thinking-orb.tsx` (UI_DESIGN §5).
 - **Setup is a one-question-at-a-time wizard in the pill bar** so it fits the one-screen hero. It's still one form; answered fields stay mounted for autofill, and server field errors jump back to their step.
+
+## ADR-0019: Hybrid retrieval core; keyword lane matches any word
+**Status:** Accepted (2026-11-25, M2).
+**Context:** ARCHITECTURE §8 specifies vector top-50 plus keyword top-50 (`websearch_to_tsquery`), fused with RRF. Running the eval harness keyword-only showed that `websearch_to_tsquery` ANDs every word: "what does KF-5002 mean" found nothing because "mean" isn't in the passage, and the keyword-tagged cases scored Recall@10 0.70. Natural-language questions nearly always contain a word the answer lacks.
+**Decision:**
+1. A plain query ORs its lexemes (`to_tsvector` → `tsvector_to_array` → quoted lexemes joined with `|`), and `ts_rank_cd` ranks passages that match more of them, closer together, higher. A query that uses search syntax (quotes, `-word`, ` or `) keeps `websearch_to_tsquery`'s strict semantics. Both lanes still run over `tsv_en` (stemmed) OR `tsv_simple` (identifiers), filtered by workspace, ACL, live document and non-deleting source inside the query.
+2. Retrieval is one function, `core/services/search.py::hybrid_retrieve`, used by both `SearchService` and the eval harness, so evals measure exactly what users get.
+3. Search degrades rather than fails: no generation, no embedder configured, budget spent or embedder down → keyword-only, with an honest notice in the response.
+4. Searches are rate-limited per user (60/min) because each one may spend a paid query embedding.
+**Result:** keyword-only over the eval corpus: overall Recall@10 0.936, MRR@10 0.654 (was 0.70 on the keyword cases with AND). The remaining misses are pure paraphrases, which the vector lane is for.
+**Consequences:** OR matching returns more weak candidates; RRF and the per-document cap absorb that, and only ranks matter. A query of only stop words matches nothing in the keyword lane (the vector lane still runs).
+
+## ADR-0020: Eval harness in its own workspace; BGE-M3 as a backfilled public generation
+**Status:** Accepted (2026-11-25, M2).
+**Context:** M2 needs Recall@10 for two embedders. Real data (GitHub, Discord) arrives in M4/M5, BGE-M3 is a free tier that may retain inputs (ADR-0012), and the corpus must be comparable across runs.
+**Decision:**
+1. **Synthetic corpus in git** (`evals/corpus/`, a fictional company; 14 public and 4 private documents) and 51 cases in `evals/questions.yaml`. `evals.load` indexes it into a dedicated workspace (`slate-evals`) through the production path (`IngestService.index_document`, extracted from `process_upload`), so real users never see it and real data never enters eval numbers. The load is idempotent by checksum.
+2. **Every case also runs as a guest**; any private document a guest receives is a leak, and `evals.run` exits non-zero if there is one.
+3. **BGE-M3 is a `future` generation with `data_scope='public'`**, built by `python -m worker backfill`: keyset-paged over chunks that have no vector yet, inserts with `ON CONFLICT DO NOTHING`, capped per run, so it is idempotent and resumable. A free-tier provider can't build an `all`-scoped generation (checked in code); the database trigger rejects a private chunk under a public generation. Search keeps serving the `present` generation; the eval harness queries a named generation, so BGE-M3 is measured before anyone flips to it (ADR-0013).
+4. **`pyyaml` added to the dev group only** (EVALS.md specifies YAML; evals never ship to Vercel).
+5. `eval.yml` is manual (`workflow_dispatch`) only.
+**Consequences:** BGE-M3 has no vectors for private documents. Measured (2026-11-25): its private-case recall is not merely keyword-level but *worse* (0.17), because RRF ranks a document missing from one lane below documents found in both; see EVALS.md "Findings". OpenAI therefore stays `present`; BGE-M3 is not flipped. Results are reported by visibility so this isn't hidden. Usage of a backfill is recorded per workspace in `usage_ledger` (its `workspace_id` is NOT NULL). The eval workspace has no members, so it never appears in the UI. `eval_cases` stays unused: the YAML file is the source of truth, reviewed like code.

@@ -16,10 +16,12 @@ import os
 import signal
 import socket
 import uuid
+from decimal import Decimal
 
 import structlog
 
-from core.adapters.factories import ingest_service, s3_blob_store
+from core.adapters.factories import ingest_service, s3_blob_store, workersai_embedder
+from core.adapters.postgres.documents import PostgresDocumentStore
 from core.adapters.postgres.engine import (
     EngineKind,
     create_engine,
@@ -29,8 +31,10 @@ from core.adapters.postgres.engine import (
 from core.adapters.postgres.jobs import PostgresJobQueue
 from core.adapters.postgres.sources import PostgresSourceStore
 from core.adapters.postgres.uow import UnitOfWork, make_uow
+from core.adapters.postgres.usage import PostgresGenerationStore, PostgresUsageLedger
 from core.config import Settings, get_settings
 from core.logs import configure_logging
+from core.services.backfill import BackfillReport, Provider, backfill_generation
 from core.services.maintenance import sweep_abandoned_uploads
 from core.services.uploads import PROCESS_UPLOAD
 from worker.handlers import NOOP, noop
@@ -87,6 +91,29 @@ async def run(limits: RunLimits) -> RunSummary:
         await engine.dispose()
 
 
+async def backfill(max_chunks: int) -> BackfillReport:
+    """Build the BGE-M3 'future' generation from public chunks (ADR-0004, ADR-0012)."""
+    settings = get_settings()
+    embedder = workersai_embedder(settings)
+    if embedder is None:
+        raise SystemExit("backfill needs CF_ACCOUNT_ID and CF_API_TOKEN in the environment")
+    engine = create_engine(settings.require_database_url(direct=True), EngineKind.DIRECT)
+    try:
+        uow = make_uow(create_session_factory(engine))
+        return await backfill_generation(
+            PostgresDocumentStore(uow),
+            PostgresGenerationStore(uow),
+            PostgresUsageLedger(uow),
+            embedder,
+            Provider("workersai", free_tier=True),
+            data_scope="public",
+            monthly_budget_usd=Decimal(str(settings.monthly_llm_budget_usd)),
+            max_chunks=max_chunks,
+        )
+    finally:
+        await engine.dispose()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m worker")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -94,11 +121,18 @@ def main(argv: list[str] | None = None) -> int:
     run_cmd.add_argument("--once", action="store_true", help="process at most one job")
     run_cmd.add_argument("--max-jobs", type=int, default=None)
     run_cmd.add_argument("--max-seconds", type=float, default=RunLimits().max_seconds)
+    bf = sub.add_parser("backfill", help="embed public chunks with BGE-M3 (Workers AI)")
+    bf.add_argument("--max-chunks", type=int, default=2000, help="stop after this many")
     args = parser.parse_args(argv)
 
     settings = get_settings()
     configure_logging(settings.log_level, json=settings.env != "dev")
-    limits = RunLimits(max_jobs=1 if args.once else args.max_jobs, max_seconds=args.max_seconds)
     use_selector_loop_on_windows()
+    if args.command == "backfill":
+        report = asyncio.run(backfill(args.max_chunks))
+        state = "complete" if report.complete else "paused (run again to continue)"
+        print(f"generation {int(report.generation)}: embedded {report.embedded} chunks, {state}")
+        return 0
+    limits = RunLimits(max_jobs=1 if args.once else args.max_jobs, max_seconds=args.max_seconds)
     asyncio.run(run(limits))
     return 0  # job failures are recorded in the DB; a non-zero exit means the worker crashed

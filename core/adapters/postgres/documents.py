@@ -14,9 +14,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.adapters.postgres.uow import UnitOfWork
-from core.domain.documents import Document, DocumentUpsert, NewChunk, Vector
+from core.domain.documents import ChunkToEmbed, Document, DocumentUpsert, NewChunk, Vector
 from core.domain.errors import NotFound
-from core.domain.ids import DocumentId, GenerationId, SourceId, WorkspaceId
+from core.domain.ids import ChunkId, DocumentId, GenerationId, SourceId, WorkspaceId
 from core.domain.principals import Principals
 
 
@@ -155,6 +155,42 @@ class PostgresDocumentStore:
     ) -> None:
         raise NotImplementedError("use write_document (one transaction)")
 
+    async def chunks_missing_embedding(
+        self, generation: GenerationId, *, public_only: bool, after: ChunkId | None, limit: int
+    ) -> list[ChunkToEmbed]:
+        if not 1 <= limit <= 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        params = {"g": generation, "po": public_only, "after": after, "n": limit}
+        async with self._uow() as s:
+            rows = (await s.execute(text(_MISSING), params)).mappings().all()
+        return [
+            ChunkToEmbed(
+                chunk_id=ChunkId(int(r["id"])),
+                workspace_id=WorkspaceId(r["workspace_id"]),
+                title=str(r["title"]),
+                heading_path=r["heading_path"],
+                content=str(r["content"]),
+                ordinal=int(r["ordinal"]),
+            )
+            for r in rows
+        ]
+
+    async def add_embeddings(
+        self, generation: GenerationId, items: Sequence[tuple[ChunkId, Vector]]
+    ) -> int:
+        if not items:
+            return 0
+        async with self._uow() as s:
+            result = await s.execute(
+                text(_ADD_EMBEDDINGS),
+                {
+                    "g": generation,
+                    "ch": [int(c) for c, _ in items],
+                    "v": [_vector_literal(v) for _, v in items],
+                },
+            )
+        return int(getattr(result, "rowcount", 0) or 0)
+
     async def get_document(
         self, ws: WorkspaceId, doc_id: DocumentId, principals: Principals
     ) -> Document:
@@ -189,3 +225,29 @@ class PostgresDocumentStore:
             author=row["author"],
             source_updated_at=row["source_updated_at"],
         )
+
+
+# Backfill: chunks of live documents with no vector in generation :g, keyset-paged by id.
+# A public-scoped generation only ever sees public chunks (ADR-0012; a trigger enforces it too).
+_MISSING = """
+SELECT c.id, c.workspace_id, d.title, c.heading_path, c.content, c.ordinal
+FROM chunks c
+JOIN documents d ON d.id = c.document_id
+JOIN sources src ON src.id = d.source_id
+WHERE d.deleted_at IS NULL AND src.status <> 'deleting'
+  AND (CAST(:after AS bigint) IS NULL OR c.id > CAST(:after AS bigint))
+  AND (NOT CAST(:po AS boolean) OR c.data_class = 'public')
+  AND NOT EXISTS (
+      SELECT 1 FROM chunk_embeddings e WHERE e.chunk_id = c.id AND e.generation_id = :g)
+ORDER BY c.id
+LIMIT :n
+"""
+
+# Idempotent: re-running a batch inserts nothing new; a chunk deleted meanwhile is skipped.
+_ADD_EMBEDDINGS = """
+INSERT INTO chunk_embeddings (chunk_id, generation_id, embedding)
+SELECT x.ch, :g, CAST(x.v AS halfvec(1024))
+FROM unnest(CAST(:ch AS bigint[]), CAST(:v AS text[])) AS x(ch, v)
+JOIN chunks c ON c.id = x.ch
+ON CONFLICT (chunk_id, generation_id) DO NOTHING
+"""

@@ -8,13 +8,15 @@ import pytest
 
 from core.domain.auth import Identity, Role
 from core.domain.documents import DocumentUpsert, NewChunk, SearchFilters, Vector
-from core.domain.errors import UpstreamUnavailable, ValidationFailed
+from core.domain.errors import NotFound, RateLimited, UpstreamUnavailable, ValidationFailed
 from core.domain.ids import GenerationId, SessionId, SourceId, UserId, WorkspaceId
 from core.domain.principals import PUBLIC, Principals, user_principal, workspace_principal
 from core.domain.search import Lane
 from core.services.search import SearchService
 from tests.fakes.models import FakeEmbedder
+from tests.fakes.rate_limit import InMemoryRateLimiter
 from tests.fakes.storage import InMemoryIndex
+from tests.fakes.system import FakeClock
 from tests.fakes.usage import InMemoryGenerations, InMemoryLedger
 
 WS = WorkspaceId(uuid4())
@@ -69,7 +71,12 @@ def make(
     if present:
         gens.present_gen = (GEN, e.model)
     svc = SearchService(
-        index, e, gens, InMemoryLedger(Decimal(spent)), monthly_budget_usd=Decimal("5")
+        index,
+        e,
+        gens,
+        InMemoryLedger(Decimal(spent)),
+        InMemoryRateLimiter(FakeClock()),
+        monthly_budget_usd=Decimal("5"),
     )
     return svc, index, e
 
@@ -145,3 +152,39 @@ async def test_limit_is_clamped_and_filters_pass_through() -> None:
         identity(OWNER), "leave", filters=SearchFilters(source_ids=(SourceId(uuid4()),))
     )
     assert none.hits == []
+
+
+async def test_keyword_only_without_an_embedder() -> None:
+    svc, index, e = make()
+    await seed(index, e)
+    svc._embedder = None  # as wired when no OpenAI key is set
+    res = await svc.search(identity(OWNER), "leave")
+    assert res.lanes == (Lane.KEYWORD,)
+    assert res.hits
+
+
+async def test_searches_are_rate_limited_per_user() -> None:
+    svc, _, _ = make()
+    for _ in range(60):
+        await svc.search(identity(OWNER), "leave")
+    with pytest.raises(RateLimited):
+        await svc.search(identity(OWNER), "leave")
+    await svc.search(identity(GUEST, guest=True), "leave")  # other users unaffected
+
+
+async def test_too_many_source_filters_are_refused() -> None:
+    svc, _, _ = make()
+    many = SearchFilters(source_ids=tuple(SourceId(uuid4()) for _ in range(21)))
+    with pytest.raises(ValidationFailed, match="at most 20"):
+        await svc.search(identity(OWNER), "leave", filters=many)
+
+
+async def test_preview_rechecks_access() -> None:
+    svc, index, e = make()
+    await seed(index, e)
+    res = await svc.search(identity(OWNER), "Salary bands")
+    private = next(h for h in res.hits if h.chunk.title == "Salaries")
+    preview = await svc.preview(identity(OWNER), private.document_id)
+    assert preview.chunks[0].content.startswith("Salary bands")
+    with pytest.raises(NotFound):
+        await svc.preview(identity(GUEST, guest=True), private.document_id)

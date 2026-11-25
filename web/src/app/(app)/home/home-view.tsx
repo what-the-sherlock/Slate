@@ -141,7 +141,7 @@ export function HomeView() {
             <Panel label="Get started" last>
               <ol className="flex flex-col gap-1">
                 <Step done={!!s && s.count > 0} icon={Plug} title="Connect a source" body="Upload files now. GitHub, Discord and Gmail come next." href="/sources" />
-                <Step icon={Search} title="Search everything" body="Hybrid keyword and meaning search, arriving in M2." href="/search" soon />
+                <Step icon={Search} title="Search everything" body="Hybrid keyword and meaning search, filtered to what you can see." href="/search" />
                 <Step icon={MessageSquare} title="Ask with citations" body="Answers that link to their passages, arriving in M3." href="/chat" soon />
               </ol>
             </Panel>

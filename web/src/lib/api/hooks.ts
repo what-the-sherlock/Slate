@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiProblem, unwrap } from "./client";
 import type { components } from "./schema";
 
@@ -8,6 +8,10 @@ export type Me = components["schemas"]["MeResponse"];
 export type Source = components["schemas"]["SourceOut"];
 export type Run = components["schemas"]["RunOut"];
 export type JobState = components["schemas"]["JobOut"];
+export type SearchBody = components["schemas"]["SearchBody"];
+export type SearchOut = components["schemas"]["SearchOut"];
+export type SearchHit = components["schemas"]["SearchHitOut"];
+export type DocumentPreview = components["schemas"]["DocumentPreviewOut"];
 
 export const keys = {
   me: ["me"] as const,
@@ -15,6 +19,8 @@ export const keys = {
   sources: ["sources"] as const,
   runs: (id: string) => ["runs", id] as const,
   job: (id: string) => ["job", id] as const,
+  search: (body: SearchBody | null) => ["search", body] as const,
+  document: (id: string) => ["document", id] as const,
 };
 
 /** The signed-in user, or null when signed out (401 is an answer, not an error). */
@@ -66,5 +72,35 @@ export function useSignOut() {
       if (!r.response.ok && r.response.status !== 401) throw new ApiProblem({ type: "/problems/logout", title: "Couldn't sign out", status: r.response.status });
     },
     onSettled: () => client.clear(),
+  });
+}
+
+/**
+ * Hybrid search. Keyed by the whole request, so back/forward hits the cache. The previous
+ * results stay on screen while a new query loads (UI_DESIGN §4.4: no flash to empty).
+ * `elapsedMs` is measured here because the honest number is what the user waited.
+ */
+export function useSearch(body: SearchBody | null) {
+  return useQuery({
+    queryKey: keys.search(body),
+    queryFn: async (): Promise<SearchOut & { elapsedMs: number }> => {
+      const started = performance.now();
+      const data = unwrap(await api.POST("/api/v1/search", { body: body! }));
+      return { ...data, elapsedMs: Math.round(performance.now() - started) };
+    },
+    enabled: !!body?.query,
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+    retry: false, // a 429 or validation error won't fix itself
+  });
+}
+
+export function useDocument(id: string | null) {
+  return useQuery({
+    queryKey: keys.document(id ?? ""),
+    queryFn: async () =>
+      unwrap(await api.GET("/api/v1/documents/{document_id}", { params: { path: { document_id: id! } } })),
+    enabled: !!id,
+    staleTime: 60_000,
   });
 }

@@ -1,0 +1,64 @@
+name: eval
+
+# Retrieval evals (docs/EVALS.md). Manual only: it calls paid (OpenAI) or quota-limited
+# (Workers AI) APIs, so it never runs on push. Cost per run: under $0.001 with OpenAI
+# (the corpus is embedded once, then skipped by checksum; ~51 query embeddings).
+# Logs are public on a public repo: the corpus and questions are synthetic, and the
+# harness prints metrics and corpus paths only.
+# Point these secrets at a dedicated Neon *eval* branch, not production: the BGE-M3
+# backfill embeds every public chunk in the database it's given (security review).
+
+on:
+  workflow_dispatch:
+    inputs:
+      embedder:
+        description: "Which embedder to evaluate"
+        type: choice
+        options: [none, openai, bge-m3]
+        default: openai
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ENV: prod
+      LOG_LEVEL: WARNING
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT_URL_S3: ${{ secrets.AWS_ENDPOINT_URL_S3 }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      UPLOADS_BUCKET: ${{ secrets.UPLOADS_BUCKET }}
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      MONTHLY_LLM_BUDGET_USD: "5"
+      EMBEDDER: ${{ inputs.embedder }} # via env, never interpolated into a script
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Load the eval corpus (idempotent; embeds only new or changed files)
+        run: uv run python -m evals.load
+      - name: Build the BGE-M3 generation (public chunks only)
+        if: env.EMBEDDER == 'bge-m3'
+        run: uv run python -m worker backfill --max-chunks 2000
+      - name: Run evals
+        run: uv run python -m evals.run --embedder "$EMBEDDER"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-${{ inputs.embedder }}-${{ github.sha }}
+          path: evals/results/*.json
+          if-no-files-found: ignore

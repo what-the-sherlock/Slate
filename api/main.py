@@ -6,7 +6,7 @@ from fastapi import FastAPI
 
 from api.errors import install_error_handlers
 from api.middleware import RequestIdMiddleware
-from api.routers import auth, health, sources, uploads
+from api.routers import auth, health, search, sources, uploads
 from core.config import get_settings
 from core.logs import configure_logging
 
@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix=API_PREFIX)
     app.include_router(uploads.router, prefix=API_PREFIX)
     app.include_router(sources.router, prefix=API_PREFIX)
+    app.include_router(search.router, prefix=API_PREFIX)
     app.add_middleware(RequestIdMiddleware)
     return app
 

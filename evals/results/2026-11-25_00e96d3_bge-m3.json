@@ -1,0 +1,1257 @@
+{
+  "run_id": "3d051bec-3b25-4283-8adc-439fdf1d59d8",
+  "git_sha": "00e96d3",
+  "config": {
+    "name": "bge-m3",
+    "embedder": "bge-m3",
+    "model": "@cf/baai/bge-m3",
+    "k": 10
+  },
+  "summary": {
+    "overall": {
+      "cases": 47,
+      "recall@10": 0.8936,
+      "mrr@10": 0.8333,
+      "ndcg@10": 0.8451
+    },
+    "by_visibility": {
+      "public": {
+        "cases": 41,
+        "recall@10": 1.0,
+        "mrr@10": 0.9431,
+        "ndcg@10": 0.9534
+      },
+      "private": {
+        "cases": 6,
+        "recall@10": 0.1667,
+        "mrr@10": 0.0833,
+        "ndcg@10": 0.1052
+      }
+    },
+    "by_tag": {
+      "keyword": {
+        "cases": 10,
+        "recall@10": 1.0,
+        "mrr@10": 0.9,
+        "ndcg@10": 0.9262
+      },
+      "multi-hop": {
+        "cases": 4,
+        "recall@10": 1.0,
+        "mrr@10": 1.0,
+        "ndcg@10": 0.9599
+      },
+      "paraphrase": {
+        "cases": 30,
+        "recall@10": 0.9667,
+        "mrr@10": 0.9056,
+        "ndcg@10": 0.9206
+      },
+      "private": {
+        "cases": 6,
+        "recall@10": 0.1667,
+        "mrr@10": 0.0833,
+        "ndcg@10": 0.1052
+      },
+      "single-hop": {
+        "cases": 33,
+        "recall@10": 0.8788,
+        "mrr@10": 0.8232,
+        "ndcg@10": 0.8369
+      }
+    },
+    "isolation": {
+      "guest_leaks": 0,
+      "cases_with_leaks": []
+    },
+    "latency_ms": {
+      "p50": 1826.4,
+      "p95": 2130.4
+    },
+    "cases_total": 51,
+    "cases_no_answer": 4
+  },
+  "cases": [
+    {
+      "id": "hb-leave-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/leave-policy.md",
+        "handbook/remote-work.md",
+        "engineering/oncall.md",
+        "product/pricing.md",
+        "customers/faq.md",
+        "product/sla.md",
+        "handbook/expenses.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 3224.0,
+      "guest_leaks": []
+    },
+    {
+      "id": "hb-leave-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "customers/faq.md",
+        "handbook/leave-policy.md",
+        "engineering/deploys.md",
+        "handbook/security-basics.md",
+        "company/values.md",
+        "engineering/api-errors.md",
+        "handbook/remote-work.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "latency_ms": 2118.3,
+      "guest_leaks": []
+    },
+    {
+      "id": "hb-leave-003",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/leave-policy.md",
+        "handbook/remote-work.md",
+        "handbook/expenses.md",
+        "engineering/deploys.md",
+        "product/sla.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 2226.1,
+      "guest_leaks": []
+    },
+    {
+      "id": "hb-leave-004",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/leave-policy.md",
+        "handbook/expenses.md",
+        "engineering/oncall.md",
+        "handbook/security-basics.md",
+        "handbook/remote-work.md",
+        "engineering/api-errors.md",
+        "product/sla.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1679.6,
+      "guest_leaks": []
+    },
+    {
+      "id": "hb-remote-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/remote-work.md",
+        "product/pricing.md",
+        "handbook/expenses.md",
+        "company/values.md",
+        "engineering/deploys.md",
+        "handbook/leave-policy.md",
+        "company/history.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1954.3,
+      "guest_leaks": []
+    },
+    {
+      "id": "hb-remote-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/remote-work.md",
+        "engineering/oncall.md",
+        "handbook/expenses.md",
+        "engineering/deploys.md",
+        "product/sla.md",
+        "handbook/leave-policy.md",
+        "customers/faq.md",
+        "company/values.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1894.3,
+      "guest_leaks": []
+    },
+    {
+      "id": "hb-remote-003",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/remote-work.md",
+        "engineering/oncall.md",
+        "customers/faq.md",
+        "handbook/leave-policy.md",
+        "engineering/deploys.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1964.6,
+      "guest_leaks": []
+    },
+    {
+      "id": "hb-remote-004",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/remote-work.md",
+        "handbook/security-basics.md",
+        "handbook/expenses.md",
+        "company/history.md",
+        "product/sla.md",
+        "company/values.md",
+        "engineering/oncall.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1813.9,
+      "guest_leaks": []
+    },
+    {
+      "id": "hb-exp-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/expenses.md",
+        "handbook/leave-policy.md",
+        "handbook/remote-work.md",
+        "product/pricing.md",
+        "product/sla.md",
+        "engineering/oncall.md",
+        "company/values.md",
+        "engineering/deploys.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1704.7,
+      "guest_leaks": []
+    },
+    {
+      "id": "hb-exp-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/expenses.md",
+        "product/pricing.md",
+        "product/sla.md",
+        "handbook/remote-work.md",
+        "handbook/leave-policy.md",
+        "engineering/oncall.md",
+        "engineering/api-errors.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1697.2,
+      "guest_leaks": []
+    },
+    {
+      "id": "hb-exp-003",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/expenses.md",
+        "handbook/remote-work.md",
+        "engineering/deploys.md",
+        "handbook/leave-policy.md",
+        "engineering/architecture.md",
+        "product/sla.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1776.5,
+      "guest_leaks": []
+    },
+    {
+      "id": "hb-sec-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/security-basics.md",
+        "handbook/expenses.md",
+        "engineering/oncall.md",
+        "engineering/api-errors.md",
+        "handbook/remote-work.md",
+        "product/sla.md",
+        "engineering/architecture.md",
+        "engineering/deploys.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1766.3,
+      "guest_leaks": []
+    },
+    {
+      "id": "hb-sec-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/security-basics.md",
+        "company/values.md",
+        "engineering/architecture.md",
+        "customers/faq.md",
+        "handbook/expenses.md",
+        "engineering/oncall.md",
+        "handbook/remote-work.md",
+        "engineering/api-errors.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1803.9,
+      "guest_leaks": []
+    },
+    {
+      "id": "eng-oncall-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/oncall.md",
+        "engineering/api-errors.md",
+        "handbook/security-basics.md",
+        "engineering/architecture.md",
+        "handbook/expenses.md",
+        "engineering/deploys.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1707.1,
+      "guest_leaks": []
+    },
+    {
+      "id": "eng-oncall-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/oncall.md",
+        "handbook/leave-policy.md",
+        "handbook/security-basics.md",
+        "product/sla.md",
+        "handbook/remote-work.md",
+        "engineering/architecture.md",
+        "engineering/deploys.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1993.7,
+      "guest_leaks": []
+    },
+    {
+      "id": "eng-oncall-003",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/oncall.md",
+        "engineering/deploys.md",
+        "engineering/architecture.md",
+        "customers/faq.md",
+        "handbook/leave-policy.md",
+        "handbook/security-basics.md",
+        "engineering/api-errors.md",
+        "company/values.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1867.7,
+      "guest_leaks": []
+    },
+    {
+      "id": "eng-deploy-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/deploys.md",
+        "company/values.md",
+        "handbook/leave-policy.md",
+        "engineering/oncall.md",
+        "engineering/api-errors.md",
+        "engineering/architecture.md",
+        "product/sla.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1683.1,
+      "guest_leaks": []
+    },
+    {
+      "id": "eng-deploy-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/deploys.md",
+        "handbook/leave-policy.md",
+        "engineering/oncall.md",
+        "customers/faq.md",
+        "engineering/architecture.md",
+        "handbook/remote-work.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1961.3,
+      "guest_leaks": []
+    },
+    {
+      "id": "eng-arch-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/architecture.md",
+        "engineering/api-errors.md",
+        "engineering/oncall.md",
+        "engineering/deploys.md",
+        "handbook/leave-policy.md",
+        "customers/faq.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1733.7,
+      "guest_leaks": []
+    },
+    {
+      "id": "eng-arch-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/architecture.md",
+        "customers/faq.md",
+        "company/history.md",
+        "engineering/deploys.md",
+        "engineering/api-errors.md",
+        "handbook/remote-work.md",
+        "company/values.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1942.7,
+      "guest_leaks": []
+    },
+    {
+      "id": "prod-price-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "product/pricing.md",
+        "engineering/api-errors.md",
+        "handbook/expenses.md",
+        "company/values.md",
+        "product/sla.md",
+        "engineering/architecture.md",
+        "engineering/oncall.md",
+        "customers/faq.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1677.6,
+      "guest_leaks": []
+    },
+    {
+      "id": "prod-price-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/remote-work.md",
+        "product/pricing.md",
+        "product/sla.md",
+        "handbook/leave-policy.md",
+        "handbook/expenses.md",
+        "engineering/architecture.md",
+        "engineering/api-errors.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "latency_ms": 2092.2,
+      "guest_leaks": []
+    },
+    {
+      "id": "prod-sla-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/api-errors.md",
+        "engineering/architecture.md",
+        "engineering/deploys.md",
+        "company/values.md",
+        "handbook/security-basics.md",
+        "product/sla.md",
+        "handbook/expenses.md",
+        "engineering/oncall.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.16666666666666666,
+      "ndcg": 0.3562071871080222,
+      "latency_ms": 1805.9,
+      "guest_leaks": []
+    },
+    {
+      "id": "prod-sla-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "product/sla.md",
+        "engineering/oncall.md",
+        "handbook/leave-policy.md",
+        "product/pricing.md",
+        "customers/faq.md",
+        "company/values.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1884.1,
+      "guest_leaks": []
+    },
+    {
+      "id": "prod-road-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "product/roadmap.md",
+        "handbook/security-basics.md",
+        "engineering/oncall.md",
+        "company/values.md",
+        "handbook/leave-policy.md",
+        "engineering/deploys.md",
+        "handbook/expenses.md",
+        "customers/faq.md",
+        "engineering/architecture.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1926.3,
+      "guest_leaks": []
+    },
+    {
+      "id": "cust-faq-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "customers/faq.md",
+        "engineering/oncall.md",
+        "handbook/expenses.md",
+        "handbook/security-basics.md",
+        "handbook/leave-policy.md",
+        "handbook/remote-work.md",
+        "product/sla.md",
+        "engineering/deploys.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1861.3,
+      "guest_leaks": []
+    },
+    {
+      "id": "cust-faq-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "customers/faq.md",
+        "company/history.md",
+        "handbook/remote-work.md",
+        "company/values.md",
+        "handbook/security-basics.md",
+        "handbook/expenses.md",
+        "engineering/deploys.md",
+        "product/pricing.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1804.0,
+      "guest_leaks": []
+    },
+    {
+      "id": "co-hist-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "company/history.md",
+        "company/values.md",
+        "handbook/security-basics.md",
+        "engineering/architecture.md",
+        "customers/faq.md",
+        "handbook/remote-work.md",
+        "engineering/api-errors.md",
+        "engineering/oncall.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 2096.2,
+      "guest_leaks": []
+    },
+    {
+      "id": "co-hist-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "company/history.md",
+        "product/sla.md",
+        "engineering/deploys.md",
+        "handbook/expenses.md",
+        "engineering/api-errors.md",
+        "company/values.md",
+        "handbook/remote-work.md",
+        "engineering/architecture.md",
+        "handbook/security-basics.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1661.0,
+      "guest_leaks": []
+    },
+    {
+      "id": "kw-001",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/api-errors.md",
+        "handbook/remote-work.md",
+        "product/roadmap.md",
+        "engineering/deploys.md",
+        "handbook/security-basics.md",
+        "company/history.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 2070.5,
+      "guest_leaks": []
+    },
+    {
+      "id": "kw-002",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/api-errors.md",
+        "engineering/architecture.md",
+        "company/values.md",
+        "engineering/deploys.md",
+        "handbook/remote-work.md",
+        "handbook/security-basics.md",
+        "product/roadmap.md",
+        "engineering/oncall.md",
+        "customers/faq.md",
+        "company/history.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 2130.4,
+      "guest_leaks": []
+    },
+    {
+      "id": "kw-003",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/expenses.md",
+        "engineering/api-errors.md",
+        "handbook/security-basics.md",
+        "engineering/oncall.md",
+        "product/sla.md",
+        "engineering/deploys.md",
+        "handbook/leave-policy.md",
+        "engineering/architecture.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1781.8,
+      "guest_leaks": []
+    },
+    {
+      "id": "kw-004",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/deploys.md",
+        "engineering/api-errors.md",
+        "handbook/leave-policy.md",
+        "handbook/remote-work.md",
+        "company/history.md",
+        "customers/faq.md",
+        "handbook/expenses.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1829.7,
+      "guest_leaks": []
+    },
+    {
+      "id": "kw-005",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/architecture.md",
+        "customers/faq.md",
+        "product/pricing.md",
+        "engineering/api-errors.md",
+        "product/roadmap.md",
+        "engineering/deploys.md",
+        "handbook/security-basics.md",
+        "engineering/oncall.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1902.9,
+      "guest_leaks": []
+    },
+    {
+      "id": "kw-006",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/architecture.md",
+        "handbook/expenses.md",
+        "engineering/postmortem-ledger-outage.md",
+        "handbook/security-basics.md",
+        "product/roadmap.md",
+        "handbook/remote-work.md",
+        "handbook/leave-policy.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "latency_ms": 1728.7,
+      "guest_leaks": []
+    },
+    {
+      "id": "kw-007",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/security-basics.md",
+        "engineering/api-errors.md",
+        "product/pricing.md",
+        "product/roadmap.md",
+        "engineering/deploys.md",
+        "handbook/remote-work.md",
+        "customers/faq.md",
+        "product/sla.md",
+        "engineering/oncall.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1874.9,
+      "guest_leaks": []
+    },
+    {
+      "id": "kw-008",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/architecture.md",
+        "product/sla.md",
+        "product/pricing.md",
+        "product/roadmap.md",
+        "engineering/deploys.md",
+        "engineering/oncall.md",
+        "handbook/expenses.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1894.9,
+      "guest_leaks": []
+    },
+    {
+      "id": "mh-001",
+      "tags": [
+        "multi-hop"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/oncall.md",
+        "engineering/api-errors.md",
+        "engineering/deploys.md",
+        "handbook/expenses.md",
+        "engineering/architecture.md",
+        "company/values.md",
+        "handbook/leave-policy.md",
+        "product/sla.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 0.9197207891481876,
+      "latency_ms": 1686.6,
+      "guest_leaks": []
+    },
+    {
+      "id": "mh-002",
+      "tags": [
+        "multi-hop"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "product/sla.md",
+        "product/pricing.md",
+        "engineering/oncall.md",
+        "engineering/architecture.md",
+        "engineering/api-errors.md",
+        "handbook/remote-work.md",
+        "handbook/expenses.md",
+        "handbook/leave-policy.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1904.7,
+      "guest_leaks": []
+    },
+    {
+      "id": "mh-003",
+      "tags": [
+        "multi-hop",
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/api-errors.md",
+        "customers/faq.md",
+        "handbook/expenses.md",
+        "engineering/architecture.md",
+        "handbook/security-basics.md",
+        "product/sla.md",
+        "engineering/oncall.md",
+        "engineering/deploys.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1967.9,
+      "guest_leaks": []
+    },
+    {
+      "id": "mh-004",
+      "tags": [
+        "multi-hop"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/remote-work.md",
+        "company/history.md",
+        "handbook/expenses.md",
+        "product/pricing.md",
+        "engineering/oncall.md",
+        "engineering/deploys.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 0.9197207891481876,
+      "latency_ms": 1864.4,
+      "guest_leaks": []
+    },
+    {
+      "id": "pv-001",
+      "tags": [
+        "private",
+        "single-hop"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "handbook/remote-work.md",
+        "engineering/architecture.md",
+        "engineering/oncall.md",
+        "engineering/api-errors.md",
+        "handbook/expenses.md",
+        "handbook/security-basics.md",
+        "product/sla.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1713.6,
+      "guest_leaks": []
+    },
+    {
+      "id": "pv-002",
+      "tags": [
+        "private",
+        "single-hop"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "handbook/leave-policy.md",
+        "product/pricing.md",
+        "engineering/deploys.md",
+        "handbook/remote-work.md",
+        "engineering/architecture.md",
+        "handbook/expenses.md",
+        "engineering/oncall.md",
+        "product/sla.md",
+        "company/values.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1729.2,
+      "guest_leaks": []
+    },
+    {
+      "id": "pv-003",
+      "tags": [
+        "private",
+        "single-hop"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "engineering/api-errors.md",
+        "company/values.md",
+        "customers/faq.md",
+        "company/history.md",
+        "engineering/architecture.md",
+        "handbook/security-basics.md",
+        "product/sla.md",
+        "product/pricing.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1824.2,
+      "guest_leaks": []
+    },
+    {
+      "id": "pv-004",
+      "tags": [
+        "private",
+        "keyword"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "engineering/oncall.md",
+        "legal/project-heron.md",
+        "product/roadmap.md",
+        "engineering/deploys.md",
+        "engineering/architecture.md",
+        "handbook/remote-work.md",
+        "engineering/api-errors.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "latency_ms": 1672.7,
+      "guest_leaks": []
+    },
+    {
+      "id": "pv-005",
+      "tags": [
+        "private",
+        "single-hop"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "handbook/security-basics.md",
+        "product/sla.md",
+        "engineering/oncall.md",
+        "handbook/remote-work.md",
+        "handbook/expenses.md",
+        "engineering/deploys.md",
+        "engineering/api-errors.md",
+        "handbook/leave-policy.md",
+        "customers/faq.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1875.8,
+      "guest_leaks": []
+    },
+    {
+      "id": "pv-006",
+      "tags": [
+        "private",
+        "paraphrase"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "engineering/deploys.md",
+        "customers/faq.md",
+        "company/values.md",
+        "engineering/api-errors.md",
+        "handbook/leave-policy.md",
+        "engineering/oncall.md",
+        "product/pricing.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1709.8,
+      "guest_leaks": []
+    },
+    {
+      "id": "na-001",
+      "tags": [
+        "no-answer"
+      ],
+      "visibility": "public",
+      "answerable": false,
+      "top_documents": [
+        "handbook/security-basics.md",
+        "company/history.md",
+        "engineering/architecture.md",
+        "product/sla.md",
+        "engineering/oncall.md",
+        "company/values.md",
+        "handbook/expenses.md",
+        "engineering/api-errors.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1790.6,
+      "guest_leaks": []
+    },
+    {
+      "id": "na-002",
+      "tags": [
+        "no-answer"
+      ],
+      "visibility": "public",
+      "answerable": false,
+      "top_documents": [
+        "handbook/security-basics.md",
+        "handbook/remote-work.md",
+        "product/sla.md",
+        "engineering/oncall.md",
+        "company/history.md",
+        "handbook/expenses.md",
+        "company/values.md",
+        "engineering/architecture.md",
+        "engineering/api-errors.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1676.6,
+      "guest_leaks": []
+    },
+    {
+      "id": "na-003",
+      "tags": [
+        "no-answer"
+      ],
+      "visibility": "public",
+      "answerable": false,
+      "top_documents": [
+        "company/history.md",
+        "engineering/api-errors.md",
+        "handbook/expenses.md",
+        "company/values.md",
+        "engineering/oncall.md",
+        "product/pricing.md",
+        "engineering/deploys.md",
+        "customers/faq.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1673.3,
+      "guest_leaks": []
+    },
+    {
+      "id": "na-004",
+      "tags": [
+        "no-answer"
+      ],
+      "visibility": "public",
+      "answerable": false,
+      "top_documents": [
+        "company/history.md",
+        "company/values.md",
+        "handbook/security-basics.md",
+        "engineering/oncall.md",
+        "handbook/remote-work.md",
+        "customers/faq.md",
+        "engineering/architecture.md",
+        "handbook/expenses.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1826.4,
+      "guest_leaks": []
+    }
+  ]
+}

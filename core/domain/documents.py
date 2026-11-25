@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from core.domain.ids import ChunkId, DocumentId, SourceId
+from core.domain.ids import ChunkId, DocumentId, SourceId, WorkspaceId
 
 Vector = Sequence[float]
 
@@ -79,3 +79,36 @@ class Section:
 class ParsedDocument:
     title: str | None
     sections: tuple[Section, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PreviewChunk:
+    ordinal: int
+    content: str
+    heading_path: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentPreview:
+    """A document as the preview panel shows it: header plus its chunks in order."""
+
+    id: DocumentId
+    source_id: SourceId
+    source_name: str
+    title: str
+    uri: str
+    mime: str
+    source_updated_at: datetime | None
+    chunks: tuple[PreviewChunk, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkToEmbed:
+    """A stored chunk that still needs a vector in some generation (backfill)."""
+
+    chunk_id: ChunkId
+    workspace_id: WorkspaceId
+    title: str
+    heading_path: str | None
+    content: str
+    ordinal: int

@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status:** Milestone 1 code complete locally (owner to verify a real OpenAI embed). Next: M2 hybrid search. M0 complete except the deferred Vercel + SSE spike.
+**Status:** Milestones 1 and 2 complete (2026-11-25; evals recorded in `docs/EVALS.md`: hybrid OpenAI Recall@10 1.000, MRR 0.930, 0 guest leaks). Next: M3 cited chat, starting with the deferred Vercel + SSE spike.
 
 Update this line and tick items as work completes. Only the current milestone is in scope.
 
@@ -28,9 +28,9 @@ Update this line and tick items as work completes. Only the current milestone is
 - Done when: an uploaded PDF is searchable within a minute; re-upload of the same file is a no-op
 
 ### M2 — Hybrid search + evals (days 6–8)
-- [ ] Vector + keyword retrieval with ACL filter; RRF; per-document cap; search page with previews
-- [ ] BGE-M3 (Workers AI) as second embedding generation
-- [ ] Eval harness and the first 50 questions; baseline for both embedders
+- [x] Vector + keyword retrieval with ACL filter; RRF; per-document cap; search page with previews (ADR-0019)
+- [x] BGE-M3 (Workers AI) as second embedding generation: adapter + idempotent backfill of public chunks (ADR-0020); generation 111 built
+- [x] Eval harness and the first 50 questions (51); baselines recorded for keyword-only, OpenAI and BGE-M3
 - Done when: Recall@10 is recorded for both embedders; the guest-isolation test passes
 
 ### M3 — Cited chat (days 9–11)

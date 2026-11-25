@@ -22,6 +22,7 @@ from core.adapters.postgres.sources import PostgresSourceStore
 from core.adapters.postgres.uow import UnitOfWork
 from core.domain.data_class import DataClass
 from core.domain.documents import DocumentUpsert, NewChunk, ScoredChunk, SearchFilters
+from core.domain.errors import NotFound
 from core.domain.ids import GenerationId, SourceId, UserId, WorkspaceId
 from core.domain.principals import PUBLIC, Principals, user_principal, workspace_principal
 from tests.fakes.models import FakeEmbedder
@@ -256,3 +257,25 @@ async def test_deleting_source_vanishes_and_long_queries_are_refused(
     vec = await index.vector_search(world.ws, world.owner_p(), q, world.gen, 10, SearchFilters())
     assert kw == []
     assert vec == []
+
+
+async def test_preview_uses_the_same_access_rule(uow: UnitOfWork, world: World) -> None:
+    index = PostgresSearchIndex(uow)
+    hits = await index.keyword_search(
+        world.ws, world.owner_p(), "ERR_BUDGET_42", 10, SearchFilters()
+    )
+    doc_id = hits[0].document_id
+    preview = await index.document_preview(world.ws, world.owner_p(), doc_id, 50)
+    assert preview.title == "Salaries"
+    assert [c.content for c in preview.chunks] == [PRIVATE_TEXT]
+    for ws, p in ((world.ws, world.guest_p()), (world.other_ws, world.owner_p())):
+        with pytest.raises(NotFound):
+            await index.document_preview(ws, p, doc_id, 50)
+
+
+@pytest.mark.parametrize("query", ["a\b", "\\\\", "it's", "'; --", "kf:5002", "the and of"])
+async def test_odd_keyword_queries_never_error(uow: UnitOfWork, world: World, query: str) -> None:
+    hits = await PostgresSearchIndex(uow).keyword_search(
+        world.ws, world.owner_p(), query, 10, SearchFilters()
+    )
+    assert isinstance(hits, list)

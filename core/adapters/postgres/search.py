@@ -8,21 +8,33 @@ caller can't widen what a user sees.
   ``hnsw.iterative_scan = relaxed_order`` so an ACL filter that hides most rows still
   fills k slots (ADR-0011). ``relaxed_order`` may return rows slightly out of order,
   so we re-sort by distance here.
-* **Keyword lane:** ``websearch_to_tsquery`` (quotes, OR, -negation; never a syntax
-  error on user input) over ``tsv_en`` (stemmed English) OR ``tsv_simple`` (unstemmed,
+* **Keyword lane:** over ``tsv_en`` (stemmed English) OR ``tsv_simple`` (unstemmed,
   for identifiers like ``ERR_BUDGET``). Each has its own GIN index; Postgres combines
-  them with a BitmapOr.
+  them with a BitmapOr. A plain question matches ANY of its words (lexemes OR-ed), and
+  ``ts_rank_cd`` ranks passages matching more of them, and closer together, higher:
+  ANDing every word made "what does KF-5002 mean" miss because "mean" isn't in the
+  passage (measured: keyword Recall@10 0.70 with AND; see docs/EVALS.md). A query that
+  uses search syntax (quotes, ``-word``, ``or``) gets ``websearch_to_tsquery``'s strict
+  semantics instead. Neither form can raise a syntax error on user input.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sqlalchemy import text
 
 from core.adapters.postgres.uow import UnitOfWork
-from core.domain.documents import ScoredChunk, SearchFilters, Vector
-from core.domain.ids import ChunkId, DocumentId, GenerationId, WorkspaceId
+from core.domain.documents import (
+    DocumentPreview,
+    PreviewChunk,
+    ScoredChunk,
+    SearchFilters,
+    Vector,
+)
+from core.domain.errors import NotFound
+from core.domain.ids import ChunkId, DocumentId, GenerationId, SourceId, WorkspaceId
 from core.domain.principals import Principals
 from core.domain.search import MAX_QUERY_CHARS
 
@@ -55,6 +67,27 @@ def _filters_sql(f: SearchFilters, params: dict[str, Any]) -> str:
         parts.append("d.source_updated_at <= :before")
         params["before"] = f.updated_before
     return "".join(f" AND {p}" for p in parts)
+
+
+# Each lexeme of the query, OR-ed. to_tsvector normalises (and drops stop words) exactly
+# as the stored columns did; quote_literal keeps lexemes like "kf-5002" whole, and the
+# ::tsquery cast doesn't re-normalise them. Only stop words -> NULL -> no match.
+_ANY_WORD = (
+    "CAST((SELECT string_agg(quote_literal(l), ' | ') FROM"
+    " unnest(tsvector_to_array(to_tsvector('{cfg}', :q))) AS l"
+    # quote_literal emits E'..' for a backslash, which ::tsquery rejects: skip such
+    # lexemes rather than fail the request (security review).
+    " WHERE strpos(l, chr(92)) = 0) AS tsquery)"
+)
+_STRICT = "websearch_to_tsquery('{cfg}', :q)"
+_SYNTAX = re.compile(r'"|(^|\s)-\S|\sor\s', re.IGNORECASE)
+
+
+def _tsquery_sql(query: str, cfg: str, alias: str) -> str:
+    """A FROM item ``(SELECT <tsquery> AS q) AS <alias>``. Returns constant SQL only:
+    ``cfg`` and ``alias`` are literals from this module, never user input."""
+    template = _STRICT if _SYNTAX.search(query) else _ANY_WORD
+    return f"(SELECT {template.format(cfg=cfg)} AS q) AS {alias}"
 
 
 def _check_k(k: int) -> int:
@@ -125,18 +158,59 @@ class PostgresSearchIndex:
         params: dict[str, Any] = {"ws": ws, "p": principals.as_list(), "q": query, "k": k}
         sql = (
             f"SELECT {_COLUMNS},"  # noqa: S608 (constant fragments only; values are bound)
-            " GREATEST(ts_rank_cd(c.tsv_en, qe), ts_rank_cd(c.tsv_simple, qs)) AS rank"
+            " GREATEST(ts_rank_cd(c.tsv_en, qe.q), ts_rank_cd(c.tsv_simple, qs.q)) AS rank"
             " FROM chunks c"
             f" JOIN documents d ON d.id = c.document_id{_JOIN_SOURCE},"
-            " websearch_to_tsquery('english', :q) qe,"
-            " websearch_to_tsquery('simple', :q) qs"
-            f" WHERE (c.tsv_en @@ qe OR c.tsv_simple @@ qs) AND {_VISIBLE}"
+            f" {_tsquery_sql(query, 'english', 'qe')},"
+            f" {_tsquery_sql(query, 'simple', 'qs')}"
+            f" WHERE (c.tsv_en @@ qe.q OR c.tsv_simple @@ qs.q) AND {_VISIBLE}"
             f"{_filters_sql(filters, params)}"
             " ORDER BY rank DESC, c.id LIMIT :k"
         )
         async with self._uow() as s:
             rows = (await s.execute(text(sql), params)).mappings().all()
         return [_scored(r, float(r["rank"])) for r in rows]
+
+    async def document_preview(
+        self, ws: WorkspaceId, principals: Principals, doc_id: DocumentId, max_chunks: int
+    ) -> DocumentPreview:
+        params: dict[str, Any] = {"id": doc_id, "ws": ws, "p": principals.as_list()}
+        async with self._uow() as s:
+            doc = (await s.execute(text(_PREVIEW_DOC), params)).mappings().first()
+            if doc is None:
+                raise NotFound("document not found")  # same answer for missing and forbidden
+            rows = (
+                (await s.execute(text(_PREVIEW_CHUNKS), {**params, "n": _check_k(max_chunks)}))
+                .mappings()
+                .all()
+            )
+        return DocumentPreview(
+            id=DocumentId(doc["id"]),
+            source_id=SourceId(doc["source_id"]),
+            source_name=str(doc["source_name"]),
+            title=str(doc["title"]),
+            uri=str(doc["uri"]),
+            mime=str(doc["mime"]),
+            source_updated_at=doc["source_updated_at"],
+            chunks=tuple(
+                PreviewChunk(int(r["ordinal"]), str(r["content"]), r["heading_path"]) for r in rows
+            ),
+        )
+
+
+# Preview uses the SAME visibility rule as search (ARCHITECTURE §5), checked on the
+# document row; chunks.acl is a trigger-maintained copy of documents.acl.
+_PREVIEW_DOC = """
+SELECT d.id, d.source_id, src.name AS source_name, d.title, d.uri, d.mime, d.source_updated_at
+FROM documents d JOIN sources src ON src.id = d.source_id
+WHERE d.id = :id AND d.workspace_id = :ws AND d.acl && CAST(:p AS text[])
+  AND d.deleted_at IS NULL AND src.status <> 'deleting'
+"""
+_PREVIEW_CHUNKS = """
+SELECT c.ordinal, c.content, c.heading_path FROM chunks c
+WHERE c.document_id = :id AND c.workspace_id = :ws AND c.acl && CAST(:p AS text[])
+ORDER BY c.ordinal LIMIT :n
+"""
 
 
 def _scored(r: Any, score: float) -> ScoredChunk:  # reason: RowMapping values are Any

@@ -6,9 +6,12 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 from core.domain.documents import (
+    ChunkToEmbed,
     Document,
+    DocumentPreview,
     DocumentUpsert,
     NewChunk,
+    PreviewChunk,
     ScoredChunk,
     SearchFilters,
     Vector,
@@ -200,6 +203,65 @@ class InMemoryIndex:
             if score > 0:
                 hits.append(self._scored(c, score))
         return sorted(hits, key=lambda h: (-h.score, h.chunk_id))[:k]
+
+    async def document_preview(
+        self, ws: WorkspaceId, principals: Principals, doc_id: DocumentId, max_chunks: int
+    ) -> DocumentPreview:
+        doc = await self.get_document(ws, doc_id, principals)  # NotFound if not visible
+        chunks = sorted(
+            (c for c in self._chunks if c.document_id == doc_id), key=lambda c: c.chunk.ordinal
+        )[:max_chunks]
+        return DocumentPreview(
+            id=doc.id,
+            source_id=doc.source_id,
+            source_name="Uploads",
+            title=doc.title,
+            uri=doc.uri,
+            mime=doc.mime,
+            source_updated_at=doc.source_updated_at,
+            chunks=tuple(
+                PreviewChunk(c.chunk.ordinal, c.chunk.content, c.chunk.heading_path) for c in chunks
+            ),
+        )
+
+    # ---- backfill
+    async def chunks_missing_embedding(
+        self, generation: GenerationId, *, public_only: bool, after: ChunkId | None, limit: int
+    ) -> list[ChunkToEmbed]:
+        out: list[ChunkToEmbed] = []
+        for c in sorted(self._chunks, key=lambda c: c.id):
+            if after is not None and c.id <= after:
+                continue
+            if generation in c.embeddings:
+                continue
+            if public_only and self.data_classes.get(c.document_id) != "public":
+                continue
+            doc = self._docs[c.document_id][1]
+            out.append(
+                ChunkToEmbed(
+                    c.id,
+                    c.workspace_id,
+                    doc.title,
+                    c.chunk.heading_path,
+                    c.chunk.content,
+                    c.chunk.ordinal,
+                )
+            )
+            if len(out) == limit:
+                break
+        return out
+
+    async def add_embeddings(
+        self, generation: GenerationId, items: Sequence[tuple[ChunkId, Vector]]
+    ) -> int:
+        by_id = {c.id: c for c in self._chunks}
+        added = 0
+        for chunk_id, vector in items:
+            c = by_id.get(chunk_id)
+            if c is not None and generation not in c.embeddings:
+                c.embeddings[generation] = vector
+                added += 1
+        return added
 
 
 def _cosine(a: Vector, b: Vector) -> float:

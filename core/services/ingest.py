@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from uuid import UUID
 
@@ -21,9 +21,9 @@ import structlog
 
 from core.domain.chunking import chunk_sections, embedding_text
 from core.domain.data_class import classify
-from core.domain.documents import DocumentUpsert, NewChunk
+from core.domain.documents import DocumentUpsert, NewChunk, Section
 from core.domain.errors import AppError, BudgetExceeded, UpstreamUnavailable, ValidationFailed
-from core.domain.ids import RunId, SourceId, UserId, WorkspaceId
+from core.domain.ids import DocumentId, RunId, SourceId, UserId, WorkspaceId
 from core.domain.jobs import Job
 from core.domain.uploads import MAX_UPLOAD_BYTES, MIME, SNIFF_BYTES, FileKind, sniff_kind
 from core.ports.models import Embedder, Tokenizer
@@ -41,6 +41,20 @@ MAX_DOC_TOKENS = 400_000
 # USD per 1M input tokens (ARCHITECTURE §12). Unknown models are costed conservatively.
 PRICE_PER_M_TOKENS = {"text-embedding-3-small": Decimal("0.02")}
 DEFAULT_PRICE_PER_M = Decimal("0.13")
+
+
+class Stage:
+    """Which pipeline stage is running, so a failure is recorded against the right one."""
+
+    def __init__(self, name: str = "fetch") -> None:
+        self.name = name
+
+
+@dataclass(frozen=True, slots=True)
+class IndexResult:
+    document_id: DocumentId
+    changed: bool
+    chunks: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +130,7 @@ class IngestService:
         payload = UploadPayload.from_job(job)
         run = await self._sources.create_run(payload.source_id, "upload")
         bound = log.bind(job_id=str(job.id), run_id=str(run))
-        stage = "fetch"
+        stage = Stage("fetch")
         # The external id includes the SHA-256, so an indexed match means identical bytes:
         # skip the download and, above all, the paid embedding call.
         if await self._sources.find_upload(job.workspace_id, payload.external_id) is not None:
@@ -125,34 +139,17 @@ class IngestService:
             return
         try:
             data = await self._download(payload)
-            stage = "parse"
+            stage.name = "parse"
             self._verify(payload, data)
             # Dispatch on the VERIFIED kind (the gate checked these bytes as that kind).
             parsed = await asyncio.to_thread(self._parser.parse, data, MIME[payload.kind])
-            stage = "chunk"
-            chunks = chunk_sections(parsed.sections, self._tokenizer.count)
-            if not chunks:
-                raise ValidationFailed("No text found in this file.")
-            total_tokens = sum(c.token_count for c in chunks)
-            if total_tokens > MAX_DOC_TOKENS:
-                raise ValidationFailed(
-                    "This document is too large to index (over 400,000 tokens of text)."
-                )
-            title = parsed.title or payload.filename
-            stage = "embed"
-            await self._check_budget(self._estimate_usd(total_tokens))
-            generation = await self._generations.ensure_present(
-                self._embedder.model, self._embedder.dims
-            )
-            vectors = await self._embed(job.workspace_id, payload, title, chunks)
-            stage = "store"
-            _, changed = await self._documents.write_document(
+            result = await self.index_document(
                 job.workspace_id,
                 DocumentUpsert(
                     source_id=payload.source_id,
                     external_id=payload.external_id,
                     uri=f"upload:{payload.blob_key}",
-                    title=title,
+                    title=parsed.title or payload.filename,
                     mime=payload.mime,
                     checksum=payload.sha256,
                     acl=payload.acl,
@@ -162,32 +159,69 @@ class IngestService:
                         "filename": payload.filename,
                         "size": payload.size,
                         "uploader": str(payload.uploader),
-                        "chunks": len(chunks),
                     },
                 ),
-                chunks,
-                {generation: vectors},
+                parsed.sections,
                 data_class=payload.data_class,
+                stage=stage,
             )
+            changed = result.changed
         except AppError as e:
-            await self._fail_run(run, payload, stage, e)
-            bound.warning("ingest_failed", stage=stage, error_code=e.code)
+            await self._fail_run(run, payload, stage.name, e)
+            bound.warning("ingest_failed", stage=stage.name, error_code=e.code)
             raise
         except BaseException as e:  # crash/cancel: never leave the run "running" forever
             await asyncio.shield(
                 self._fail_run(
                     run,
                     payload,
-                    stage,
+                    stage.name,
                     UpstreamUnavailable(f"Processing stopped ({type(e).__name__})."),
                 )
             )
-            bound.error("ingest_crashed", stage=stage, error_type=type(e).__name__)
+            bound.error("ingest_crashed", stage=stage.name, error_type=type(e).__name__)
             raise
         await self._sources.finish_run(
             run, status="succeeded", seen=1, changed=int(changed), failed=0
         )
-        bound.info("ingest_succeeded", chunks=len(chunks), changed=changed)
+        bound.info("ingest_succeeded", chunks=result.chunks, changed=changed)
+
+    async def index_document(
+        self,
+        ws: WorkspaceId,
+        doc: DocumentUpsert,
+        sections: Sequence[Section],
+        *,
+        data_class: str,
+        stage: Stage | None = None,
+    ) -> IndexResult:
+        """chunk -> embed -> store for one already-parsed document (any source).
+
+        Budget-guarded and recorded in the usage ledger. Idempotent: an unchanged
+        checksum writes nothing (``changed=False``).
+        """
+        stage = stage or Stage()
+        stage.name = "chunk"
+        chunks = chunk_sections(sections, self._tokenizer.count)
+        if not chunks:
+            raise ValidationFailed("No text found in this file.")
+        total_tokens = sum(c.token_count for c in chunks)
+        if total_tokens > MAX_DOC_TOKENS:
+            raise ValidationFailed(
+                "This document is too large to index (over 400,000 tokens of text)."
+            )
+        stage.name = "embed"
+        await self._check_budget(self._estimate_usd(total_tokens))
+        generation = await self._generations.ensure_present(
+            self._embedder.model, self._embedder.dims
+        )
+        vectors = await self._embed(ws, data_class, doc.title, chunks)
+        stage.name = "store"
+        doc = replace(doc, metadata={**doc.metadata, "chunks": len(chunks)})
+        doc_id, changed = await self._documents.write_document(
+            ws, doc, chunks, {generation: vectors}, data_class=data_class
+        )
+        return IndexResult(doc_id, changed, len(chunks))
 
     async def _download(self, payload: UploadPayload) -> bytes:
         size = await self._blobs.size_of(payload.blob_key)
@@ -225,7 +259,7 @@ class IngestService:
             log.warning("budget_80_percent", spent_usd=str(spent), budget_usd=str(self._budget))
 
     async def _embed(
-        self, ws: WorkspaceId, payload: UploadPayload, title: str, chunks: Sequence[NewChunk]
+        self, ws: WorkspaceId, data_class: str, title: str, chunks: Sequence[NewChunk]
     ) -> list[Sequence[float]]:
         texts = [embedding_text(title, c) for c in chunks]
         vectors: list[Sequence[float]] = []
@@ -243,7 +277,7 @@ class IngestService:
                     provider="openai",
                     model=self._embedder.model,
                     kind="embed",
-                    data_class=payload.data_class,
+                    data_class=data_class,
                     tokens_in=result.tokens,
                     tokens_out=0,
                     cost_usd=price * result.tokens / Decimal(1_000_000),

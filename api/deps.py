@@ -13,7 +13,7 @@ from pathlib import Path
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
-from core.adapters.factories import ingest_service, s3_blob_store
+from core.adapters.factories import ingest_service, s3_blob_store, search_service
 from core.adapters.postgres.auth import (
     PostgresAccountStore,
     PostgresLoginThrottle,
@@ -33,6 +33,7 @@ from core.ports.system import HealthProbe
 from core.services.auth import AuthService
 from core.services.catalog import CatalogService
 from core.services.inline import InlineRunner
+from core.services.search import SearchService
 from core.services.uploads import UploadService
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -47,6 +48,7 @@ class Container:
     catalog: CatalogService
     uploads: UploadService | None = None  # None when storage isn't configured
     inline: InlineRunner | None = None  # None without storage + OpenAI key
+    search: SearchService | None = None
 
 
 @lru_cache(maxsize=1)
@@ -78,6 +80,7 @@ def get_container() -> Container:
         catalog=CatalogService(PostgresCatalog(uow)),
         uploads=_upload_service(settings, uow),
         inline=_inline_runner(settings, uow),
+        search=search_service(settings, uow),
     )
 
 

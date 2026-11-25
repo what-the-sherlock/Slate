@@ -164,6 +164,67 @@
         "title": "CompleteUploadResponse",
         "type": "object"
       },
+      "DocumentPreviewOut": {
+        "properties": {
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewChunkOut"
+            },
+            "title": "Chunks",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mime": {
+            "title": "Mime",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          },
+          "source_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Updated At"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "uri": {
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "source_name",
+          "title",
+          "uri",
+          "mime",
+          "source_updated_at",
+          "chunks"
+        ],
+        "title": "DocumentPreviewOut",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -359,6 +420,36 @@
         "title": "PresignedPost",
         "type": "object"
       },
+      "PreviewChunkOut": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "heading_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading Path"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordinal",
+          "heading_path",
+          "content"
+        ],
+        "title": "PreviewChunkOut",
+        "type": "object"
+      },
       "ReadinessResponse": {
         "properties": {
           "database": {
@@ -522,6 +613,164 @@
           "errors"
         ],
         "title": "RunOut",
+        "type": "object"
+      },
+      "SearchBody": {
+        "properties": {
+          "limit": {
+            "default": 10,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "query": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "updated_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated After"
+          },
+          "updated_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated Before"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "SearchBody",
+        "type": "object"
+      },
+      "SearchHitOut": {
+        "properties": {
+          "chunk_id": {
+            "title": "Chunk Id",
+            "type": "integer"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "heading_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading Path"
+          },
+          "matched_by": {
+            "description": "Which retrieval lanes found this passage",
+            "items": {
+              "enum": [
+                "vector",
+                "keyword"
+              ],
+              "type": "string"
+            },
+            "title": "Matched By",
+            "type": "array"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "score": {
+            "description": "Reciprocal rank fusion score; only the order matters",
+            "title": "Score",
+            "type": "number"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "document_id",
+          "title",
+          "heading_path",
+          "content",
+          "ordinal",
+          "score",
+          "matched_by"
+        ],
+        "title": "SearchHitOut",
+        "type": "object"
+      },
+      "SearchOut": {
+        "properties": {
+          "hits": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHitOut"
+            },
+            "title": "Hits",
+            "type": "array"
+          },
+          "lanes": {
+            "description": "Lanes that actually ran",
+            "items": {
+              "enum": [
+                "vector",
+                "keyword"
+              ],
+              "type": "string"
+            },
+            "title": "Lanes",
+            "type": "array"
+          },
+          "notices": {
+            "description": "Honest degradations to show the user",
+            "items": {
+              "type": "string"
+            },
+            "title": "Notices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "hits",
+          "lanes",
+          "notices"
+        ],
+        "title": "SearchOut",
         "type": "object"
       },
       "SetupBody": {
@@ -875,6 +1124,49 @@
         ]
       }
     },
+    "/api/v1/documents/{document_id}": {
+      "get": {
+        "operationId": "preview_api_v1_documents__document_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview a document you can see (404 for missing and forbidden alike)",
+        "tags": [
+          "search"
+        ]
+      }
+    },
     "/api/v1/healthz": {
       "get": {
         "description": "The process is up. Never touches the database, so it stays cheap and wake-free.",
@@ -990,6 +1282,47 @@
         "summary": "Readiness",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/search": {
+      "post": {
+        "operationId": "search_api_v1_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Hybrid search over what you can see",
+        "tags": [
+          "search"
         ]
       }
     },
