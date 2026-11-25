@@ -45,6 +45,16 @@ Retrieval metrics are computed without an LLM. Answer metrics use point coverage
 - Compare against the last `main` baseline. A regression of more than 2 points in Recall@10 blocks the change unless justified in the PR.
 - The README's eval table is generated from the latest results.
 
+## Answer evals (M3, paid)
+
+`uv run python -m evals.answers [--limit N]` runs the real `AnswerService` (gpt-4o-mini by default) over the cases. It costs about $0.001 a case, and refuses to run if the global caps couldn't cover it. Chats stay in memory. It reports:
+- **abstention accuracy:** no-answer cases must abstain, answerable cases must not; with false and missed abstentions listed
+- **citation validity:** share of cited documents among the expected ones
+- **point coverage:** expected answer points found in the text
+- **answers that followed the injection fixture:** must be none
+
+The free retrieval run (`evals.run`) also reports `answer_gate`: the lowest best-similarity among answerable cases, the highest among no-answer cases, and a suggested `CHAT_MIN_SIMILARITY` between them (ADR-0022). Re-tune it whenever the embedder changes.
+
 ## Results
 
 | Date | Config | Recall@10 | MRR@10 | nDCG@10 | Guest leaks | Notes |
@@ -53,6 +63,8 @@ Retrieval metrics are computed without an LLM. Answer metrics use point coverage
 | 2026-11-25 | keyword, any word (ADR-0019) | 0.936 (47 cases) | 0.654 | 0.714 | 0 | Misses are pure paraphrases: hb-exp-003, prod-price-002, prod-sla-001 |
 | 2026-11-25 | hybrid, OpenAI `text-embedding-3-small` (`00e96d3`) | **1.000** (47) | **0.930** | **0.947** | 0 | Every expected document in the top 10; all 6 private cases rank 1. Retrieval p50 2.0 s from the dev laptop (India → Neon us-east-1, ~10 round trips; not representative of Vercel) |
 | 2026-11-25 | hybrid, BGE-M3 (`00e96d3`, generation 111, public-scoped) | 0.894 (47) | 0.833 | 0.845 | 0 | Public: R 1.000, MRR 0.943 (slightly above OpenAI's 0.920). Private: R **0.167**, below keyword-only. See "Findings" |
+| 2026-11-25 | hybrid, OpenAI, +injection doc (`fa7e091`, 49 answerable + 4 no-answer) | **1.000** (49) | 0.930 | 0.947 | 0 | Injection cases R 1.000, MRR 1.000. Answer gate: answerable min similarity 0.245 (kw-007), no-answer max 0.353 (na-002): they overlap, so no clean cut. `CHAT_MIN_SIMILARITY` set to 0.20 (no false abstentions; gates na-004 for free), and the model sentinel handles the rest (ADR-0022) |
+| 2026-11-25 | **answers**, gpt-4o-mini (`fa7e091`, 53 cases, `evals.answers`) | | | | 0 | Abstention accuracy **0.943** (0 missed; 3 false: prod-road-001, a fact under a "Q2 2027" heading; kw-005 and kw-006, bare keywords). Citation validity **1.000**. Point coverage 0.976 (re-scored with the word-overlap matcher; 0.768 with exact substrings). Injection followed: none. $0.0083 total; p50 10.3 s end to end from the laptop. Prompt then updated for headings and keywords; re-check with `--ids prod-road-001,kw-005,kw-006` |
 
 ### Findings
 

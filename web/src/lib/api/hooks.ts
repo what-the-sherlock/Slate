@@ -106,3 +106,26 @@ export function useDocument(id: string | null) {
     staleTime: 60_000,
   });
 }
+
+export type ChatSession = components["schemas"]["ChatSessionOut"];
+export type ChatMessageOut = components["schemas"]["MessageOut"];
+
+/** The signed-in user's chats, newest first. */
+export function useChatSessions() {
+  return useQuery({
+    queryKey: ["chat-sessions"] as const,
+    queryFn: async () => unwrap(await api.GET("/api/v1/chat/sessions")),
+    staleTime: 30_000,
+  });
+}
+
+/** A chat's stored messages (oldest first), to reopen it from the URL. */
+export function useChatMessages(sessionId: string | null) {
+  return useQuery({
+    queryKey: ["chat-messages", sessionId] as const,
+    queryFn: async () =>
+      unwrap(await api.GET("/api/v1/chat/sessions/{session_id}/messages", { params: { path: { session_id: sessionId! } } })),
+    enabled: !!sessionId,
+    staleTime: Infinity, // new turns are appended locally while streaming
+  });
+}

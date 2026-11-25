@@ -13,8 +13,15 @@ from pathlib import Path
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
-from core.adapters.factories import auth_service, ingest_service, s3_blob_store, search_service
+from core.adapters.factories import (
+    answer_service,
+    auth_service,
+    ingest_service,
+    s3_blob_store,
+    search_service,
+)
 from core.adapters.postgres.catalog import PostgresCatalog
+from core.adapters.postgres.chat import PostgresChatStore
 from core.adapters.postgres.engine import EngineKind, create_engine, create_session_factory
 from core.adapters.postgres.health import PostgresHealthProbe
 from core.adapters.postgres.jobs import PostgresJobQueue
@@ -23,7 +30,9 @@ from core.adapters.postgres.sources import PostgresSourceStore
 from core.adapters.postgres.uow import UnitOfWork, make_uow
 from core.adapters.system import SystemClock
 from core.config import Settings, get_settings
+from core.ports.chat import ChatStore
 from core.ports.system import HealthProbe
+from core.services.answer import AnswerService
 from core.services.auth import AuthService
 from core.services.catalog import CatalogService
 from core.services.inline import InlineRunner
@@ -43,6 +52,8 @@ class Container:
     uploads: UploadService | None = None  # None when storage isn't configured
     inline: InlineRunner | None = None  # None without storage + OpenAI key
     search: SearchService | None = None
+    answers: AnswerService | None = None  # None without an OpenAI key
+    chats: ChatStore | None = None
 
 
 @lru_cache(maxsize=1)
@@ -67,6 +78,8 @@ def get_container() -> Container:
         uploads=_upload_service(settings, uow),
         inline=_inline_runner(settings, uow),
         search=search_service(settings, uow),
+        answers=answer_service(settings, uow),
+        chats=PostgresChatStore(uow),
     )
 
 

@@ -10,6 +10,7 @@ failing the request or hiding the degradation.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from decimal import Decimal
@@ -42,7 +43,7 @@ MAX_LIMIT = 50
 MAX_SOURCE_FILTERS = 20
 PREVIEW_MAX_CHUNKS = 200
 # Each search may spend a (cheap) paid query embedding and two index scans, so a user
-# or a leaked session can't loop it freely. 60 a minute is far above human typing speed.
+# or a leaked session can't loop it freely. 30 a minute is far above human typing speed.
 SEARCH_LIMIT = Limit(budget=30, window=timedelta(minutes=1))
 # Daily too, so one account can't loop search all day (security review, ADR-0021).
 SEARCH_DAILY_LIMIT = Limit(budget=1000, window=timedelta(days=1))
@@ -56,6 +57,9 @@ class SearchResults:
     hits: list[FusedHit]
     lanes: tuple[Lane, ...]  # the lanes that actually ran
     notices: tuple[str, ...] = field(default=())  # honest, user-facing degradations
+    # Cosine similarity of the closest vector-lane passage, or None when the vector lane
+    # didn't run. Fused scores are rank-only, so the answer gate needs this (ADR-0022).
+    best_similarity: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +115,8 @@ async def hybrid_retrieve(
         candidates={str(k): len(v) for k, v in lanes.items()},
         returned=len(hits),
     )  # never log the query text: it can contain private content
-    return SearchResults(hits, tuple(lanes), (notice,) if notice else ())
+    best = max((h.score for h in vector_hits), default=None) if vector_hits is not None else None
+    return SearchResults(hits, tuple(lanes), (notice,) if notice else (), best_similarity=best)
 
 
 class SearchService:
@@ -159,6 +164,13 @@ class SearchService:
             f"search-day:{identity.user_id}", 1, SEARCH_DAILY_LIMIT
         ):
             raise RateLimited("You've reached today's search limit.", retry_after_s=86400)
+        return await self.retrieve(identity, q, f, limit=limit)
+
+    async def retrieve(
+        self, identity: Identity, q: str, f: SearchFilters, *, limit: int
+    ) -> SearchResults:
+        """Validated query -> hybrid retrieval, with spend checked and recorded. Shared by
+        search and chat (no rate limit here: each caller applies its own)."""
         plan, notice = await self._vector_plan(identity.workspace_id)
         res = await hybrid_retrieve(
             self._index,
@@ -174,6 +186,12 @@ class SearchService:
         if plan is not None and Lane.VECTOR in res.lanes:
             await self._record_query_embedding(identity.workspace_id, q)
         return replace(res, notices=(notice, *res.notices)) if notice else res
+
+    async def neighbours(
+        self, identity: Identity, around: Sequence[tuple[DocumentId, int]]
+    ) -> list[ScoredChunk]:
+        """Chunks next to these, under the same ACL rule (SearchIndex.neighbours)."""
+        return await self._index.neighbours(identity.workspace_id, identity.principals, around)
 
     async def _record_query_embedding(self, ws: WorkspaceId, q: str) -> None:
         """Every paid call is in the ledger, or the spend caps can't see it (ARCHITECTURE §12).

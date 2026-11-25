@@ -103,6 +103,13 @@ class SearchIndex(Protocol):
         """Raises NotFound for missing AND forbidden documents (no probing)."""
         ...
 
+    async def neighbours(
+        self, ws: WorkspaceId, principals: Principals, around: Sequence[tuple[DocumentId, int]]
+    ) -> list[ScoredChunk]:
+        """The chunks at ordinal +-1 of each (document, ordinal), under the same visibility
+        rule as search (answers widen passages with them; ARCHITECTURE §8 step 6)."""
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class PresignedUpload:

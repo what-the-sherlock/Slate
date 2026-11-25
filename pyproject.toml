@@ -132,6 +132,7 @@ ignore_imports = [
     "worker.main -> core.adapters.**",
     "evals.load -> core.adapters.**",
     "evals.run -> core.adapters.**",
+    "evals.answers -> core.adapters.**",
 ]
 
 [[tool.importlinter.contracts]]
@@ -159,5 +160,6 @@ ignore_imports = [
     "worker.main -> core.adapters.**",
     "evals.load -> core.adapters.**",
     "evals.run -> core.adapters.**",
+    "evals.answers -> core.adapters.**",
 ]
 allow_indirect_imports = true

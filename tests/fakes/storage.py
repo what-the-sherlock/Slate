@@ -174,6 +174,7 @@ class InMemoryIndex:
             score=score,
             heading_path=c.chunk.heading_path,
             title=self._docs[c.document_id][1].title,
+            data_class=self.data_classes.get(c.document_id, "private"),
         )
 
     async def vector_search(
@@ -203,6 +204,16 @@ class InMemoryIndex:
             if score > 0:
                 hits.append(self._scored(c, score))
         return sorted(hits, key=lambda h: (-h.score, h.chunk_id))[:k]
+
+    async def neighbours(
+        self, ws: WorkspaceId, principals: Principals, around: Sequence[tuple[DocumentId, int]]
+    ) -> list[ScoredChunk]:
+        wanted = {(d, o + step) for d, o in around for step in (-1, 1)}
+        return [
+            self._scored(c, 0.0)
+            for c in self._visible(ws, principals, SearchFilters())
+            if (c.document_id, c.chunk.ordinal) in wanted
+        ]
 
     async def document_preview(
         self, ws: WorkspaceId, principals: Principals, doc_id: DocumentId, max_chunks: int

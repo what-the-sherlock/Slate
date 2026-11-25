@@ -74,8 +74,22 @@ uv run python -m worker run               drain runnable jobs locally, then exit
 uv run python -m worker backfill          build the BGE-M3 generation from public chunks (Workers AI)
 uv run python -m evals.load               index the synthetic eval corpus (idempotent; first run ~$0.0001)
 uv run python -m evals.run --embedder none|openai|bge-m3   retrieval evals (none = keyword only, $0)
+uv run python -m evals.answers [--limit N]   answer evals: abstention, citations (PAID, ~$0.001/case)
 pnpm -C web install | dev | lint | typecheck | test | gen:api
+uv run pre-commit run                     run the commit hooks on staged files (--all-files for everything)
 ```
+
+### Committing (Windows notes)
+
+- **Line endings are LF everywhere.** `.gitattributes` sets `eol=lf`; `.editorconfig` and `.vscode/settings.json`
+  (`files.eol: "\n"`) make the editor save LF, and the repo sets `core.autocrlf=false`. If git warns
+  `CRLF will be replaced by LF`, a file was saved with CRLF: convert it (VS Code status bar → `LF`) and re-add it.
+  `git ls-files --eol | Select-String w/crlf` lists offenders.
+- **The pre-commit hook auto-fixes** (end-of-file, trailing whitespace, `ruff --fix`, `ruff format`). When it
+  changes a file it fails the commit with `files were modified by this hook`. That is expected: `git add -A`
+  and commit again. Running `uv run pre-commit run` before committing avoids the second attempt.
+- The hook runs from `.venv` (`uv sync` first). If it says `pre-commit not found`, run `uv sync` then
+  `uv run pre-commit install`.
 
 ## Non-negotiable engineering rules
 

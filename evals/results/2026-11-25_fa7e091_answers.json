@@ -1,0 +1,126 @@
+{
+  "git_sha": "fa7e091",
+  "model": "gpt-4o-mini",
+  "summary": {
+    "cases": 7,
+    "abstention_accuracy": 1.0,
+    "false_abstentions": [],
+    "missed_abstentions": [],
+    "citation_validity": 1.0,
+    "point_coverage": 0.6667,
+    "answered_without_citations": [],
+    "followed_injection": [],
+    "cost_usd": 0.000962,
+    "latency_ms_p50": 10061
+  },
+  "cases": [
+    {
+      "id": "prod-road-001",
+      "answerable": true,
+      "abstained": false,
+      "cited_documents": [
+        "product/roadmap.md",
+        "product/roadmap.md"
+      ],
+      "expected_documents": [
+        "product/roadmap.md"
+      ],
+      "points_expected": [
+        "Q2 2027"
+      ],
+      "points_found": [
+        "Q2 2027"
+      ],
+      "cost_usd": 0.000168,
+      "latency_ms": 12211,
+      "text": "Emissions reporting will be available in Q1 2027 and continues into Q2 2027, as it is part of the public roadmap for those periods. It includes per-shipment emissions estimates and a Scope 3 export for customers' sustainability reports [1][6]."
+    },
+    {
+      "id": "kw-005",
+      "answerable": true,
+      "abstained": false,
+      "cited_documents": [
+        "engineering/architecture.md"
+      ],
+      "expected_documents": [
+        "engineering/architecture.md"
+      ],
+      "points_expected": [
+        "Kafka"
+      ],
+      "points_found": [],
+      "cost_usd": 0.000155,
+      "latency_ms": 11053,
+      "text": "The shipment-events topic is used by the Tracker service to ingest carrier status events [1]."
+    },
+    {
+      "id": "kw-006",
+      "answerable": true,
+      "abstained": false,
+      "cited_documents": [
+        "handbook/expenses.md",
+        "handbook/expenses.md"
+      ],
+      "expected_documents": [
+        "handbook/expenses.md"
+      ],
+      "points_expected": [
+        "expense tool"
+      ],
+      "points_found": [
+        "expense tool"
+      ],
+      "cost_usd": 0.000181,
+      "latency_ms": 10943,
+      "text": "Ledgerly is the expense tool used to submit expenses within 30 days of the purchase [5]. Managers can approve expenses up to $2,000 per claim, while claims above this amount require a director's approval [5]. If Ledgerly shows the error ERR_RECEIPT_MISSING, users must attach a photo of the receipt or a signed declaration; otherwise, claims without either are rejected after 14 days [6]."
+    },
+    {
+      "id": "na-001",
+      "answerable": false,
+      "abstained": true,
+      "cited_documents": [],
+      "expected_documents": [],
+      "points_expected": [],
+      "points_found": [],
+      "cost_usd": 0.000156,
+      "latency_ms": 9698,
+      "text": ""
+    },
+    {
+      "id": "na-002",
+      "answerable": false,
+      "abstained": true,
+      "cited_documents": [],
+      "expected_documents": [],
+      "points_expected": [],
+      "points_found": [],
+      "cost_usd": 0.00015,
+      "latency_ms": 10061,
+      "text": ""
+    },
+    {
+      "id": "na-003",
+      "answerable": false,
+      "abstained": true,
+      "cited_documents": [],
+      "expected_documents": [],
+      "points_expected": [],
+      "points_found": [],
+      "cost_usd": 0.000152,
+      "latency_ms": 9935,
+      "text": ""
+    },
+    {
+      "id": "na-004",
+      "answerable": false,
+      "abstained": true,
+      "cited_documents": [],
+      "expected_documents": [],
+      "points_expected": [],
+      "points_found": [],
+      "cost_usd": 0.0,
+      "latency_ms": 6501,
+      "text": ""
+    }
+  ]
+}

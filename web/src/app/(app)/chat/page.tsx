@@ -1,26 +1,13 @@
-import { MessageSquare } from "lucide-react";
-import Link from "next/link";
-import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
-import { Button } from "@/components/ui/button";
+import { Suspense } from "react";
+import { ChatView } from "./chat-view";
 
 export const metadata = { title: "Chat" };
 
+// ChatView keeps the open chat in the URL (?c=); useSearchParams needs a Suspense boundary.
 export default function ChatPage() {
   return (
-    <>
-      <PageHeader title="Chat" />
-      <EmptyState
-        icon={MessageSquare}
-        title="Cited answers are coming next"
-        action={
-          <Button asChild variant="secondary">
-            <Link href="/sources">Add sources meanwhile</Link>
-          </Button>
-        }
-      >
-        Chat arrives in milestone 3. Everything you upload now will be ready to ask about.
-      </EmptyState>
-    </>
+    <Suspense>
+      <ChatView />
+    </Suspense>
   );
 }

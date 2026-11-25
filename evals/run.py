@@ -165,6 +165,7 @@ def print_summary(summary: dict[str, object], out: Path) -> None:
     print(f"By visibility: {json.dumps(summary['by_visibility'])}")
     print(f"Isolation: {json.dumps(summary['isolation'])}")
     print(f"Latency ms: {json.dumps(summary['latency_ms'])}")
+    print(f"Answer gate: {json.dumps(summary.get('answer_gate'))}")
     print(f"\nWrote {out}")
 
 

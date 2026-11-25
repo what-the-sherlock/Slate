@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status:** Milestones 1 and 2 complete (2026-11-25; evals recorded in `docs/EVALS.md`: hybrid OpenAI Recall@10 1.000, MRR 0.930, 0 guest leaks). Pre-M3 accounts slice built (ADR-0021: open sign-up, personal workspaces, email codes, Turnstile, spend caps); awaiting the owner's integration run, migration and security review. Vercel is deployed (https://slate-livid-nine.vercel.app/), so M3 starts with the SSE spike against the real URL.
+**Status:** M1, M2, accounts (ADR-0021) and **M3 cited chat complete** (2026-11-25; ADR-0022). Next: M4 GitHub.
 
 Update this line and tick items as work completes. Only the current milestone is in scope.
 
@@ -41,9 +41,12 @@ Update this line and tick items as work completes. Only the current milestone is
 - [ ] Owner: integration tests + `alembic upgrade head` on the test branch, then prod; Brevo/Gmail SMTP and Turnstile keys in Vercel; security review
 
 ### M3 — Cited chat (days 9–11)
-- [ ] SSE spike through the Vercel rewrite (ADR-0010 → Accepted or superseded)
-- [ ] Rewrite → retrieve → assemble → stream (SSE) → validate citations → persist
-- [ ] Insufficient-evidence path; feedback; budget guard (reuse `core/domain/budget.py`); provider router by data class; chat ramp for new accounts (ADR-0021)
+- [x] SSE spike through the Vercel rewrite: streams unbuffered (ADR-0010 Accepted)
+- [x] Rewrite → retrieve → gate → assemble (neighbours) → stream (SSE v1) → validate citations → persist (ADR-0022)
+- [x] Insufficient-evidence path (gate + sentinel); feedback; budget caps and rate limits; chat UI (UI_DESIGN §4.3)
+- [x] Integration tests; `evals.run` gate tuning (CHAT_MIN_SIMILARITY 0.20); `evals.answers`: abstention 0.943, then 1.000 on the targeted re-run, citation validity 1.000, no injection followed; security review fixed
+- Note: the neighbour-heading fix (ADR-0022) landed after the last full answer run; it's unit-tested, and the next prompt change should re-run `evals.answers`
+- Deferred (ADR-0022): free-tier provider router for rewriting public-only chats (OpenAI does all of it for now)
 - Done when: every `[n]` opens its passage; abstention cases pass
 
 ### M4 — GitHub (days 12–13)

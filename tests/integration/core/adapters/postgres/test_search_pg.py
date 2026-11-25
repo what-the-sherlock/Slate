@@ -280,3 +280,38 @@ async def test_odd_keyword_queries_never_error(uow: UnitOfWork, world: World, qu
         world.ws, world.owner_p(), query, 10, SearchFilters()
     )
     assert isinstance(hits, list)
+
+
+async def test_neighbours_use_the_same_access_rule(uow: UnitOfWork, world: World) -> None:
+    """Answer assembly widens a passage with ordinal +-1 (ARCHITECTURE §8 step 6). The
+    neighbour lookup must hide what search hides: other ACLs and other workspaces."""
+    vecs = (await embedder.embed_documents(["a", "b", "c"])).vectors
+    doc_id, _ = await PostgresDocumentStore(uow).write_document(
+        world.ws,
+        DocumentUpsert(world.source, "nbr", "upload://nbr", "Nbr", "text/plain", "nbr", (PUBLIC,)),
+        [NewChunk(i, t, 1) for i, t in enumerate(["first", "middle", "last"])],
+        {world.gen: vecs},
+        data_class="private",
+    )
+    index = PostgresSearchIndex(uow)
+    got = await index.neighbours(world.ws, world.owner_p(), [(doc_id, 1)])
+    assert sorted(c.content for c in got) == ["first", "last"]
+    assert all(c.data_class == "private" for c in got)
+    assert await index.neighbours(world.other_ws, world.owner_p(), [(doc_id, 1)]) == []
+    secret = (await embedder.embed_documents(["s0", "s1"])).vectors
+    secret_id, _ = await PostgresDocumentStore(uow).write_document(
+        world.ws,
+        DocumentUpsert(
+            world.source,
+            "nbr-secret",
+            "upload://s",
+            "S",
+            "text/plain",
+            "s",
+            (f"user:{world.owner}",),
+        ),
+        [NewChunk(i, t, 1) for i, t in enumerate(["s0", "s1"])],
+        {world.gen: secret},
+        data_class="private",
+    )
+    assert await index.neighbours(world.ws, world.guest_p(), [(secret_id, 0)]) == []

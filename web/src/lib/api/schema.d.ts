@@ -140,6 +140,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask a question; streams a cited answer as server-sent events */
+        post: operations["chat_api_v1_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your chats, newest first */
+        get: operations["sessions_api_v1_chat_sessions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/sessions/{session_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A chat's messages with their citations */
+        get: operations["messages_api_v1_chat_sessions__session_id__messages_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{document_id}": {
         parameters: {
             query?: never;
@@ -205,6 +256,23 @@ export interface paths {
         get: operations["me_api_v1_me_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/messages/{message_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rate an answer */
+        post: operations["feedback_api_v1_messages__message_id__feedback_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -320,6 +388,29 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AnswerSourceOut */
+        AnswerSourceOut: {
+            /** Chunk Id */
+            chunk_id: number;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Heading Path */
+            heading_path: string | null;
+            /** N */
+            n: number;
+            /** Ordinal */
+            ordinal: number;
+            /**
+             * Snippet
+             * @description The cited passage (may include neighbouring text)
+             */
+            snippet: string;
+            /** Title */
+            title: string;
+        };
         /** AuthConfig */
         AuthConfig: {
             /**
@@ -373,6 +464,72 @@ export interface components {
             /** Upload Token */
             upload_token?: string | null;
         };
+        /** ChatBody */
+        ChatBody: {
+            /** Question */
+            question: string;
+            /**
+             * Session Id
+             * @description Continue this chat; omit to start one
+             */
+            session_id?: string | null;
+            /** Source Ids */
+            source_ids?: string[];
+        };
+        /**
+         * ChatEvents
+         * @description Documentation only: the SSE stream, as (event name -> data shape).
+         */
+        ChatEvents: {
+            citation: components["schemas"]["CitationEvent"];
+            done: components["schemas"]["DoneEvent"];
+            error: components["schemas"]["ErrorEvent"];
+            meta: components["schemas"]["MetaEvent"];
+            sources: components["schemas"]["SourcesEvent"];
+            token: components["schemas"]["TokenEvent"];
+        };
+        /** ChatSessionOut */
+        ChatSessionOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string | null;
+        };
+        /** CitationEvent */
+        CitationEvent: {
+            /** Chunk Id */
+            chunk_id: number;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** N */
+            n: number;
+            /**
+             * V
+             * @default 1
+             * @constant
+             */
+            v: 1;
+        };
+        /** CitationOut */
+        CitationOut: {
+            /** Chunk Id */
+            chunk_id: number | null;
+            /** Document Id */
+            document_id: string | null;
+            /** N */
+            n: number;
+        };
         /** CompleteUploadBody */
         CompleteUploadBody: {
             /** Upload Token */
@@ -414,6 +571,69 @@ export interface components {
             title: string;
             /** Uri */
             uri: string;
+        };
+        /** DoneEvent */
+        DoneEvent: {
+            /**
+             * Abstained
+             * @description True: show the 'Not enough evidence' state
+             */
+            abstained: boolean;
+            /** Citations */
+            citations: number[];
+            /**
+             * Closest
+             * @description Closest matches, when abstaining
+             */
+            closest: components["schemas"]["AnswerSourceOut"][];
+            /** Latency Ms */
+            latency_ms: number;
+            /**
+             * Message Id
+             * Format: uuid
+             */
+            message_id: string;
+            /** Model */
+            model: string | null;
+            /** Notices */
+            notices: string[];
+            /**
+             * V
+             * @default 1
+             * @constant
+             */
+            v: 1;
+        };
+        /** ErrorEvent */
+        ErrorEvent: {
+            /** Detail */
+            detail: string;
+            /** Request Id */
+            request_id: string | null;
+            /** Status */
+            status: number;
+            /** Title */
+            title: string;
+            /** Type */
+            type: string;
+            /**
+             * V
+             * @default 1
+             * @constant
+             */
+            v: 1;
+        };
+        /** FeedbackBody */
+        FeedbackBody: {
+            /** Comment */
+            comment?: string | null;
+            /**
+             * Rating
+             * @enum {integer}
+             */
+            rating: 1 | -1;
+            /** Reason */
+            reason?: ("Wrong" | "Missing information" | "Bad sources" | "Other") | null;
         };
         /** ForgotPasswordBody */
         ForgotPasswordBody: {
@@ -502,6 +722,53 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+        };
+        /** MessageOut */
+        MessageOut: {
+            /** Abstained */
+            abstained: boolean;
+            /** Citations */
+            citations: components["schemas"]["CitationOut"][];
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Latency Ms */
+            latency_ms: number | null;
+            /** Model */
+            model: string | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+        };
+        /** MetaEvent */
+        MetaEvent: {
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * User Message Id
+             * Format: uuid
+             */
+            user_message_id: string;
+            /**
+             * V
+             * @default 1
+             * @constant
+             */
+            v: 1;
         };
         /** PresignedPost */
         PresignedPost: {
@@ -716,6 +983,28 @@ export interface components {
              * @enum {string}
              */
             visibility: "only_me" | "workspace" | "public" | "mixed";
+        };
+        /** SourcesEvent */
+        SourcesEvent: {
+            /** Sources */
+            sources: components["schemas"]["AnswerSourceOut"][];
+            /**
+             * V
+             * @default 1
+             * @constant
+             */
+            v: 1;
+        };
+        /** TokenEvent */
+        TokenEvent: {
+            /** Text */
+            text: string;
+            /**
+             * V
+             * @default 1
+             * @constant
+             */
+            v: 1;
         };
         /** ValidationError */
         ValidationError: {
@@ -979,6 +1268,103 @@ export interface operations {
             };
         };
     };
+    chat_api_v1_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatBody"];
+            };
+        };
+        responses: {
+            /** @description SSE stream; each data is JSON. ChatEvents maps names to shapes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatEvents"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sessions_api_v1_chat_sessions_get: {
+        parameters: {
+            query?: {
+                /** @description Cursor: created_at of the last chat seen */
+                before?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSessionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    messages_api_v1_chat_sessions__session_id__messages_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     preview_api_v1_documents__document_id__get: {
         parameters: {
             query?: never;
@@ -1077,6 +1463,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+        };
+    };
+    feedback_api_v1_messages__message_id__feedback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

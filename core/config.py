@@ -47,7 +47,10 @@ class Settings(BaseSettings):
     credentials_fernet_key: SecretStr | None = None
 
     openai_api_key: SecretStr | None = None
-    openai_chat_model: str | None = None
+    openai_chat_model: str | None = None  # default gpt-4o-mini (ADR-0022)
+    # Answer gate (ADR-0022): below this best vector similarity, abstain without a model
+    # call. Tuned on the eval set's no-answer cases.
+    chat_min_similarity: float = Field(default=0.20, ge=-1, le=1)
     openai_embed_model: str = "text-embedding-3-small"
     embed_dims: int = Field(default=1024, gt=0)
     cf_account_id: str | None = None

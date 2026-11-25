@@ -13,6 +13,8 @@ import structlog
 
 from core.adapters.email.dev import AllowAllHumanVerifier, LogEmailSender
 from core.adapters.email.smtp import SmtpEmailSender
+from core.adapters.openai.chat import DEFAULT_MODEL as DEFAULT_CHAT_MODEL
+from core.adapters.openai.chat import OpenAIChatModel
 from core.adapters.openai.embedder import OpenAIEmbedder
 from core.adapters.parsers.formats import FormatParser
 from core.adapters.postgres.auth import (
@@ -21,6 +23,7 @@ from core.adapters.postgres.auth import (
     PostgresLoginThrottle,
     PostgresSessionStore,
 )
+from core.adapters.postgres.chat import PostgresChatStore
 from core.adapters.postgres.documents import PostgresDocumentStore
 from core.adapters.postgres.rate_limit import PostgresRateLimiter
 from core.adapters.postgres.search import PostgresSearchIndex
@@ -39,6 +42,7 @@ from core.domain.emails import OutgoingEmail
 from core.domain.errors import UpstreamUnavailable
 from core.ports.auth import HumanVerifier
 from core.ports.email import EmailSender
+from core.services.answer import AnswerService
 from core.services.auth import AuthPolicy, AuthService
 from core.services.ingest import IngestService
 from core.services.search import SearchService
@@ -96,6 +100,24 @@ def search_service(settings: Settings, uow: UnitOfWork) -> SearchService:
         PostgresUsageLedger(uow),
         PostgresRateLimiter(uow),
         limits=spend_limits(settings),
+    )
+
+
+def answer_service(settings: Settings, uow: UnitOfWork) -> AnswerService | None:
+    """Cited chat, or None without an OpenAI key (chat is the one feature that needs it)."""
+    key = settings.openai_api_key.get_secret_value().strip() if settings.openai_api_key else ""
+    if not key:
+        return None
+    limiter = PostgresRateLimiter(uow)
+    return AnswerService(
+        search_service(settings, uow),
+        OpenAIChatModel(key, model=settings.openai_chat_model or DEFAULT_CHAT_MODEL),
+        PostgresChatStore(uow),
+        PostgresUsageLedger(uow),
+        limiter,
+        TiktokenTokenizer(),
+        limits=spend_limits(settings),
+        min_similarity=settings.chat_min_similarity,
     )
 
 

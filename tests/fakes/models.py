@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import math
 import struct
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 
 from core.domain.chat import ChatDelta, ChatMessage, Usage
 from core.domain.documents import Vector
+from core.domain.errors import UpstreamUnavailable
 from core.ports.models import Embeddings
 
 
@@ -59,12 +60,25 @@ class WordTokenizer:
 
 
 class FakeChatModel:
-    """Streams a scripted reply word by word, then reports usage."""
+    """Streams a scripted reply, then a Usage. Records every request. No network.
 
-    def __init__(self, reply: str = "Fake answer [1].", model: str = "fake-chat") -> None:
-        self.reply = reply
+    ``reply`` may be a string (streamed in small pieces) or a callable that builds the
+    reply from the messages, e.g. to cite whatever sources were sent.
+    """
+
+    def __init__(
+        self,
+        reply: str | Callable[[Sequence[ChatMessage]], str] = "Leave is 25 days [1].",
+        *,
+        model: str = "fake-chat",
+        piece: int = 4,
+        fail_after: int | None = None,
+    ) -> None:
+        self._reply = reply
         self._model = model
-        self.received: list[Sequence[ChatMessage]] = []
+        self._piece = piece
+        self._fail_after = fail_after  # raise UpstreamUnavailable after N deltas
+        self.requests: list[list[ChatMessage]] = []
 
     @property
     def model(self) -> str:
@@ -73,9 +87,11 @@ class FakeChatModel:
     async def stream(
         self, messages: Sequence[ChatMessage], *, max_tokens: int
     ) -> AsyncIterator[ChatDelta | Usage]:
-        self.received.append(messages)
-        words = self.reply.split(" ")
-        for i, word in enumerate(words[:max_tokens]):
-            yield ChatDelta(word if i == 0 else " " + word)
+        self.requests.append(list(messages))
+        text = self._reply(messages) if callable(self._reply) else self._reply
+        for i, start in enumerate(range(0, len(text), self._piece)):
+            if self._fail_after is not None and i >= self._fail_after:
+                raise UpstreamUnavailable("fake outage")
+            yield ChatDelta(text[start : start + self._piece])
         tokens_in = sum(len(m.content.split()) for m in messages)
-        yield Usage(model=self._model, tokens_in=tokens_in, tokens_out=len(words))
+        yield Usage(model=self._model, tokens_in=tokens_in, tokens_out=len(text.split()))

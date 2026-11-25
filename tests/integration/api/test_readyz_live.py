@@ -11,6 +11,10 @@ async def test_readyz_against_real_neon_branch(settings: Settings) -> None:
     get_container.cache_clear()
     transport = httpx.ASGITransport(app=create_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # /readyz must fail fast (5 s probe), so a Neon branch waking from scale-to-zero,
+        # plus a slow first connect from the dev laptop, can time it out once. Warm the
+        # pool with one call first; the assertion is about the second, steady-state one.
+        await client.get("/api/v1/readyz")
         r = await client.get("/api/v1/readyz")
     body = r.json()
     assert body["database"] is True

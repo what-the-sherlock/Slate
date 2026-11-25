@@ -11,6 +11,7 @@ from api.deps import Container, get_container
 from api.main import create_app
 from core.config import Settings
 from core.domain.budget import SpendLimits
+from core.services.answer import AnswerService
 from core.services.auth import AuthPolicy, AuthService
 from core.services.catalog import CatalogService
 from core.services.search import SearchService
@@ -25,8 +26,9 @@ from tests.fakes.auth import (
     InMemoryThrottle,
 )
 from tests.fakes.catalog import InMemoryCatalog
+from tests.fakes.chat import InMemoryChatStore
 from tests.fakes.jobs import FakeJobQueue
-from tests.fakes.models import FakeEmbedder
+from tests.fakes.models import FakeChatModel, FakeEmbedder, WordTokenizer
 from tests.fakes.rate_limit import InMemoryRateLimiter
 from tests.fakes.sources import InMemorySources
 from tests.fakes.storage import InMemoryBlobStore, InMemoryIndex
@@ -108,12 +110,39 @@ def search(index: InMemoryIndex) -> SearchService:
 
 
 @pytest.fixture
+def chat_model() -> FakeChatModel:
+    return FakeChatModel("Leave is 25 days [1].")
+
+
+@pytest.fixture
+def chats() -> InMemoryChatStore:
+    return InMemoryChatStore()
+
+
+@pytest.fixture
+def answers(
+    search: SearchService, chat_model: FakeChatModel, chats: InMemoryChatStore
+) -> AnswerService:
+    return AnswerService(
+        search,
+        chat_model,
+        chats,
+        InMemoryLedger(),
+        InMemoryRateLimiter(FakeClock()),
+        WordTokenizer(),
+        limits=SpendLimits.monthly_only(Decimal(5)),
+    )
+
+
+@pytest.fixture
 def app(
     probe: FakeHealthProbe,
     auth: AuthService,
     uploads: UploadService,
     catalog: InMemoryCatalog,
     search: SearchService,
+    answers: AnswerService,
+    chats: InMemoryChatStore,
 ) -> FastAPI:
     application = create_app()
     container = Container(
@@ -124,6 +153,8 @@ def app(
         catalog=CatalogService(catalog),
         uploads=uploads,
         search=search,
+        answers=answers,
+        chats=chats,
     )
     application.dependency_overrides[get_container] = lambda: container
     return application

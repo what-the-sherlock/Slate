@@ -21,6 +21,7 @@ caller can't widen what a user sees.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import text
@@ -41,7 +42,7 @@ from core.domain.search import MAX_QUERY_CHARS
 DEFAULT_EF_SEARCH = 100
 MAX_K = 200
 
-_COLUMNS = "c.id, c.document_id, c.ordinal, c.content, c.heading_path, d.title"
+_COLUMNS = "c.id, c.document_id, c.ordinal, c.content, c.heading_path, d.title, c.data_class"
 # A source being deleted disappears from search at once, before cleanup removes its rows.
 _VISIBLE = (
     "c.workspace_id = :ws AND c.acl && CAST(:p AS text[]) AND d.deleted_at IS NULL"
@@ -197,6 +198,30 @@ class PostgresSearchIndex:
             ),
         )
 
+    async def neighbours(
+        self, ws: WorkspaceId, principals: Principals, around: Sequence[tuple[DocumentId, int]]
+    ) -> list[ScoredChunk]:
+        if not around:
+            return []
+        if len(around) > MAX_K:
+            raise ValueError(f"at most {MAX_K} passages")
+        params: dict[str, Any] = {
+            "ws": ws,
+            "p": principals.as_list(),
+            "docs": [d for d, _ in around],
+            "ords": [o for _, o in around],
+        }
+        sql = (
+            f"SELECT DISTINCT {_COLUMNS} FROM chunks c"  # noqa: S608 (constant fragments)
+            f" JOIN documents d ON d.id = c.document_id{_JOIN_SOURCE}"
+            " JOIN unnest(CAST(:docs AS uuid[]), CAST(:ords AS int[])) AS r(doc, ord)"
+            "   ON c.document_id = r.doc AND c.ordinal IN (r.ord - 1, r.ord + 1)"
+            f" WHERE {_VISIBLE}"
+        )
+        async with self._uow() as s:
+            rows = (await s.execute(text(sql), params)).mappings().all()
+        return [_scored(r, 0.0) for r in rows]
+
 
 # Preview uses the SAME visibility rule as search (ARCHITECTURE §5), checked on the
 # document row; chunks.acl is a trigger-maintained copy of documents.acl.
@@ -222,4 +247,5 @@ def _scored(r: Any, score: float) -> ScoredChunk:  # reason: RowMapping values a
         score=score,
         heading_path=r["heading_path"],
         title=r["title"],
+        data_class=str(r["data_class"]),
     )

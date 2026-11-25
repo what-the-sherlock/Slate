@@ -60,6 +60,9 @@ class ScoredChunk:
     score: float
     heading_path: str | None = None
     title: str | None = None  # the document's title, for result lists
+    # The chunk's data class (ADR-0012), so answers know what they're built from.
+    # Missing means private: fail closed.
+    data_class: str = "private"
 
 
 @dataclass(frozen=True, slots=True)

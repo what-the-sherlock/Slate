@@ -17,6 +17,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from uuid import UUID
 
+from core.domain.answer import DEFAULT_MIN_SIMILARITY
 from core.domain.documents import SearchFilters, Vector
 from core.domain.ids import DocumentId, UserId, WorkspaceId
 from core.domain.principals import Principals
@@ -71,6 +72,9 @@ class CaseResult:
     ndcg: float | None
     latency_ms: float
     guest_leaks: list[str] = field(default_factory=list[str])
+    # Closest vector match (cosine similarity); None without the vector lane. Feeds the
+    # answer gate's threshold (ADR-0022).
+    best_similarity: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +135,9 @@ async def run_cases(
                 ndcg=ndcg_at_k(ranked, expected, k) if expected else None,
                 latency_ms=round(latency, 1),
                 guest_leaks=leaks,
+                best_similarity=(
+                    round(res.best_similarity, 4) if res.best_similarity is not None else None
+                ),
             )
         )
     return Report(results, summarise(results, k))
@@ -162,4 +169,36 @@ def summarise(results: Sequence[CaseResult], k: int = K) -> dict[str, object]:
         "latency_ms": {"p50": percentile(latencies, 50), "p95": percentile(latencies, 95)},
         "cases_total": len(results),
         "cases_no_answer": len(results) - len(scored),
+        "answer_gate": gate_report(results, DEFAULT_MIN_SIMILARITY),
+    }
+
+
+def gate_report(results: Sequence[CaseResult], threshold: float) -> dict[str, object]:
+    """How the answer gate (abstain below ``threshold`` best similarity) would do.
+
+    A good threshold sits above every no-answer case's best match and below every
+    answerable one's. ``suggested`` is the midpoint of that gap when one exists. The
+    model's NO_ANSWER sentinel still catches what the gate lets through, so the gate
+    should err low: a false abstention loses a real answer, a miss only costs a call.
+    """
+    answerable = [
+        r.best_similarity for r in results if r.answerable and r.best_similarity is not None
+    ]
+    no_answer = [
+        r.best_similarity for r in results if not r.answerable and r.best_similarity is not None
+    ]
+    if not answerable:
+        return {"threshold": threshold, "note": "no vector lane: run with --embedder openai"}
+    low, high = min(answerable), max(no_answer, default=None)
+    return {
+        "threshold": threshold,
+        "answerable_min": round(low, 4),
+        "no_answer_max": round(high, 4) if high is not None else None,
+        "suggested": round((low + high) / 2, 4) if high is not None and high < low else None,
+        "false_abstentions": [
+            r.id for r in results if r.answerable and (r.best_similarity or 1) < threshold
+        ],
+        "no_answer_gated": [
+            r.id for r in results if not r.answerable and (r.best_similarity or 1) < threshold
+        ],
     }
