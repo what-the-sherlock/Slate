@@ -77,16 +77,19 @@ export const ICONS = {
 
 export type ConnectorKey = "upload" | "slack" | keyof typeof ICONS;
 
+// Backend connector ids that share another connector's mark (ADR-0028: email sources).
+const ALIASES: Record<string, string> = { imap: "gmail", gmail_mbox: "gmail" };
+const NAMES: Record<string, string> = { upload: "Files", imap: "Email", gmail_mbox: "Email import" };
+
 export function connectorName(connector: string): string {
-  if (connector === "upload") return "Files";
-  return (ICONS as Record<string, SimpleIcon>)[connector]?.title ?? connector;
+  return NAMES[connector] ?? (ICONS as Record<string, SimpleIcon>)[connector]?.title ?? connector;
 }
 
 export function ConnectorIcon({ connector, className }: { connector: ConnectorKey | string; className?: string }) {
   if (connector === "upload") {
     return <Upload className={cn("text-brand-strong", className)} aria-hidden="true" />;
   }
-  const icon = (ICONS as Record<string, SimpleIcon>)[connector];
+  const icon = (ICONS as Record<string, SimpleIcon>)[ALIASES[connector] ?? connector];
   if (!icon) return <MessageSquare className={cn("text-fg-muted", className)} aria-hidden="true" />;
   return (
     <svg role="img" viewBox="0 0 24 24" className={className} fill={`#${icon.hex}`} aria-hidden="true">

@@ -13,7 +13,7 @@ from dataclasses import replace
 from core.domain.auth import Identity, Role
 from core.domain.errors import NotFound
 from core.domain.ids import JobId, SourceId
-from core.ports.catalog import Catalog, JobView, RunSummary, SourceSummary
+from core.ports.catalog import ActivityRun, Catalog, JobView, RunSummary, SourceSummary
 
 PER_UPLOADER_CONNECTORS = {"upload"}
 
@@ -27,6 +27,23 @@ class CatalogService:
         if identity.can(Role.ADMIN):
             return rows
         return [self._redact(s) for s in rows]
+
+    async def activity(self, identity: Identity, limit: int = 20) -> list[ActivityRun]:
+        """Recent runs across the sources this user can see, newest first. Upload sources'
+        runs are for admins only, as on the source page (they name other members' files)."""
+        sources = {
+            s.id: s
+            for s in await self._catalog.sources(identity.workspace_id, identity.principals)
+            if identity.can(Role.ADMIN) or s.connector not in PER_UPLOADER_CONNECTORS
+        }
+        rows = await self._catalog.recent_runs(
+            identity.workspace_id, list(sources), max(1, min(limit, 100))
+        )
+        return [
+            ActivityRun(run, sid, sources[sid].name, sources[sid].connector)
+            for sid, run in rows
+            if sid in sources
+        ]
 
     async def runs(
         self, identity: Identity, source_id: SourceId, limit: int = 20

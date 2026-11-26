@@ -46,6 +46,8 @@ jobs:
       GITHUB_APP_PRIVATE_KEY: ${{ secrets.SLATE_GITHUB_APP_PRIVATE_KEY }}
       # Discord (ADR-0027): the worker reads servers with the bot token only.
       DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+      # Email (ADR-0028): decrypts the stored IMAP app passwords. Never printed.
+      CREDENTIALS_FERNET_KEY: ${{ secrets.CREDENTIALS_FERNET_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

@@ -25,6 +25,10 @@ class ChatBody(BaseModel):
         default=None, description="Continue this chat; omit to start one"
     )
     source_ids: list[UUID] = Field(default_factory=list[UUID], max_length=MAX_SOURCE_FILTERS)
+    updated_after: datetime | None = Field(default=None, description="Only sources updated since")
+    author: str | None = Field(
+        default=None, max_length=200, description="Only sources by this person (name or email)"
+    )
     replace_from: UUID | None = Field(
         default=None,
         description="Regenerate or edit: this question (a user message id in session_id) and"

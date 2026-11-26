@@ -100,6 +100,10 @@ class SessionStore(Protocol):
 
     async def delete_for_user(self, user_id: UserId) -> None: ...
 
+    async def set_workspace(self, session_id: SessionId, ws: WorkspaceId) -> bool:
+        """Switch the session's active workspace; False unless its user is a member there."""
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class ThrottleLimits:

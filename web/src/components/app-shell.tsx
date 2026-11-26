@@ -1,25 +1,14 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import {
-  Activity,
-  ChevronsLeft,
-  House,
-  LogOut,
-  Menu,
-  MessageSquare,
-  Plug,
-  Search,
-  SquarePen,
-  X,
-  type LucideIcon,
-} from "lucide-react";
+import { Activity, ChevronsLeft, House, LogOut, Menu, MessageSquare, Plug, Search, SquarePen, Users, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Logo } from "@/components/brand";
 import { Button, Spinner } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { useMe, useSignOut, type Me } from "@/lib/api/hooks";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
@@ -29,7 +18,7 @@ const NAV: readonly NavItem[] = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/search", label: "Search", icon: Search },
   { href: "/sources", label: "Sources", icon: Plug },
-  // Settings (members, usage) arrives in M7; no dead links until then (UI_DESIGN §3.9).
+  { href: "/settings/members", label: "Members", icon: Users },
 ];
 
 const COLLAPSED_KEY = "slate.sidebar.collapsed";
@@ -168,6 +157,9 @@ function SidebarContent({
       </div>
 
       <div className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
+        <div className="mb-2">
+          <WorkspaceSwitcher collapsed={collapsed} />
+        </div>
         <NavLink href="/chat" label="New chat" icon={SquarePen} collapsed={collapsed} onNavigate={onNavigate} emphasis />
         <div className="-mx-2 my-3 h-px bg-border" />
         {NAV.map((item) => (

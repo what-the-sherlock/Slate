@@ -16,6 +16,7 @@ import {
   clearRecent,
   DATE_PRESETS,
   highlight,
+  MAX_FROM_CHARS,
   parseSearchState,
   pushRecent,
   queryTerms,
@@ -29,6 +30,41 @@ import {
 import { cn } from "@/lib/utils";
 
 const EXAMPLES = ["How many days of paid leave do we get?", "expense approval limit", "ERR_BUDGET"];
+
+/** "From: …": only documents by this person (an email sender, an issue author). Applied on
+ * Enter or blur, so typing doesn't fire a search per keystroke. */
+function FromFilter({ value, onCommit }: { value: string; onCommit: (from: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const commit = () => {
+    const next = draft.trim().slice(0, MAX_FROM_CHARS);
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <label className={cn(chip(!!value), "gap-1 pr-1")}>
+      <span className="text-fg-subtle">From</span>
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          }
+        }}
+        placeholder="anyone"
+        aria-label="From (name or email)"
+        maxLength={MAX_FROM_CHARS}
+        className="w-28 bg-transparent text-caption text-fg outline-none placeholder:text-fg-subtle"
+      />
+      {value ? (
+        <button type="button" aria-label="Clear sender" onClick={() => onCommit("")} className="inline-flex">
+          <X className="size-3" aria-hidden="true" />
+        </button>
+      ) : null}
+    </label>
+  );
+}
 
 export function SearchView() {
   const params = useSearchParams();
@@ -70,6 +106,7 @@ export function SearchView() {
         limit: 20,
         source_ids: state.sources,
         updated_after: updatedAfter(state.date) ?? null,
+        author: state.from || null,
       }
     : null;
   const search = useSearch(body);
@@ -86,7 +123,7 @@ export function SearchView() {
     if (query) pushRecent(query);
     navigate({ ...state, q: query });
   };
-  const filtersActive = state.sources.length > 0 || state.date !== "any";
+  const filtersActive = state.sources.length > 0 || state.date !== "any" || !!state.from;
 
   const onListKey = (e: KeyboardEvent) => {
     if (e.key === "ArrowDown") {
@@ -184,8 +221,9 @@ export function SearchView() {
                 </button>
               );
             })}
+            <FromFilter key={state.from} value={state.from} onCommit={(from) => navigate({ ...state, from })} />
             {filtersActive ? (
-              <button type="button" onClick={() => navigate({ q: state.q, sources: [], date: "any" })} className="text-caption text-fg-muted underline-offset-2 hover:text-fg hover:underline">
+              <button type="button" onClick={() => navigate({ q: state.q, sources: [], date: "any", from: "" })} className="text-caption text-fg-muted underline-offset-2 hover:text-fg hover:underline">
                 Clear all
               </button>
             ) : null}
@@ -217,7 +255,7 @@ export function SearchView() {
           title={`No results for "${state.q}"`}
           action={
             filtersActive ? (
-              <Button variant="secondary" onClick={() => navigate({ q: state.q, sources: [], date: "any" })}>
+              <Button variant="secondary" onClick={() => navigate({ q: state.q, sources: [], date: "any", from: "" })}>
                 Clear filters
               </Button>
             ) : undefined

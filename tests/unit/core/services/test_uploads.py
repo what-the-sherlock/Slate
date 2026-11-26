@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import hashlib
 from datetime import timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
 from core.domain.auth import Identity, Role
 from core.domain.errors import Conflict, PermissionDenied, RateLimited, ValidationFailed
-from core.domain.ids import SessionId, UserId, WorkspaceId
+from core.domain.ids import SessionId, SourceId, UserId, WorkspaceId
 from core.domain.jobs import JobStatus
 from core.domain.principals import PUBLIC, Principals
 from core.domain.signed_tokens import sign
@@ -372,3 +372,41 @@ async def test_another_workspaces_usage_does_not_count(env: Env) -> None:
     full, mine = identity(), identity()
     env.sources.usage[full.workspace_id] = (10_000, 10**12)
     assert (await env.begin(mine)).status is UploadStatus.UPLOAD
+
+
+# ---------------------------------------------------------------- .mbox (ADR-0028)
+
+MBOX = b"From x@x Fri Nov 20 10:00:00 +0000 2026\nFrom: a@x.test\nSubject: Hi\n\nbody\n"
+
+
+async def _upload_mbox(env: Env, who: Identity, data: bytes = MBOX) -> CompleteResult:
+    begun = await env.begin(who, data, name="mail.mbox", visibility=Visibility.WORKSPACE)
+    assert begun.upload is not None
+    assert begun.upload_token is not None
+    await env.blobs.put(begun.upload.fields["key"], data, "application/mbox")
+    return await env.svc.complete(who, begun.upload_token)
+
+
+async def test_mbox_goes_to_the_import_job_private_and_never_inline(env: Env) -> None:
+    who = identity()
+    done = await _upload_mbox(env, who)
+    assert done.inline is False
+    assert done.job_id is not None
+    job = await env.jobs.get(done.job_id)
+    assert job.kind == "import_mbox"
+    src = env.sources.records[SourceId(UUID(str(job.payload["source_id"])))]
+    assert src.connector == "gmail_mbox"
+    # "Workspace" was asked for, but email is always private to the uploader.
+    assert src.visibility == (f"user:{who.user_id}",)
+
+
+async def test_a_file_named_mbox_must_look_like_one(env: Env) -> None:
+    with pytest.raises(ValidationFailed):
+        await _upload_mbox(env, identity(), b"%PDF-1.7 not mail")
+
+
+async def test_reimporting_the_same_mbox_while_queued_is_one_job(env: Env) -> None:
+    who = identity()
+    first = await _upload_mbox(env, who)
+    again = await _upload_mbox(env, who)
+    assert again.job_id == first.job_id

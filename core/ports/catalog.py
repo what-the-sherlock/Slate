@@ -23,6 +23,7 @@ class SourceSummary:
     last_run_status: str | None
     last_run_error: str | None
     pending_jobs: int
+    created_by: UserId | None = None  # who connected it (ADR-0026); None for upload sources
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +61,12 @@ class JobView:
 class Catalog(Protocol):
     async def sources(self, ws: WorkspaceId, principals: Principals) -> list[SourceSummary]: ...
 
+    async def recent_runs(
+        self, ws: WorkspaceId, source_ids: list[SourceId], limit: int
+    ) -> list[tuple[SourceId, RunSummary]]:
+        """The newest runs of these sources (already checked visible), newest first; no errors."""
+        ...
+
     async def runs(
         self, ws: WorkspaceId, principals: Principals, source_id: SourceId, limit: int
     ) -> list[RunSummary]:
@@ -69,3 +76,13 @@ class Catalog(Protocol):
     async def job(self, ws: WorkspaceId, job_id: JobId) -> JobView:
         """Raises NotFound."""
         ...
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityRun:
+    """One run in the workspace-wide history, with its source."""
+
+    run: RunSummary
+    source_id: SourceId
+    source_name: str
+    connector: str

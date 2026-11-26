@@ -1,6 +1,136 @@
 {
   "components": {
     "schemas": {
+      "AcceptBody": {
+        "properties": {
+          "token": {
+            "maxLength": 100,
+            "minLength": 20,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "AcceptBody",
+        "type": "object"
+      },
+      "AcceptedOut": {
+        "properties": {
+          "workspace_id": {
+            "format": "uuid",
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id"
+        ],
+        "title": "AcceptedOut",
+        "type": "object"
+      },
+      "ActivityOut": {
+        "properties": {
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "docs_changed": {
+            "title": "Docs Changed",
+            "type": "integer"
+          },
+          "docs_failed": {
+            "title": "Docs Failed",
+            "type": "integer"
+          },
+          "docs_seen": {
+            "title": "Docs Seen",
+            "type": "integer"
+          },
+          "error_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Summary"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/RunErrorOut"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "started_at",
+          "finished_at",
+          "docs_seen",
+          "docs_changed",
+          "docs_failed",
+          "error_summary",
+          "errors",
+          "source_id",
+          "source_name",
+          "connector"
+        ],
+        "title": "ActivityOut",
+        "type": "object"
+      },
       "AnswerSourceOut": {
         "properties": {
           "chunk_id": {
@@ -185,6 +315,19 @@
       },
       "ChatBody": {
         "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only sources by this person (name or email)",
+            "title": "Author"
+          },
           "question": {
             "maxLength": 4000,
             "minLength": 1,
@@ -225,6 +368,19 @@
             "maxItems": 20,
             "title": "Source Ids",
             "type": "array"
+          },
+          "updated_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only sources updated since",
+            "title": "Updated After"
           }
         },
         "required": [
@@ -1089,6 +1245,98 @@
         "title": "InstallationBody",
         "type": "object"
       },
+      "InviteBody": {
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "default": "member",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "InviteBody",
+        "type": "object"
+      },
+      "InviteCreatedOut": {
+        "properties": {
+          "emailed": {
+            "title": "Emailed",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "link": {
+            "description": "Share this with the invitee if it wasn't emailed",
+            "title": "Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "link",
+          "emailed"
+        ],
+        "title": "InviteCreatedOut",
+        "type": "object"
+      },
+      "InviteOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "InviteOut",
+        "type": "object"
+      },
       "JobOut": {
         "properties": {
           "attempts": {
@@ -1169,6 +1417,126 @@
         "title": "LoginBody",
         "type": "object"
       },
+      "MailConnectBody": {
+        "properties": {
+          "address": {
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Address",
+            "type": "string"
+          },
+          "app_password": {
+            "format": "password",
+            "maxLength": 500,
+            "title": "App Password",
+            "type": "string",
+            "writeOnly": true
+          },
+          "provider": {
+            "enum": [
+              "gmail",
+              "yahoo",
+              "icloud",
+              "fastmail"
+            ],
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "address",
+          "app_password"
+        ],
+        "title": "MailConnectBody",
+        "type": "object"
+      },
+      "MailConnectedOut": {
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "name",
+          "job_id"
+        ],
+        "title": "MailConnectedOut",
+        "type": "object"
+      },
+      "MailProviderOut": {
+        "properties": {
+          "app_password_url": {
+            "description": "Where the user creates an app password",
+            "title": "App Password Url",
+            "type": "string"
+          },
+          "domains": {
+            "description": "Address domains that suggest this provider",
+            "items": {
+              "type": "string"
+            },
+            "title": "Domains",
+            "type": "array"
+          },
+          "id": {
+            "enum": [
+              "gmail",
+              "yahoo",
+              "icloud",
+              "fastmail"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "app_password_url",
+          "domains"
+        ],
+        "title": "MailProviderOut",
+        "type": "object"
+      },
+      "MailStatusOut": {
+        "properties": {
+          "available": {
+            "description": "False until CREDENTIALS_FERNET_KEY is configured",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/MailProviderOut"
+            },
+            "title": "Providers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "available",
+          "providers"
+        ],
+        "title": "MailStatusOut",
+        "type": "object"
+      },
       "MeResponse": {
         "properties": {
           "email_verified": {
@@ -1230,6 +1598,52 @@
           "name"
         ],
         "title": "MeUser",
+        "type": "object"
+      },
+      "MemberOut": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "joined_at": {
+            "format": "date-time",
+            "title": "Joined At",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          },
+          "you": {
+            "title": "You",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "name",
+          "role",
+          "joined_at",
+          "you"
+        ],
+        "title": "MemberOut",
         "type": "object"
       },
       "MessageOut": {
@@ -1448,6 +1862,19 @@
         "title": "ReadinessResponse",
         "type": "object"
       },
+      "RemovedOut": {
+        "properties": {
+          "sources_deleted": {
+            "title": "Sources Deleted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sources_deleted"
+        ],
+        "title": "RemovedOut",
+        "type": "object"
+      },
       "RepoOut": {
         "properties": {
           "connected": {
@@ -1532,6 +1959,24 @@
           "password"
         ],
         "title": "ResetPasswordBody",
+        "type": "object"
+      },
+      "RoleBody": {
+        "properties": {
+          "role": {
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "title": "RoleBody",
         "type": "object"
       },
       "RunErrorOut": {
@@ -1644,6 +2089,19 @@
       },
       "SearchBody": {
         "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only documents by this person (name or email)",
+            "title": "Author"
+          },
           "limit": {
             "default": 10,
             "maximum": 50.0,
@@ -1800,6 +2258,20 @@
         "title": "SearchOut",
         "type": "object"
       },
+      "ShareBody": {
+        "properties": {
+          "shared": {
+            "description": "True: every member of this workspace can search it",
+            "title": "Shared",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "shared"
+        ],
+        "title": "ShareBody",
+        "type": "object"
+      },
       "SignupBody": {
         "properties": {
           "email": {
@@ -1909,6 +2381,12 @@
             "title": "Name",
             "type": "string"
           },
+          "shareable": {
+            "default": false,
+            "description": "You connected it, so you may share it with the workspace",
+            "title": "Shareable",
+            "type": "boolean"
+          },
           "status": {
             "enum": [
               "synced",
@@ -1967,6 +2445,20 @@
           "sources"
         ],
         "title": "SourcesEvent",
+        "type": "object"
+      },
+      "SwitchBody": {
+        "properties": {
+          "workspace_id": {
+            "format": "uuid",
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id"
+        ],
+        "title": "SwitchBody",
         "type": "object"
       },
       "SyncOut": {
@@ -2064,6 +2556,46 @@
           "code"
         ],
         "title": "VerifyBody",
+        "type": "object"
+      },
+      "WorkspaceOut": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "members": {
+            "title": "Members",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role",
+          "members",
+          "active"
+        ],
+        "title": "WorkspaceOut",
         "type": "object"
       }
     }
@@ -2561,6 +3093,47 @@
         ]
       }
     },
+    "/api/v1/invites/accept": {
+      "post": {
+        "operationId": "accept_api_v1_invites_accept_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept an invitation sent to your address, and switch to that workspace",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/v1/jobs/{job_id}": {
       "get": {
         "operationId": "get_job_api_v1_jobs__job_id__get",
@@ -2700,6 +3273,55 @@
         "summary": "Readiness",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/runs": {
+      "get": {
+        "operationId": "activity_api_v1_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ActivityOut"
+                  },
+                  "title": "Response Activity Api V1 Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recent sync and upload activity across the sources you can see",
+        "tags": [
+          "sources"
         ]
       }
     },
@@ -2931,6 +3553,68 @@
         "summary": "Whether Discord can be connected",
         "tags": [
           "discord"
+        ]
+      }
+    },
+    "/api/v1/sources/email/connect": {
+      "post": {
+        "operationId": "connect_api_v1_sources_email_connect_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MailConnectBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailConnectedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connect a mailbox over IMAP with an app password (read-only)",
+        "tags": [
+          "email"
+        ]
+      }
+    },
+    "/api/v1/sources/email/status": {
+      "get": {
+        "operationId": "email_status_api_v1_sources_email_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Whether a mailbox can be connected, and which providers",
+        "tags": [
+          "email"
         ]
       }
     },
@@ -3202,6 +3886,52 @@
         ]
       }
     },
+    "/api/v1/sources/{source_id}/sharing": {
+      "put": {
+        "operationId": "share_api_v1_sources__source_id__sharing_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Share a source you connected with this workspace, or make it private again",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/v1/sources/{source_id}/sync": {
       "post": {
         "operationId": "sync_now_api_v1_sources__source_id__sync_post",
@@ -3324,6 +4054,277 @@
         "summary": "Finish an upload after the file reached storage: checks it and queues processing",
         "tags": [
           "uploads"
+        ]
+      }
+    },
+    "/api/v1/workspaces": {
+      "get": {
+        "operationId": "list_workspaces_api_v1_workspaces_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WorkspaceOut"
+                  },
+                  "title": "Response List Workspaces Api V1 Workspaces Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Workspaces you belong to",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/workspaces/invites": {
+      "get": {
+        "operationId": "invites_api_v1_workspaces_invites_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InviteOut"
+                  },
+                  "title": "Response Invites Api V1 Workspaces Invites Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Open invitations (admins)",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "post": {
+        "operationId": "invite_api_v1_workspaces_invites_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteCreatedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Invite someone by email",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/workspaces/invites/{invite_id}": {
+      "delete": {
+        "operationId": "revoke_api_v1_workspaces_invites__invite_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invite_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Invite Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke an invitation",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/workspaces/members": {
+      "get": {
+        "operationId": "members_api_v1_workspaces_members_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MemberOut"
+                  },
+                  "title": "Response Members Api V1 Workspaces Members Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Members of the active workspace",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/workspaces/members/{user_id}": {
+      "delete": {
+        "operationId": "remove_member_api_v1_workspaces_members__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemovedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove a member, or leave (your own id); deletes what they connected here",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "patch": {
+        "operationId": "change_role_api_v1_workspaces_members__user_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change a member's role (owner only)",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/workspaces/switch": {
+      "post": {
+        "operationId": "switch_api_v1_workspaces_switch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Switch the active workspace",
+        "tags": [
+          "workspaces"
         ]
       }
     }

@@ -40,8 +40,10 @@ from core.domain.github import (
     MAX_UNPACKED_BYTES,
     Comment,
     Issue,
+    Recheck,
     Repo,
     RepoFile,
+    UserAccess,
     is_doc_path,
     is_valid_repo_name,
 )
@@ -244,7 +246,9 @@ class GitHubApp:
 
     # ------------------------------------------------------------------ ownership
 
-    async def user_installation_repos(self, code: str, installation_id: int) -> list[str] | None:
+    async def authorize(
+        self, code: str, installation_id: int, *, keep_token: bool
+    ) -> UserAccess | None:
         if not code or len(code) > 200:
             return None
         r = await self._send(
@@ -254,15 +258,66 @@ class GitHubApp:
             headers={"Accept": "application/json"},
             data={"client_id": self._client_id, "client_secret": self._client_secret, "code": code},
         )
-        token = r.json().get("access_token") if r.status_code == 200 else None
+        body = _json_obj(r) if r.status_code == 200 else {}
+        token = body.get("access_token")
         if not token:
             log.info("github.oauth_code_rejected", status=r.status_code)
             return None
+        kept = False
+        try:
+            names = await self._user_repos(str(token), installation_id)
+            if names is None:
+                return None
+            if keep_token:
+                kept = True
+                return UserAccess(tuple(names), _token_json(body))
+            return UserAccess(tuple(names))
+        finally:
+            if not kept:
+                await self._revoke(str(token))
+
+    async def recheck(self, secret: str, installation_id: int) -> Recheck:
+        tok = _token_load(secret)
+        if tok is None:
+            return Recheck(None, secret)
+        if tok.get("e") and float(tok["e"]) - time.time() < 300 and tok.get("r"):
+            refreshed = await self._refresh(str(tok["r"]))
+            if refreshed is None:
+                return Recheck(None, secret)
+            tok, secret = _token_load(refreshed) or {}, refreshed
+        names = await self._user_repos(str(tok.get("a", "")), installation_id)
+        return Recheck(tuple(names) if names is not None else None, secret)
+
+    async def forget(self, secret: str) -> None:
+        tok = _token_load(secret)
+        if tok and tok.get("a"):
+            await self._revoke(str(tok["a"]))
+
+    async def _refresh(self, refresh_token: str) -> str | None:
+        r = await self._send(
+            "POST",
+            "https://github.com/login/oauth/access_token",
+            retry=False,  # refresh tokens are single use too (GitHub rotates them)
+            headers={"Accept": "application/json"},
+            data={
+                "client_id": self._client_id,
+                "client_secret": self._client_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            },
+        )
+        body = _json_obj(r) if r.status_code == 200 else {}
+        if not body.get("access_token"):
+            log.info("github.token_refresh_failed", status=r.status_code)
+            return None
+        return _token_json(body)
+
+    async def _user_repos(self, token: str, installation_id: int) -> list[str] | None:
+        """Repos this user can read through the installation; None if the token is dead or
+        the installation isn't theirs."""
         try:
             owns = False
-            async for page in self._user_pages(
-                str(token), f"{API}/user/installations?per_page=100"
-            ):
+            async for page in self._user_pages(token, f"{API}/user/installations?per_page=100"):
                 if any(int(i["id"]) == installation_id for i in page.get("installations", [])):
                     owns = True
                     break
@@ -271,13 +326,13 @@ class GitHubApp:
             # Only repos *this user* can read (an org install may grant the app more).
             names: list[str] = []
             url = f"{API}/user/installations/{installation_id}/repositories?per_page=100"
-            async for page in self._user_pages(str(token), url):
+            async for page in self._user_pages(token, url):
                 names.extend(str(r["full_name"]) for r in page.get("repositories", []))
                 if len(names) >= 1000:
                     break
             return names
-        finally:
-            await self._revoke(str(token))
+        except PermissionDenied:
+            return None
 
     async def _user_pages(self, token: str, first: str) -> AsyncIterator[Any]:
         url: str | None = first
@@ -285,6 +340,8 @@ class GitHubApp:
             r = await self._send(
                 "GET", url, retry=True, headers={**_HEADERS, "Authorization": f"Bearer {token}"}
             )
+            if r.status_code == 401:
+                raise PermissionDenied("The GitHub sign-in has expired or was revoked.")
             _ok(r)
             yield r.json()
             url = _next_link(r)
@@ -427,6 +484,33 @@ class GitHubApp:
             )
             break  # first 100 comments are plenty for Q&A (MAX_COMMENTS)
         return out
+
+
+def _token_json(body: dict[str, Any]) -> str:
+    """A user token for encrypted storage: access token, refresh token and expiry (epoch).
+    GitHub Apps with expiring tokens return a refresh token; otherwise only "a" is set."""
+    expires_in = body.get("expires_in")
+    expiry = time.time() + float(expires_in) if isinstance(expires_in, int | float) else None
+    return json.dumps({"a": body.get("access_token"), "r": body.get("refresh_token"), "e": expiry})
+
+
+def _json_obj(r: httpx.Response) -> dict[str, Any]:  # reason: JSON values are Any
+    try:
+        data: Any = r.json()
+    except ValueError:
+        return {}
+    return cast(dict[str, Any], data) if isinstance(data, dict) else {}
+
+
+def _token_load(secret: str) -> dict[str, Any] | None:
+    try:
+        data: Any = json.loads(secret)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    tok = cast(dict[str, Any], data)
+    return tok if tok.get("a") else None
 
 
 def _next_link(r: httpx.Response) -> str | None:

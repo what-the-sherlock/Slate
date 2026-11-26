@@ -135,7 +135,11 @@ async def chat(
         ChatSessionId(body.session_id) if body.session_id else None,
         replace_from,
     )
-    filters = SearchFilters(source_ids=tuple(SourceId(s) for s in body.source_ids))
+    filters = SearchFilters(
+        source_ids=tuple(SourceId(s) for s in body.source_ids),
+        updated_after=body.updated_after,
+        author=(body.author or "").strip() or None,
+    )
     request_id: str | None = getattr(request.state, "request_id", None)
 
     async def events() -> AsyncIterator[dict[str, str]]:

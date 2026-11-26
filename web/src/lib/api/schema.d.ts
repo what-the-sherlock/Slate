@@ -228,6 +228,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/invites/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept an invitation sent to your address, and switch to that workspace */
+        post: operations["accept_api_v1_invites_accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -291,6 +308,23 @@ export interface paths {
          * @description The database answers and its schema is at this build's migration head.
          */
         get: operations["readyz_api_v1_readyz_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent sync and upload activity across the sources you can see */
+        get: operations["activity_api_v1_runs_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -418,6 +452,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sources/email/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Connect a mailbox over IMAP with an app password (read-only) */
+        post: operations["connect_api_v1_sources_email_connect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/email/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether a mailbox can be connected, and which providers */
+        get: operations["email_status_api_v1_sources_email_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sources/github/connect": {
         parameters: {
             query?: never;
@@ -537,6 +605,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sources/{source_id}/sharing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Share a source you connected with this workspace, or make it private again */
+        put: operations["share_api_v1_sources__source_id__sharing_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sources/{source_id}/sync": {
         parameters: {
             query?: never;
@@ -588,10 +673,162 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workspaces you belong to */
+        get: operations["list_workspaces_api_v1_workspaces_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Open invitations (admins) */
+        get: operations["invites_api_v1_workspaces_invites_get"];
+        put?: never;
+        /** Invite someone by email */
+        post: operations["invite_api_v1_workspaces_invites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/invites/{invite_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke an invitation */
+        delete: operations["revoke_api_v1_workspaces_invites__invite_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Members of the active workspace */
+        get: operations["members_api_v1_workspaces_members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a member, or leave (your own id); deletes what they connected here */
+        delete: operations["remove_member_api_v1_workspaces_members__user_id__delete"];
+        options?: never;
+        head?: never;
+        /** Change a member's role (owner only) */
+        patch: operations["change_role_api_v1_workspaces_members__user_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/switch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Switch the active workspace */
+        post: operations["switch_api_v1_workspaces_switch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AcceptBody */
+        AcceptBody: {
+            /** Token */
+            token: string;
+        };
+        /** AcceptedOut */
+        AcceptedOut: {
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+        };
+        /** ActivityOut */
+        ActivityOut: {
+            /** Connector */
+            connector: string;
+            /** Docs Changed */
+            docs_changed: number;
+            /** Docs Failed */
+            docs_failed: number;
+            /** Docs Seen */
+            docs_seen: number;
+            /** Error Summary */
+            error_summary: string | null;
+            /** Errors */
+            errors: components["schemas"]["RunErrorOut"][];
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Source Name */
+            source_name: string;
+            /** Started At */
+            started_at: string | null;
+            /** Status */
+            status: string;
+        };
         /** AnswerSourceOut */
         AnswerSourceOut: {
             /** Chunk Id */
@@ -670,6 +907,11 @@ export interface components {
         };
         /** ChatBody */
         ChatBody: {
+            /**
+             * Author
+             * @description Only sources by this person (name or email)
+             */
+            author?: string | null;
             /** Question */
             question: string;
             /**
@@ -684,6 +926,11 @@ export interface components {
             session_id?: string | null;
             /** Source Ids */
             source_ids?: string[];
+            /**
+             * Updated After
+             * @description Only sources updated since
+             */
+            updated_after?: string | null;
         };
         /**
          * ChatEvents
@@ -1035,6 +1282,57 @@ export interface components {
             /** State */
             state: string;
         };
+        /** InviteBody */
+        InviteBody: {
+            /** Email */
+            email: string;
+            /**
+             * Role
+             * @default member
+             * @enum {string}
+             */
+            role: "admin" | "member" | "viewer";
+        };
+        /** InviteCreatedOut */
+        InviteCreatedOut: {
+            /** Emailed */
+            emailed: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Link
+             * @description Share this with the invitee if it wasn't emailed
+             */
+            link: string;
+        };
+        /** InviteOut */
+        InviteOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Email */
+            email: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "admin" | "member" | "viewer";
+        };
         /** JobOut */
         JobOut: {
             /** Attempts */
@@ -1063,6 +1361,66 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** MailConnectBody */
+        MailConnectBody: {
+            /** Address */
+            address: string;
+            /**
+             * App Password
+             * Format: password
+             */
+            app_password: string;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "gmail" | "yahoo" | "icloud" | "fastmail";
+        };
+        /** MailConnectedOut */
+        MailConnectedOut: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+        };
+        /** MailProviderOut */
+        MailProviderOut: {
+            /**
+             * App Password Url
+             * @description Where the user creates an app password
+             */
+            app_password_url: string;
+            /**
+             * Domains
+             * @description Address domains that suggest this provider
+             */
+            domains: string[];
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "gmail" | "yahoo" | "icloud" | "fastmail";
+            /** Name */
+            name: string;
+        };
+        /** MailStatusOut */
+        MailStatusOut: {
+            /**
+             * Available
+             * @description False until CREDENTIALS_FERNET_KEY is configured
+             */
+            available: boolean;
+            /** Providers */
+            providers: components["schemas"]["MailProviderOut"][];
         };
         /** MeResponse */
         MeResponse: {
@@ -1093,6 +1451,30 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+        };
+        /** MemberOut */
+        MemberOut: {
+            /** Email */
+            email: string;
+            /**
+             * Joined At
+             * Format: date-time
+             */
+            joined_at: string;
+            /** Name */
+            name: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "admin" | "member" | "viewer";
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** You */
+            you: boolean;
         };
         /** MessageOut */
         MessageOut: {
@@ -1190,6 +1572,11 @@ export interface components {
              */
             status: "ready" | "not_ready";
         };
+        /** RemovedOut */
+        RemovedOut: {
+            /** Sources Deleted */
+            sources_deleted: number;
+        };
         /** RepoOut */
         RepoOut: {
             /** Connected */
@@ -1221,6 +1608,14 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** RoleBody */
+        RoleBody: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "admin" | "member" | "viewer";
         };
         /** RunErrorOut */
         RunErrorOut: {
@@ -1259,6 +1654,11 @@ export interface components {
         };
         /** SearchBody */
         SearchBody: {
+            /**
+             * Author
+             * @description Only documents by this person (name or email)
+             */
+            author?: string | null;
             /**
              * Limit
              * @default 10
@@ -1316,6 +1716,14 @@ export interface components {
              */
             notices: string[];
         };
+        /** ShareBody */
+        ShareBody: {
+            /**
+             * Shared
+             * @description True: every member of this workspace can search it
+             */
+            shared: boolean;
+        };
         /** SignupBody */
         SignupBody: {
             /**
@@ -1366,6 +1774,12 @@ export interface components {
             /** Name */
             name: string;
             /**
+             * Shareable
+             * @description You connected it, so you may share it with the workspace
+             * @default false
+             */
+            shareable: boolean;
+            /**
              * Status
              * @enum {string}
              */
@@ -1386,6 +1800,14 @@ export interface components {
              * @constant
              */
             v: 1;
+        };
+        /** SwitchBody */
+        SwitchBody: {
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
         };
         /** SyncOut */
         SyncOut: {
@@ -1431,6 +1853,25 @@ export interface components {
              * @example 042137
              */
             code: string;
+        };
+        /** WorkspaceOut */
+        WorkspaceOut: {
+            /** Active */
+            active: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Members */
+            members: number;
+            /** Name */
+            name: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "admin" | "member" | "viewer";
         };
     };
     responses: never;
@@ -1821,6 +2262,39 @@ export interface operations {
             };
         };
     };
+    accept_api_v1_invites_accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_job_api_v1_jobs__job_id__get: {
         parameters: {
             query?: never;
@@ -1930,6 +2404,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadinessResponse"];
+                };
+            };
+        };
+    };
+    activity_api_v1_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2122,6 +2627,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiscordStatusOut"];
+                };
+            };
+        };
+    };
+    connect_api_v1_sources_email_connect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MailConnectBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailConnectedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    email_status_api_v1_sources_email_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailStatusOut"];
                 };
             };
         };
@@ -2327,6 +2885,39 @@ export interface operations {
             };
         };
     };
+    share_api_v1_sources__source_id__sharing_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     sync_now_api_v1_sources__source_id__sync_post: {
         parameters: {
             query?: never;
@@ -2412,6 +3003,223 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CompleteUploadResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_workspaces_api_v1_workspaces_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"][];
+                };
+            };
+        };
+    };
+    invites_api_v1_workspaces_invites_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteOut"][];
+                };
+            };
+        };
+    };
+    invite_api_v1_workspaces_invites_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteCreatedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_api_v1_workspaces_invites__invite_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    members_api_v1_workspaces_members_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberOut"][];
+                };
+            };
+        };
+    };
+    remove_member_api_v1_workspaces_members__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemovedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_role_api_v1_workspaces_members__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    switch_api_v1_workspaces_switch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

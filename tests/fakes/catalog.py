@@ -16,6 +16,12 @@ class InMemoryCatalog:
         allowed = set(principals.values)
         return [s for w, s in self.source_rows if w == ws and allowed & set(s.visibility)]
 
+    async def recent_runs(
+        self, ws: WorkspaceId, source_ids: list[SourceId], limit: int
+    ) -> list[tuple[SourceId, RunSummary]]:
+        out = [(sid, r) for sid in source_ids for r in self.run_rows.get(sid, [])]
+        return out[:limit]
+
     async def runs(
         self, ws: WorkspaceId, principals: Principals, source_id: SourceId, limit: int
     ) -> list[RunSummary]:

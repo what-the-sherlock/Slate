@@ -446,3 +446,86 @@ async def test_an_issue_that_failed_holds_the_issue_checkpoint_back(env: Env) ->
     await env.run(sid)
     assert "issue:1" in env.docs(sid)
     assert checkpoint(env, sid)["issues_since"] == (T0 + timedelta(days=2)).isoformat()
+
+
+# ------------------------------------------- access re-checked on every sync (M7 audit)
+
+
+class Rechecking(Env):
+    """Env with an encryption key: the user's token is kept and re-checked each sync."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        from tests.fakes.credentials import InMemoryCredentials
+
+        self.creds = InMemoryCredentials()
+        self.svc = GitHubService(
+            self.gh, self.sources, self.jobs, InMemoryRateLimiter(self.clock), self.clock,
+            secret=b"s" * 32, credentials=self.creds,
+        )  # fmt: skip
+        self.sync = GitHubSync(
+            self.gh, self.sources, self.jobs, self.sync._ingest, FormatParser(),
+            credentials=self.creds,
+        )  # fmt: skip
+
+    def status(self) -> tuple[str, str | None]:
+        st = list(self.sources.finished.values())[-1]
+        return st[0], st[4]
+
+
+async def test_token_is_kept_encrypted_and_attached_to_the_repo() -> None:
+    env = Rechecking()
+    sid = await env.connect()
+    cred = env.sources.records[sid].credential_id
+    assert cred is not None
+    assert await env.creds.secret(env.me.workspace_id, cred) == "tok:good-code"
+
+
+async def test_losing_access_removes_the_repo_documents() -> None:
+    env = Rechecking()
+    sid = await env.connect()
+    await env.run(sid)
+    assert env.index.checksums(sid, "")
+    env.gh.user_repos["good-code"] = set()  # removed from the org / repo
+    await env.run(sid)
+    assert env.status()[0] == "failed"
+    assert "no longer have access" in (env.status()[1] or "")
+    assert env.index.checksums(sid, "") == {}
+
+
+async def test_an_unverifiable_token_pauses_but_keeps_documents() -> None:
+    env = Rechecking()
+    sid = await env.connect()
+    await env.run(sid)
+    docs = env.index.checksums(sid, "")
+    env.gh.revoked.add("tok:good-code")
+    await env.run(sid)
+    assert env.status()[0] == "failed"
+    assert "re-verify" in (env.status()[1] or "")
+    assert env.index.checksums(sid, "") == docs
+
+
+async def test_reconnecting_reattaches_a_fresh_token() -> None:
+    env = Rechecking()
+    sid = await env.connect()
+    old = env.sources.records[sid].credential_id
+    env.gh.owners["good-code-2"] = {INSTALL}
+    state = env.svc.install_link(env.me).split("state=", 1)[1]
+    grant = await env.svc.complete_install(
+        env.me, installation_id=INSTALL, code="good-code-2", state=state
+    )
+    assert await env.svc.connect(env.me, grant, ["octo/docs"]) == []  # already connected
+    new = env.sources.records[sid].credential_id
+    assert new is not None
+    assert new != old
+
+
+async def test_repos_without_a_stored_token_still_sync() -> None:
+    env = Rechecking()
+    sid = await env.connect()
+    from dataclasses import replace as _replace
+
+    env.sources.records[sid] = _replace(env.sources.records[sid], credential_id=None)  # legacy
+    await env.run(sid)
+    assert env.status()[0] == "succeeded"
+    assert env.gh.rechecks == 0

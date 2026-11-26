@@ -84,7 +84,8 @@ email_codes(user_id, purpose, code_hash bytea(32), expires_at, attempts, consume
 memberships(workspace_id, user_id, role CHECK (role IN ('owner','admin','member','viewer')), PRIMARY KEY (workspace_id, user_id))
 groups(id, workspace_id, name, external_ref)            -- external_ref reserved for Phase 4 sync
 group_members(group_id, user_id, PRIMARY KEY (group_id, user_id))
-sessions(id, user_id, token_hash UNIQUE, csrf_secret, expires_at, created_at, last_seen_at, ip, user_agent)
+sessions(id, user_id, workspace_id, token_hash UNIQUE, csrf_secret, expires_at, created_at, last_seen_at, ip, user_agent)   -- 0008: active workspace
+invitations(id, workspace_id, email_canonical, role, token_hash UNIQUE, invited_by, created_at, expires_at, accepted_at, revoked_at)   -- 0008
 api_keys(id, workspace_id, user_id, prefix, key_hash, scopes text[], created_at, last_used_at, revoked_at)
 
 -- sources and ingestion
@@ -143,6 +144,7 @@ eval_runs(id, git_sha, generation_id, config jsonb, metrics jsonb, created_at)
 - A **document's** `acl` is the connector-supplied ACL if present (Phase 4), else the source's visibility. Chunks copy it.
 - **Enforcement:** every retrieval query includes `workspace_id = :ws AND acl && :principals`. Document preview, citation resolution and download endpoints re-check with the same function.
 - **Roles** (`owner` > `admin` > `member` > `viewer`) gate actions: managing sources and users, uploading, chatting. Role checks live in services, not routers.
+- **Shared workspaces (ADR-0030):** an account has its own workspace and may join others by an invitation bound to its email address. The session's active workspace is re-checked against `memberships` on every request. A source becomes visible to members only when its connector shares it (`PUT /sources/{id}/sharing`). Leaving deletes what that person connected there.
 - **Verification:** an account must verify its email (6-digit code) before it can change data or spend money; until then it can only verify, resend and sign out.
 - Test requirement: a seeded fixture with private and public docs, where an outsider never sees private content in search, chat context, citations or previews, and another account sees nothing from this workspace at all.
 
@@ -187,7 +189,8 @@ Connectors declare their capabilities by which protocols they implement. A conne
 | `upload` | (API-driven) | Direct-to-storage, two steps (ADR-0016): `POST /uploads` checks role, size, type and duplicates and returns a size-limited presigned POST plus a signed upload token; the browser sends the file straight to the bucket; `POST /uploads/complete` checks size and sniffs the first 8 KB, then enqueues `process_upload`. The worker re-verifies the sha256 |
 | `github` | FullLoad, Poll, SlimList | GitHub App (ADR-0023): the installation is verified as the user's through OAuth during install. Docs come from one tarball per changed default branch, issues and PRs via REST with `since`; one source per repo; unchanged files skipped by checksum, deleted files pruned; hourly, plus "Sync now" inline (90 s, then the worker). No code and no webhooks in M4 |
 | `discord` | FullLoad, Poll | One Slate bot (ADR-0027), added through Discord's OAuth flow, which proves Manage Server; the user's own roles decide which channels they may pick (private ones included). REST only: a 90-day backfill, then `after=<snowflake>` with a 48 h re-read. One document per thread or 30-minute window; pruning after complete passes; hourly, plus "Sync now" inline |
-| `gmail_mbox` | FullLoad | Import of a Google Takeout `.mbox` uploaded to BlobStore; one document per thread; visibility `user:<owner>` |
+| `imap` | Poll | ADR-0028: a mailbox from a fixed provider list (Gmail, Yahoo, iCloud, Fastmail), app password Fernet-encrypted in `credentials`. Inbox + Sent read-only (EXAMINE, BODY.PEEK); 90 days / 2,000 conversations first, then UIDs after the cursor; one document per conversation (X-GM-THRID or References root); hourly |
+| `gmail_mbox` | FullLoad | A 25 MB `.mbox` upload (job `import_mbox`) split into the same thread documents in the user's "Email import" source; the file is deleted after import |
 
 ## 7. Ingestion pipeline
 
@@ -235,7 +238,7 @@ sequenceDiagram
 
 ## 9. API surface (v1, initial)
 
-`GET /api/v1/auth/config`, `POST /api/v1/auth/signup|login|logout`, `POST /api/v1/auth/verify`, `POST /api/v1/auth/verify/resend`, `POST /api/v1/auth/password/forgot|reset`, `GET /api/v1/me`, `GET|POST /api/v1/sources`, `GET /api/v1/sources/github/status`, `POST /api/v1/sources/github/install|installations|repos|connect`, `GET /api/v1/sources/discord/status`, `POST /api/v1/sources/discord/install|installations|channels|connect`, `POST /api/v1/sources/{id}/sync`, `DELETE /api/v1/sources/{id}`, `GET /api/v1/sources/{id}/runs`, `POST /api/v1/uploads`, `POST /api/v1/uploads/complete`, `GET /api/v1/documents/{id}` (preview, ACL-checked), `POST /api/v1/search`, `POST /api/v1/chat` (SSE), `GET /api/v1/chat/sessions`, `GET /api/v1/chat/sessions/{id}/messages`, `POST /api/v1/messages/{id}/feedback`, `POST /api/v1/webhooks/{connector}`, `GET /healthz`, `GET /readyz`.
+`GET /api/v1/auth/config`, `POST /api/v1/auth/signup|login|logout`, `POST /api/v1/auth/verify`, `POST /api/v1/auth/verify/resend`, `POST /api/v1/auth/password/forgot|reset`, `GET /api/v1/me`, `GET|POST /api/v1/sources`, `GET /api/v1/sources/github/status`, `POST /api/v1/sources/github/install|installations|repos|connect`, `GET /api/v1/sources/discord/status`, `POST /api/v1/sources/discord/install|installations|channels|connect`, `GET /api/v1/sources/email/status`, `POST /api/v1/sources/email/connect`, `GET /api/v1/workspaces`, `POST /api/v1/workspaces/switch`, `GET|PATCH|DELETE /api/v1/workspaces/members[/{user_id}]`, `GET|POST|DELETE /api/v1/workspaces/invites[/{id}]`, `POST /api/v1/invites/accept`, `PUT /api/v1/sources/{id}/sharing`, `POST /api/v1/sources/{id}/sync`, `DELETE /api/v1/sources/{id}`, `GET /api/v1/sources/{id}/runs`, `POST /api/v1/uploads`, `POST /api/v1/uploads/complete`, `GET /api/v1/documents/{id}` (preview, ACL-checked), `POST /api/v1/search`, `POST /api/v1/chat` (SSE), `GET /api/v1/chat/sessions`, `GET /api/v1/chat/sessions/{id}/messages`, `POST /api/v1/messages/{id}/feedback`, `POST /api/v1/webhooks/{connector}`, `GET /healthz`, `GET /readyz`.
 
 Errors use RFC 9457 `application/problem+json` with a stable `type` URI per domain error. List endpoints use cursor pagination.
 

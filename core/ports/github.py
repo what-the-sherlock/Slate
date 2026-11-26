@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Protocol
 
-from core.domain.github import Comment, Issue, Repo, RepoFile
+from core.domain.github import Comment, Issue, Recheck, Repo, RepoFile, UserAccess
 
 
 class GitHubApi(Protocol):
@@ -23,14 +23,26 @@ class GitHubApi(Protocol):
         """Where to send the user to install the app on their repos."""
         ...
 
-    async def user_installation_repos(self, code: str, installation_id: int) -> list[str] | None:
+    async def authorize(
+        self, code: str, installation_id: int, *, keep_token: bool
+    ) -> UserAccess | None:
         """Exchange the OAuth ``code`` from the install redirect for a user token; if this
         user can access ``installation_id``, return the repos *they* can read through it
-        (an org install may grant the app more); else None. The token is revoked.
+        (an org install may grant the app more); else None.
 
         This stops someone claiming another person's installation id (they're sequential),
-        and an org member indexing repos the app sees but they can't.
+        and an org member indexing repos the app sees but they can't. With ``keep_token`` the
+        token is returned for encrypted storage (sync-time re-checks); otherwise it's revoked.
         """
+        ...
+
+    async def recheck(self, secret: str, installation_id: int) -> Recheck:
+        """Which repos the token's user can still read through the installation (refreshing
+        the token first when it has expired). Never raises for a dead token: repos=None."""
+        ...
+
+    async def forget(self, secret: str) -> None:
+        """Revoke a stored user token (best effort)."""
         ...
 
     async def installation_repos(self, installation_id: int) -> list[Repo]:

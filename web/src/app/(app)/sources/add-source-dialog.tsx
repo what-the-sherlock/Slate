@@ -5,15 +5,23 @@ import { LogoTile, type ConnectorKey } from "@/components/brand";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useDiscordStatus, useGitHubStatus } from "@/lib/api/hooks";
 import { DiscordPanel } from "./discord-panel";
+import { EmailPanel } from "./email-panel";
 import { GitHubPanel } from "./github-panel";
 import { UploadPanel } from "./upload-panel";
 
 const AVAILABLE: { key: ConnectorKey; name: string; description: string; ready: boolean }[] = [
-  { key: "upload", name: "Upload files", description: "PDF, Word, Markdown, HTML, CSV and text, up to 25 MB each", ready: true },
+  { key: "upload", name: "Upload files", description: "PDF, Word, Markdown, HTML, CSV, text or .mbox, up to 25 MB each", ready: true },
   { key: "github", name: "GitHub", description: "Docs, issues and pull requests from your repositories", ready: true },
   { key: "discord", name: "Discord", description: "Channels, threads and forum posts from your servers", ready: true },
-  { key: "gmail", name: "Gmail", description: "Your Workspace mailbox. Always private", ready: false },
+  { key: "gmail", name: "Email", description: "Gmail, Yahoo, iCloud or Fastmail, or an .mbox export. Always private", ready: true },
 ];
+const TITLES = {
+  pick: "Add a source",
+  upload: "Upload files",
+  github: "Connect GitHub",
+  discord: "Connect Discord",
+  email: "Connect email",
+} as const;
 const LATER: { key: ConnectorKey; name: string; description: string }[] = [
   { key: "slack", name: "Slack", description: "Channels and threads" },
   { key: "notion", name: "Notion", description: "Pages and databases" },
@@ -29,7 +37,7 @@ export function AddSourceDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [view, setView] = useState<"pick" | "upload" | "github" | "discord">("pick");
+  const [view, setView] = useState<"pick" | "upload" | "github" | "discord" | "email">("pick");
   const github = useGitHubStatus(open);
   const discord = useDiscordStatus(open);
   // A connector backed by a server-side integration is live only when that's configured.
@@ -47,7 +55,7 @@ export function AddSourceDialog({
       <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle className="text-dialog font-semibold tracking-[-0.015em]">
-            {view === "pick" ? "Add a source" : view === "upload" ? "Upload files" : view === "github" ? "Connect GitHub" : "Connect Discord"}
+            {TITLES[view]}
           </DialogTitle>
           <DialogDescription className="text-body text-fg-muted">
             {view === "pick"
@@ -56,7 +64,9 @@ export function AddSourceDialog({
                 ? "Files go straight to private storage, then they're processed and indexed."
                 : view === "github"
                   ? "Install Slate's GitHub App on the repositories you want to search."
-                  : "Add Slate's read-only bot to a server, then pick the channels to search."}
+                  : view === "discord"
+                    ? "Add Slate's read-only bot to a server, then pick the channels to search."
+                    : "Ask about any email: Slate reads your mailbox read-only and keeps it private to you."}
           </DialogDescription>
         </DialogHeader>
 
@@ -66,6 +76,8 @@ export function AddSourceDialog({
           <GitHubPanel onBack={() => setView("pick")} />
         ) : view === "discord" ? (
           <DiscordPanel onBack={() => setView("pick")} />
+        ) : view === "email" ? (
+          <EmailPanel onBack={() => setView("pick")} onImport={() => setView("upload")} />
         ) : (
           <div className="flex flex-col gap-5">
             <ul className="grid gap-3 sm:grid-cols-2">
@@ -74,7 +86,10 @@ export function AddSourceDialog({
                   <button
                     type="button"
                     disabled={!isReady(c.key, c.ready)}
-                    onClick={() => (c.key === "upload" || c.key === "github" || c.key === "discord") && setView(c.key)}
+                    onClick={() => {
+                      if (c.key === "gmail") setView("email");
+                      else if (c.key === "upload" || c.key === "github" || c.key === "discord") setView(c.key);
+                    }}
                     className="flex h-full w-full flex-col gap-3 rounded-lg border border-border bg-bg p-4 text-left shadow-xs transition-[background-color,border-color,transform] hover:border-border-strong hover:bg-subtle active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-border disabled:hover:bg-bg motion-reduce:active:scale-100"
                   >
                     <LogoTile connector={c.key} />

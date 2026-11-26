@@ -166,3 +166,23 @@ class SyncCheckpoint:
 
 
 INSTALL_STATE_PURPOSE = "github-install"
+CREDENTIAL_KIND = "github_user_token"
+
+
+@dataclass(frozen=True, slots=True)
+class UserAccess:
+    """What the install redirect proved: the repos *this user* can read through the
+    installation, and (when kept) the user's token, serialised for encrypted storage."""
+
+    repos: tuple[str, ...]
+    secret: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Recheck:
+    """A sync-time re-check (M7 audit): ``repos`` is None when access couldn't be verified
+    (token revoked or expired); ``secret`` is the token to store from now on (it may have
+    been refreshed, and GitHub rotates refresh tokens on every use)."""
+
+    repos: tuple[str, ...] | None
+    secret: str

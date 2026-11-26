@@ -88,15 +88,64 @@ async def test_user_must_own_the_installation_and_the_token_is_revoked() -> None
         return httpx.Response(404)
 
     app, seen = make(handler)
-    assert await app.user_installation_repos("code", 42) == ["org/mine"]
-    assert await app.user_installation_repos("code", 99) is None  # someone else's id
+    access = await app.authorize("code", 42, keep_token=False)
+    assert access is not None
+    assert access.repos == ("org/mine",)
+    assert access.secret is None
+    assert await app.authorize("code", 99, keep_token=False) is None  # someone else's id
     assert sum(1 for r in seen if r.method == "DELETE") == 2  # revoked both times
+
+
+async def test_kept_token_is_not_revoked_and_rechecks_later() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/login/oauth/access_token":
+            return httpx.Response(200, json={"access_token": "ghu_user"})
+        if req.url.path == "/user/installations":
+            return httpx.Response(200, json={"installations": [{"id": 42}]})
+        if req.url.path == "/user/installations/42/repositories":
+            return httpx.Response(200, json={"repositories": [{"full_name": "org/mine"}]})
+        return httpx.Response(404)
+
+    app, seen = make(handler)
+    access = await app.authorize("code", 42, keep_token=True)
+    assert access is not None
+    assert access.secret is not None
+    assert "ghu_user" in access.secret
+    assert not any(r.method == "DELETE" for r in seen)
+    again = await app.recheck(access.secret, 42)
+    assert again.repos == ("org/mine",)
+
+
+async def test_recheck_reports_a_dead_token_as_unverifiable() -> None:
+    app, _ = make(lambda r: httpx.Response(401, json={"message": "Bad credentials"}))
+    result = await app.recheck('{"a": "ghu_dead", "r": null, "e": null}', 42)
+    assert result.repos is None
+    assert (await app.recheck("not json", 42)).repos is None
+
+
+async def test_expired_token_is_refreshed_and_the_new_one_returned() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/login/oauth/access_token":
+            assert b"grant_type=refresh_token" in req.content
+            return httpx.Response(
+                200,
+                json={"access_token": "ghu_new", "refresh_token": "ghr_new", "expires_in": 28800},
+            )
+        if req.url.path == "/user/installations":
+            assert req.headers["authorization"] == "Bearer ghu_new"
+            return httpx.Response(200, json={"installations": [{"id": 42}]})
+        return httpx.Response(200, json={"repositories": []})
+
+    app, _ = make(handler)
+    result = await app.recheck('{"a": "ghu_old", "r": "ghr_old", "e": 1}', 42)
+    assert result.repos == ()
+    assert "ghr_new" in result.secret  # GitHub rotates refresh tokens: store the new one
 
 
 async def test_a_rejected_oauth_code_is_not_ownership() -> None:
     app, _ = make(lambda r: httpx.Response(200, json={"error": "bad_verification_code"}))
-    assert await app.user_installation_repos("stale", 42) is None
-    assert await app.user_installation_repos("", 42) is None
+    assert await app.authorize("stale", 42, keep_token=True) is None
+    assert await app.authorize("", 42, keep_token=True) is None
 
 
 def _tarball(files: dict[str, bytes], *, symlink: str | None = None) -> bytes:

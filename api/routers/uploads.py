@@ -75,6 +75,7 @@ async def complete_upload(
     run_inline = (
         result.status is UploadStatus.UPLOAD
         and result.job_id is not None
+        and result.inline
         and container.inline is not None
         and result.size <= INLINE_MAX_BYTES
     )

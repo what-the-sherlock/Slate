@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     daily_llm_budget_usd: float = Field(default=0.50, ge=0)
     workspace_monthly_budget_usd: float = Field(default=0.25, ge=0)
     workspace_daily_budget_usd: float = Field(default=0.05, ge=0)
+    # First week of a workspace (ADR-0021 amendment, M7): ~8 answers a day.
+    new_account_daily_budget_usd: float = 0.01
 
     # Neon Object Storage (ADR-0014): AWS-standard names, injected by `neon deploy`.
     aws_access_key_id: str | None = None
@@ -83,6 +85,9 @@ class Settings(BaseSettings):
     github_app_private_key: SecretStr | None = None  # the .pem contents (\n escapes ok)
     # Discord (ADR-0027): one Slate bot users add to their servers. The connect flow needs
     # all four; the worker needs only the bot token.
+    # The web app's public origin, e.g. https://slate.example.com: invite emails link to it
+    # (ADR-0030). Without it, inviters copy the link themselves.
+    app_url: str | None = None
     discord_bot_token: SecretStr | None = None
     discord_client_id: str | None = None
     discord_client_secret: SecretStr | None = None

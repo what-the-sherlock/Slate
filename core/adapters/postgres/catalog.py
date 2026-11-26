@@ -16,6 +16,7 @@ from core.ports.catalog import JobView, RunError, RunSummary, SourceSummary
 
 _SOURCES = """
 SELECT s.id, s.name, s.connector, s.data_class, s.visibility, s.status, s.last_synced_at,
+       s.created_by,
        (SELECT count(*) FROM documents d
          WHERE d.source_id = s.id AND d.deleted_at IS NULL AND d.acl && CAST(:p AS text[])) AS docs,
        r.status AS run_status, r.error_summary AS run_error,
@@ -59,9 +60,46 @@ class PostgresCatalog:
                     last_run_status=r["run_status"],
                     last_run_error=r["run_error"],
                     pending_jobs=int(r["pending"]),
+                    created_by=UserId(r["created_by"]) if r["created_by"] is not None else None,
                 )
             )
         return out
+
+    async def recent_runs(
+        self, ws: WorkspaceId, source_ids: list[SourceId], limit: int
+    ) -> list[tuple[SourceId, RunSummary]]:
+        if not source_ids:
+            return []
+        async with self._uow() as s:
+            rows = (
+                (
+                    await s.execute(
+                        text(
+                            "SELECT id, source_id, kind, status, started_at, finished_at,"
+                            " docs_seen, docs_changed, docs_failed, error_summary"
+                            " FROM ingestion_runs WHERE workspace_id = :ws"
+                            " AND source_id = ANY(CAST(:s AS uuid[]))"
+                            " ORDER BY created_at DESC LIMIT :n"
+                        ),
+                        {"ws": ws, "s": [str(x) for x in source_ids], "n": limit},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [
+            (
+                SourceId(r["source_id"]),
+                RunSummary(
+                    id=RunId(r["id"]), kind=r["kind"], status=r["status"],
+                    started_at=r["started_at"], finished_at=r["finished_at"],
+                    docs_seen=int(r["docs_seen"]), docs_changed=int(r["docs_changed"]),
+                    docs_failed=int(r["docs_failed"]), error_summary=r["error_summary"],
+                    errors=(),
+                ),
+            )
+            for r in rows
+        ]  # fmt: skip
 
     async def runs(
         self, ws: WorkspaceId, principals: Principals, source_id: SourceId, limit: int

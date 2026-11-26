@@ -100,12 +100,15 @@ async def test_public_data_class_requires_public_acl(tx: AsyncConnection) -> Non
 
 
 async def test_gmail_can_never_be_public(tx: AsyncConnection) -> None:
-    with pytest.raises(IntegrityError, match="sources_gmail_always_private"):
+    # 0007 renamed it: the rule now covers every email connector (gmail_mbox, imap).
+    with pytest.raises(IntegrityError, match="sources_email_always_private"):
         await workspace_and_source(tx, connector="gmail_mbox", data_class="public")
 
 
 async def test_chunks_enforce_the_same_isolation_rule(tx: AsyncConnection) -> None:
-    ws, src = await workspace_and_source(tx)
+    # An upload source: its documents keep their own ACL (0008 stamps a connector source's
+    # visibility onto its documents, which would make this document {public}).
+    ws, src = await workspace_and_source(tx, connector="upload", visibility="{workspace:x}")
     doc = await scalar(tx, NEW_DOCUMENT, ws=ws, src=src, acl="{user:x}")
     with pytest.raises(IntegrityError, match="chunks_public_requires_public_acl"):
         await tx.execute(
@@ -186,7 +189,8 @@ async def test_public_chain_is_accepted(tx: AsyncConnection) -> None:
 
 
 async def test_chunk_acl_is_always_copied_from_its_document(tx: AsyncConnection) -> None:
-    ws, src = await workspace_and_source(tx)
+    # Upload source: per-file ACLs (a connector source's documents follow the source, 0008).
+    ws, src = await workspace_and_source(tx, connector="upload")
     doc = await scalar(tx, NEW_DOC_CLASSED, ws=ws, src=src, acl="{public}", dc="private")
     chunk = await scalar(tx, NEW_CHUNK, d=doc, ws=ws, n=0, acl="{user:attacker}", dc="private")
     get_acl = "SELECT acl FROM chunks WHERE id = :c"
@@ -346,7 +350,8 @@ async def test_one_inbox_one_account(tx: AsyncConnection) -> None:
         await tx.execute(text(insert), {"e": "x." + canonical, "c": canonical.upper()})
 
 
-async def test_a_user_belongs_to_one_workspace_until_invites_exist(tx: AsyncConnection) -> None:
+async def test_a_user_may_join_several_workspaces_but_each_once(tx: AsyncConnection) -> None:
+    """ADR-0030 (migration 0008) lifted one-workspace-per-user; the membership key remains."""
     user = await scalar(
         tx,
         "INSERT INTO users (email, email_canonical, name, password_hash)"
@@ -356,8 +361,9 @@ async def test_a_user_belongs_to_one_workspace_until_invites_exist(tx: AsyncConn
     first, second = await scalar(tx, NEW_WORKSPACE), await scalar(tx, NEW_WORKSPACE)
     member = "INSERT INTO memberships (workspace_id, user_id, role) VALUES (:w, :u, 'owner')"
     await tx.execute(text(member), {"w": first, "u": user})
-    with pytest.raises(IntegrityError, match="memberships_one_per_user"):
-        await tx.execute(text(member), {"w": second, "u": user})
+    await tx.execute(text(member), {"w": second, "u": user})  # invited elsewhere: fine
+    with pytest.raises(IntegrityError, match="memberships_pkey"):
+        await tx.execute(text(member), {"w": first, "u": user})
 
 
 async def test_email_codes_hold_only_32_byte_hashes(tx: AsyncConnection) -> None:

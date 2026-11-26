@@ -31,16 +31,24 @@ class InlineOutcome(StrEnum):
 
 class InlineRunner:
     def __init__(
-        self, queue: JobQueue, handler: Callable[[Job], Awaitable[None]], *, runner_id: str
+        self,
+        queue: JobQueue,
+        handler: Callable[[Job], Awaitable[None]],
+        *,
+        runner_id: str,
+        kinds: frozenset[str] | None = None,
     ) -> None:
         self._queue = queue
         self._handler = handler
         self._id = runner_id
+        self._kinds = kinds  # the job kinds this handler understands (None: any)
 
     async def run(self, job_id: JobId) -> InlineOutcome:
         """Raises the handler's AppError when the failure is final (e.g. a bad file), so the
         caller can show the reason; retryable failures are handed back to the worker.
         """
+        if self._kinds is not None and (await self._queue.get(job_id)).kind not in self._kinds:
+            return InlineOutcome.DEFERRED  # not this handler's job: the worker routes it
         job = await self._queue.claim_by_id(job_id, self._id)
         if job is None:
             return InlineOutcome.DEFERRED  # a worker got there first

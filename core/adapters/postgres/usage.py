@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import text
 
 from core.adapters.postgres.uow import UnitOfWork
+from core.domain.auth import canonical_email
 from core.domain.budget import Spend
 from core.domain.errors import Conflict
 from core.domain.ids import GenerationId, WorkspaceId
@@ -17,8 +18,10 @@ from core.ports.usage import GenerationInfo, UsageEntry
 
 
 class PostgresUsageLedger:
-    def __init__(self, uow: UnitOfWork) -> None:
+    def __init__(self, uow: UnitOfWork, *, owner_email: str | None = None) -> None:
         self._uow = uow
+        # Canonical form, like users.email_canonical (ADR-0021).
+        self._owner_email = canonical_email(owner_email) if owner_email else None
 
     async def record(self, entry: UsageEntry) -> None:
         async with self._uow() as s:
@@ -52,6 +55,7 @@ class PostgresUsageLedger:
         return Decimal(value)
 
     async def spend(self, ws: WorkspaceId) -> Spend:
+        # One round trip: the four sums plus the workspace's age and owner flag (budget.py).
         async with self._uow() as s:
             row = (
                 await s.execute(
@@ -60,11 +64,20 @@ class PostgresUsageLedger:
                         " coalesce(sum(cost_usd) FILTER (WHERE day >= :today), 0),"
                         " coalesce(sum(cost_usd) FILTER (WHERE workspace_id = :ws), 0),"
                         " coalesce(sum(cost_usd) FILTER"
-                        "   (WHERE workspace_id = :ws AND day >= :today), 0)"
+                        "   (WHERE workspace_id = :ws AND day >= :today), 0),"
+                        " (SELECT extract(day FROM now() - w.created_at)::int"
+                        "    FROM workspaces w WHERE w.id = :ws),"
+                        " EXISTS (SELECT 1 FROM memberships m JOIN users u ON u.id = m.user_id"
+                        "   WHERE m.workspace_id = :ws AND m.role = 'owner'"
+                        "   AND u.email_verified_at IS NOT NULL"
+                        "   AND u.email_canonical = CAST(:owner AS citext))"
+                        # only while the owner is its sole member: invitees never inherit it
+                        " AND (SELECT count(*) FROM memberships o WHERE o.workspace_id = :ws) = 1"
                         " FROM usage_ledger"
                         " WHERE day >= date_trunc('month', CAST(:today AS date))::date"
                     ),
-                    {"ws": ws, "today": datetime.now(UTC).date()},  # UTC days (budget.py)
+                    # UTC days (budget.py)
+                    {"ws": ws, "today": datetime.now(UTC).date(), "owner": self._owner_email or ""},
                 )
             ).one()
         return Spend(
@@ -72,6 +85,8 @@ class PostgresUsageLedger:
             day_all=Decimal(row[1]),
             month_workspace=Decimal(row[2]),
             day_workspace=Decimal(row[3]),
+            privileged=bool(row[5]) and self._owner_email is not None,
+            workspace_age_days=int(row[4]) if row[4] is not None else 10**6,
         )
 
 

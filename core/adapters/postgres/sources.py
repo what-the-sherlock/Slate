@@ -6,6 +6,7 @@ import json
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import text
 
@@ -18,7 +19,7 @@ from core.ports.sources import ExistingUpload, SourceRecord
 
 _SOURCE_COLS = (
     "id, workspace_id, connector, name, visibility, data_class, status, config, checkpoint,"
-    " last_synced_at, created_by"
+    " last_synced_at, created_by, credential_id"
 )
 
 
@@ -38,6 +39,7 @@ def _source(r: Any) -> SourceRecord:  # reason: RowMapping values are Any
         checkpoint=dict(r["checkpoint"]) if r["checkpoint"] is not None else None,
         last_synced_at=r["last_synced_at"],
         created_by=UserId(r["created_by"]) if r["created_by"] is not None else None,
+        credential_id=r["credential_id"],
     )
 
 
@@ -150,6 +152,16 @@ class PostgresSourceStore:
                     {"id": run_id},
                 )
 
+    async def progress(self, run_id: RunId, *, seen: int, changed: int, failed: int) -> None:
+        async with self._uow() as s:
+            await s.execute(
+                text(
+                    "UPDATE ingestion_runs SET docs_seen = :seen, docs_changed = :ch,"
+                    " docs_failed = :f WHERE id = :id AND status = 'running'"
+                ),
+                {"seen": seen, "ch": changed, "f": failed, "id": run_id},
+            )
+
     async def record_error(
         self, run_id: RunId, *, external_id: str | None, stage: str, message: str, retryable: bool
     ) -> None:
@@ -191,15 +203,17 @@ class PostgresSourceStore:
         visibility: Sequence[str],
         data_class: DataClass,
         created_by: UserId | None = None,
+        credential_id: UUID | None = None,
     ) -> SourceId:
         async with self._uow() as s:
             row = (
                 await s.execute(
                     text(
                         "INSERT INTO sources (workspace_id, connector, name, config, visibility,"
-                        " data_class, created_by) VALUES (:ws, :c, :n, CAST(:cfg AS jsonb),"
-                        " CAST(:v AS text[]), :dc, :by)"
-                        " ON CONFLICT (workspace_id, name) DO NOTHING RETURNING id"
+                        " data_class, created_by, credential_id) VALUES (:ws, :c, :n,"
+                        " CAST(:cfg AS jsonb), CAST(:v AS text[]), :dc, :by, :cred)"
+                        # Any unique rule (the name, one IMAP mailbox per workspace) -> Conflict.
+                        " ON CONFLICT DO NOTHING RETURNING id"
                     ),
                     {
                         "ws": ws,
@@ -209,12 +223,23 @@ class PostgresSourceStore:
                         "v": list(visibility),
                         "dc": data_class.value,
                         "by": created_by,
+                        "cred": credential_id,
                     },
                 )
             ).first()
         if row is None:
             raise Conflict(f"{name} is already connected.")
         return SourceId(row[0])
+
+    async def set_credential(
+        self, ws: WorkspaceId, source_id: SourceId, credential_id: UUID
+    ) -> bool:
+        async with self._uow() as s:
+            result = await s.execute(
+                text("UPDATE sources SET credential_id = :c WHERE id = :id AND workspace_id = :ws"),
+                {"c": credential_id, "id": source_id, "ws": ws},
+            )
+        return int(getattr(result, "rowcount", 0) or 0) > 0
 
     async def update_config(
         self, ws: WorkspaceId, source_id: SourceId, config: dict[str, object]

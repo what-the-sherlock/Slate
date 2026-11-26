@@ -40,6 +40,14 @@ class InMemoryAccounts:
         self.members: dict[UserId, _Member] = {}
         self.groups: dict[UserId, tuple[str, ...]] = {}
         self.workspaces: dict[WorkspaceId, str] = {}
+        # Memberships beyond each user's own workspace (ADR-0030 invites).
+        self.extra: dict[UserId, dict[WorkspaceId, Role]] = {}
+
+    def role_in(self, uid: UserId, ws: WorkspaceId) -> Role | None:
+        own = self.members.get(uid)
+        if own is not None and own.workspace_id == ws:
+            return own.role
+        return self.extra.get(uid, {}).get(ws)
 
     async def create_user_with_workspace(
         self,
@@ -145,8 +153,15 @@ class InMemorySessions:
             member = self._accounts.members.get(uid)
             if user.disabled or member is None or row["expires_at"] <= self._clock.now():  # type: ignore[operator]
                 return None
+            active: WorkspaceId | None = row.get("workspace_id")  # type: ignore[assignment]
+            role = self._accounts.role_in(uid, active) if active is not None else None
+            ws, role = (
+                (active, role)
+                if role is not None and active is not None
+                else (member.workspace_id, member.role)
+            )
             return SessionRecord(
-                id=sid, user_id=uid, workspace_id=member.workspace_id, role=member.role,
+                id=sid, user_id=uid, workspace_id=ws, role=role,
                 email=user.email, name=user.name, email_verified=user.email_verified,
                 csrf_secret=row["csrf"],  # type: ignore[arg-type]
                 expires_at=row["expires_at"],  # type: ignore[arg-type]
@@ -165,6 +180,13 @@ class InMemorySessions:
 
     async def delete_for_user(self, user_id: UserId) -> None:
         self.rows = {k: v for k, v in self.rows.items() if v["user_id"] != user_id}
+
+    async def set_workspace(self, session_id: SessionId, ws: WorkspaceId) -> bool:
+        row = self.rows.get(session_id)
+        if row is None or self._accounts.role_in(row["user_id"], ws) is None:  # type: ignore[arg-type]
+            return False
+        row["workspace_id"] = ws
+        return True
 
 
 class InMemoryThrottle:

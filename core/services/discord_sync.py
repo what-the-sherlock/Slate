@@ -81,7 +81,10 @@ from core.services.ingest import IngestService, Stage
 
 log = structlog.get_logger(__name__)
 
-INLINE_SYNC_BUDGET_S = 90.0  # inside the inline runner's 120 s
+INLINE_SYNC_BUDGET_S = 90.0
+PROGRESS_EVERY = (
+    10  # items between live progress updates on a running run  # inside the inline runner's 120 s
+)
 MIME = "text/plain"
 INTENT_OFF = (
     "Discord returns messages without their text: turn on the Message Content intent "
@@ -515,6 +518,9 @@ class DiscordSync:
         """True when indexed (or unchanged). BudgetExceeded propagates: nothing more can be
         embedded today, so the run stops as partial with progress saved."""
         st.tally.seen += 1
+        if st.tally.seen % PROGRESS_EVERY == 0:
+            t = st.tally
+            await self._sources.progress(st.run, seen=t.seen, changed=t.changed, failed=t.failed)
         digest = checksum(sections, title)
         if existing == digest:
             return True  # unchanged: no write, no spend

@@ -23,6 +23,10 @@ export const keys = {
   document: (id: string) => ["document", id] as const,
   chatSessions: ["chat-sessions"] as const,
   chatMessages: (id: string | null) => ["chat-messages", id] as const,
+  workspaces: ["workspaces"] as const,
+  members: ["members"] as const,
+  invites: ["invites"] as const,
+  activity: ["activity"] as const,
 };
 
 /** The signed-in user, or null when signed out (401 is an answer, not an error). */
@@ -167,5 +171,59 @@ export function useDiscordStatus(enabled = true) {
     queryFn: async () => unwrap(await api.GET("/api/v1/sources/discord/status")),
     enabled,
     staleTime: 5 * 60_000,
+  });
+}
+
+export type MailProvider = components["schemas"]["MailProviderOut"];
+
+/** Whether mailboxes can be connected here, and which providers (the Email tile). */
+export function useMailStatus(enabled = true) {
+  return useQuery({
+    queryKey: ["mail-status"] as const,
+    queryFn: async () => unwrap(await api.GET("/api/v1/sources/email/status")),
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export type Workspace = components["schemas"]["WorkspaceOut"];
+export type Member = components["schemas"]["MemberOut"];
+export type Invite = components["schemas"]["InviteOut"];
+
+/** Workspaces this account belongs to (the switcher, ADR-0030). */
+export function useWorkspaces() {
+  return useQuery({
+    queryKey: keys.workspaces,
+    queryFn: async () => unwrap(await api.GET("/api/v1/workspaces")),
+    staleTime: 60_000,
+  });
+}
+
+export function useMembers() {
+  return useQuery({
+    queryKey: keys.members,
+    queryFn: async () => unwrap(await api.GET("/api/v1/workspaces/members")),
+  });
+}
+
+/** Open invitations; only admins and the owner may list them. */
+export function useInvites(enabled: boolean) {
+  return useQuery({
+    queryKey: keys.invites,
+    queryFn: async () => unwrap(await api.GET("/api/v1/workspaces/invites")),
+    enabled,
+  });
+}
+
+export type Activity = components["schemas"]["ActivityOut"];
+
+/** Recent runs across visible sources. Polls only while one is running and the tab is
+ * visible (UI_DESIGN §4.5: the Neon compute budget). */
+export function useActivity() {
+  return useQuery({
+    queryKey: keys.activity,
+    queryFn: async () => unwrap(await api.GET("/api/v1/runs", { params: { query: { limit: 15 } } })),
+    refetchInterval: (query) => (query.state.data?.some((r) => r.status === "running") ? 5000 : false),
+    refetchIntervalInBackground: false,
   });
 }

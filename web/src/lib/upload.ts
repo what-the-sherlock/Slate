@@ -12,7 +12,7 @@ import type { components } from "@/lib/api/schema";
 export type Visibility = components["schemas"]["BeginUploadBody"]["visibility"];
 
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-export const ACCEPTED = ".pdf,.docx,.md,.markdown,.txt,.html,.htm,.csv";
+export const ACCEPTED = ".pdf,.docx,.md,.markdown,.txt,.html,.htm,.csv,.mbox";
 const ALLOWED_EXTENSIONS = ACCEPTED.split(",");
 
 export type UploadPhase =

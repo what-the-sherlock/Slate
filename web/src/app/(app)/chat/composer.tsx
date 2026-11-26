@@ -1,12 +1,13 @@
 "use client";
 
-import { ArrowUp, Check, ChevronDown, Layers, Square } from "lucide-react";
+import { ArrowUp, Check, CalendarClock, ChevronDown, Layers, Square } from "lucide-react";
 import { useLayoutEffect, type FormEvent, type KeyboardEvent, type RefObject } from "react";
 import { ConnectorIcon } from "@/components/brand";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Source } from "@/lib/api/hooks";
 import { cn } from "@/lib/utils";
+import { DATE_PRESETS, MAX_FROM_CHARS, type DatePreset } from "@/lib/search";
 
 export const LIMIT = 4000;
 const COUNTER_AT = 3600;
@@ -32,6 +33,10 @@ export function Composer({
   sources,
   selected,
   onSelected,
+  date = "any",
+  onDate = () => {},
+  from = "",
+  onFrom = () => {},
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -44,6 +49,10 @@ export function Composer({
   sources: Source[];
   selected: string[];
   onSelected: (ids: string[]) => void;
+  date?: DatePreset;
+  onDate?: (d: DatePreset) => void;
+  from?: string;
+  onFrom?: (f: string) => void;
 }) {
   const over = value.length > LIMIT;
   const empty = !value.trim();
@@ -108,6 +117,7 @@ export function Composer({
         />
         <div className="flex items-center gap-2 px-2.5 pt-1 pb-2.5">
           {sources.length ? <SourceFilter sources={sources} selected={selected} onSelected={onSelected} /> : null}
+          {sources.length ? <MoreFilters date={date} onDate={onDate} from={from} onFrom={onFrom} /> : null}
           {value.length >= COUNTER_AT ? (
             <span className={cn("text-data tabular-nums animate-in fade-in duration-200", over ? "font-medium text-danger" : "text-fg-subtle")}>
               {value.length.toLocaleString()} / {LIMIT.toLocaleString()}
@@ -157,6 +167,58 @@ export function Composer({
         </div>
       </div>
     </form>
+  );
+}
+
+/** "Any time ▾": date range and sender (POST /chat `updated_after`, `author`). */
+function MoreFilters({ date, onDate, from, onFrom }: { date: DatePreset; onDate: (d: DatePreset) => void; from: string; onFrom: (f: string) => void }) {
+  const active = date !== "any" || !!from.trim();
+  const label = [date !== "any" ? DATE_PRESETS[date].label : null, from.trim() ? `from ${from.trim()}` : null].filter(Boolean).join(", ") || "Any time";
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-full border px-2.5 text-caption transition-colors duration-150",
+            active ? "border-brand-border bg-brand-subtle text-brand-strong" : "border-border text-fg-muted hover:border-border-strong hover:bg-subtle hover:text-fg",
+          )}
+          aria-label={`When and who: ${label}`}
+        >
+          <CalendarClock className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">{label}</span>
+          <ChevronDown className="size-3 shrink-0 opacity-70" aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="top" className="w-64">
+        <p className="px-2 pt-1.5 pb-1 text-label font-semibold tracking-wider text-fg-subtle uppercase">Updated</p>
+        <ul role="radiogroup" aria-label="Updated" className="mb-2">
+          {(Object.keys(DATE_PRESETS) as DatePreset[]).map((k) => (
+            <li key={k}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={date === k}
+                onClick={() => onDate(k)}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-caption text-fg hover:bg-muted"
+              >
+                <span className="inline-flex size-4 items-center justify-center">{date === k ? <Check className="size-3.5 text-brand" /> : null}</span>
+                {DATE_PRESETS[k].label}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <label className="block px-2 pb-2 text-label font-semibold tracking-wider text-fg-subtle uppercase">
+          From
+          <input
+            value={from}
+            onChange={(e) => onFrom(e.target.value.slice(0, MAX_FROM_CHARS))}
+            placeholder="Name or email"
+            className="mt-1 block h-8 w-full rounded-md border border-border-input bg-bg px-2 text-caption font-normal tracking-normal text-fg normal-case outline-none focus:border-brand"
+          />
+        </label>
+      </PopoverContent>
+    </Popover>
   );
 }
 

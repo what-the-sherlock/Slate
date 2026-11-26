@@ -16,6 +16,8 @@ from core.adapters.discord.api import DiscordBot
 from core.adapters.email.dev import AllowAllHumanVerifier, LogEmailSender
 from core.adapters.email.smtp import SmtpEmailSender
 from core.adapters.github.app import GitHubApp
+from core.adapters.mail.imap import ImapMailbox
+from core.adapters.mail.parse import parse_mbox
 from core.adapters.openai.chat import DEFAULT_MODEL as DEFAULT_CHAT_MODEL
 from core.adapters.openai.chat import OpenAIChatModel
 from core.adapters.openai.embedder import OpenAIEmbedder
@@ -27,6 +29,7 @@ from core.adapters.postgres.auth import (
     PostgresSessionStore,
 )
 from core.adapters.postgres.chat import PostgresChatStore
+from core.adapters.postgres.credentials import PostgresCredentialStore, make_fernet
 from core.adapters.postgres.documents import PostgresDocumentStore
 from core.adapters.postgres.jobs import PostgresJobQueue
 from core.adapters.postgres.rate_limit import PostgresRateLimiter
@@ -53,6 +56,7 @@ from core.services.discord import DiscordService
 from core.services.discord_sync import DiscordSync
 from core.services.github import GitHubService, GitHubSync
 from core.services.ingest import IngestService
+from core.services.mail import MailService, MailSync, MboxImport
 from core.services.search import SearchService
 
 log = structlog.get_logger(__name__)
@@ -96,6 +100,7 @@ def spend_limits(settings: Settings) -> SpendLimits:
         daily_all=Decimal(str(settings.daily_llm_budget_usd)),
         monthly_workspace=Decimal(str(settings.workspace_monthly_budget_usd)),
         daily_workspace=Decimal(str(settings.workspace_daily_budget_usd)),
+        new_account_daily=Decimal(str(settings.new_account_daily_budget_usd)),
     )
 
 
@@ -105,7 +110,7 @@ def search_service(settings: Settings, uow: UnitOfWork) -> SearchService:
         PostgresSearchIndex(uow),
         openai_embedder(settings),
         PostgresGenerationStore(uow),
-        PostgresUsageLedger(uow),
+        PostgresUsageLedger(uow, owner_email=settings.owner_email),
         PostgresRateLimiter(uow),
         limits=spend_limits(settings),
     )
@@ -121,7 +126,7 @@ def answer_service(settings: Settings, uow: UnitOfWork) -> AnswerService | None:
         search_service(settings, uow),
         OpenAIChatModel(key, model=settings.openai_chat_model or DEFAULT_CHAT_MODEL),
         PostgresChatStore(uow),
-        PostgresUsageLedger(uow),
+        PostgresUsageLedger(uow, owner_email=settings.owner_email),
         limiter,
         TiktokenTokenizer(),
         limits=spend_limits(settings),
@@ -153,7 +158,7 @@ def _ingest(settings: Settings, uow: UnitOfWork, blobs: BlobStore) -> IngestServ
             dims=settings.embed_dims,
         ),
         PostgresGenerationStore(uow),
-        PostgresUsageLedger(uow),
+        PostgresUsageLedger(uow, owner_email=settings.owner_email),
         limits=spend_limits(settings),
     )
 
@@ -196,6 +201,7 @@ def github_service(settings: Settings, uow: UnitOfWork) -> GitHubService:
         PostgresRateLimiter(uow),
         SystemClock(),
         secret=_github_key(settings),
+        credentials=credential_store(settings, uow),
     )
 
 
@@ -207,7 +213,11 @@ def github_sync(settings: Settings, uow: UnitOfWork) -> GitHubSync | None:
     ingest = _ingest(settings, uow, s3_blob_store(settings) or _NoBlobs())  # type: ignore[arg-type]
     if ingest is None:
         return None
-    return GitHubSync(api, PostgresSourceStore(uow), PostgresJobQueue(uow), ingest, FormatParser())
+    creds = credential_store(settings, uow)
+    return GitHubSync(
+        api, PostgresSourceStore(uow), PostgresJobQueue(uow), ingest, FormatParser(),
+        credentials=creds if creds.available else None,
+    )  # fmt: skip
 
 
 def _discord_redirect(settings: Settings) -> str | None:
@@ -269,6 +279,42 @@ def discord_sync(settings: Settings, uow: UnitOfWork) -> DiscordSync | None:
         ingest,
         SystemClock(),
     )
+
+
+def credential_store(settings: Settings, uow: UnitOfWork) -> PostgresCredentialStore:
+    key = settings.credentials_fernet_key
+    return PostgresCredentialStore(uow, make_fernet(key.get_secret_value() if key else None))
+
+
+def mail_service(settings: Settings, uow: UnitOfWork) -> MailService:
+    return MailService(
+        ImapMailbox(),
+        credential_store(settings, uow),
+        PostgresSourceStore(uow),
+        PostgresJobQueue(uow),
+        PostgresRateLimiter(uow),
+        SystemClock(),
+    )
+
+
+def mail_sync(settings: Settings, uow: UnitOfWork) -> MailSync | None:
+    """The sync_mail handler, or None without the encryption key or an OpenAI key."""
+    creds = credential_store(settings, uow)
+    ingest = _ingest(settings, uow, s3_blob_store(settings) or _NoBlobs())  # type: ignore[arg-type]
+    if not creds.available or ingest is None:
+        return None
+    return MailSync(
+        ImapMailbox(), creds, PostgresSourceStore(uow), PostgresJobQueue(uow), ingest, SystemClock()
+    )
+
+
+def mbox_import(settings: Settings, uow: UnitOfWork) -> MboxImport | None:
+    """The import_mbox handler, or None without storage or an OpenAI key."""
+    blobs = s3_blob_store(settings)
+    ingest = _ingest(settings, uow, blobs) if blobs is not None else None
+    if blobs is None or ingest is None:
+        return None
+    return MboxImport(blobs, PostgresSourceStore(uow), ingest, parse_mbox)
 
 
 def email_sender(settings: Settings) -> EmailSender | None:

@@ -70,6 +70,9 @@ class SearchFilters:
     source_ids: tuple[SourceId, ...] = ()
     updated_after: datetime | None = None
     updated_before: datetime | None = None
+    # Who wrote it: matched case-insensitively against the document's author (for email,
+    # the people who sent messages in the thread; for GitHub, the issue author). M7 filters.
+    author: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

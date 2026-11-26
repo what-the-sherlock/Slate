@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 
 from api.deps import Container, get_container
-from api.schemas.catalog import JobOut, RunErrorOut, RunOut, SourceOut, SyncOut
+from api.schemas.catalog import ActivityOut, JobOut, RunErrorOut, RunOut, SourceOut, SyncOut
 from api.security import CurrentIdentity, MutatingIdentity
 from core.domain.ids import JobId, SourceId
 from core.domain.principals import PUBLIC
@@ -65,6 +65,7 @@ async def list_sources(identity: CurrentIdentity, catalog: Catalog) -> list[Sour
             documents=s.documents,
             last_synced_at=s.last_synced_at,
             last_error=s.last_run_error if s.last_run_status == "failed" else None,
+            shareable=s.created_by == identity.user_id and s.connector != "upload",
         )
         for s in await catalog.sources(identity)
     ]
@@ -99,6 +100,26 @@ async def list_runs(
         )
         for r in await catalog.runs(identity, SourceId(source_id), limit)
     ]
+
+
+@router.get(
+    "/runs",
+    summary="Recent sync and upload activity across the sources you can see",
+    response_model=list[ActivityOut],
+)
+async def activity(
+    identity: CurrentIdentity, catalog: Catalog, limit: Annotated[int, Query(ge=1, le=100)] = 20
+) -> list[ActivityOut]:
+    return [
+        ActivityOut(
+            id=a.run.id, kind=a.run.kind, status=a.run.status, started_at=a.run.started_at,
+            finished_at=a.run.finished_at, docs_seen=a.run.docs_seen,
+            docs_changed=a.run.docs_changed, docs_failed=a.run.docs_failed,
+            error_summary=a.run.error_summary, errors=[],
+            source_id=a.source_id, source_name=a.source_name, connector=a.connector,
+        )
+        for a in await catalog.activity(identity, limit)
+    ]  # fmt: skip
 
 
 @router.get(

@@ -16,9 +16,11 @@ from core.services.auth import AuthPolicy, AuthService
 from core.services.catalog import CatalogService
 from core.services.discord import DiscordService
 from core.services.github import GitHubService
+from core.services.mail import MailService, MboxActions
 from core.services.search import SearchService
 from core.services.source_actions import ConnectorEntry, SourceActions
 from core.services.uploads import UploadService
+from core.services.workspaces import WorkspaceService
 from tests.fakes.auth import (
     FakeHasher,
     FakeHumanVerifier,
@@ -30,15 +32,18 @@ from tests.fakes.auth import (
 )
 from tests.fakes.catalog import InMemoryCatalog
 from tests.fakes.chat import InMemoryChatStore
+from tests.fakes.credentials import InMemoryCredentials
 from tests.fakes.discord import FakeDiscord
 from tests.fakes.github import FakeGitHub
 from tests.fakes.jobs import FakeJobQueue
+from tests.fakes.mailbox import FakeMailbox
 from tests.fakes.models import FakeChatModel, FakeEmbedder, WordTokenizer
 from tests.fakes.rate_limit import InMemoryRateLimiter
 from tests.fakes.sources import InMemorySources
 from tests.fakes.storage import InMemoryBlobStore, InMemoryIndex
 from tests.fakes.system import FakeClock, FakeHealthProbe
 from tests.fakes.usage import InMemoryGenerations, InMemoryLedger
+from tests.fakes.workspaces import InMemoryWorkspaces
 
 
 @pytest.fixture
@@ -57,12 +62,32 @@ def human() -> FakeHumanVerifier:
 
 
 @pytest.fixture
-def auth(mailer: FakeMailer, human: FakeHumanVerifier) -> AuthService:
-    clock = FakeClock()
-    accounts = InMemoryAccounts(clock=clock)
+def auth_clock() -> FakeClock:
+    return FakeClock()
+
+
+@pytest.fixture
+def accounts(auth_clock: FakeClock) -> InMemoryAccounts:
+    return InMemoryAccounts(clock=auth_clock)
+
+
+@pytest.fixture
+def sessions(accounts: InMemoryAccounts, auth_clock: FakeClock) -> InMemorySessions:
+    return InMemorySessions(accounts, auth_clock)
+
+
+@pytest.fixture
+def auth(
+    mailer: FakeMailer,
+    human: FakeHumanVerifier,
+    accounts: InMemoryAccounts,
+    sessions: InMemorySessions,
+    auth_clock: FakeClock,
+) -> AuthService:
+    clock = auth_clock
     return AuthService(
         accounts=accounts,
-        sessions=InMemorySessions(accounts, clock),
+        sessions=sessions,
         throttle=InMemoryThrottle(clock),
         hasher=FakeHasher(),
         codes=InMemoryCodes(clock),
@@ -181,10 +206,40 @@ def discord(fake_discord: FakeDiscord, source_store: InMemorySources) -> Discord
 
 
 @pytest.fixture
+def fake_mailbox() -> FakeMailbox:
+    return FakeMailbox()
+
+
+@pytest.fixture
+def mail(fake_mailbox: FakeMailbox, source_store: InMemorySources) -> MailService:
+    clock = FakeClock()
+    return MailService(
+        fake_mailbox, InMemoryCredentials(), source_store, FakeJobQueue(clock),
+        InMemoryRateLimiter(clock), clock,
+    )  # fmt: skip
+
+
+@pytest.fixture
+def workspaces(
+    accounts: InMemoryAccounts,
+    sessions: InMemorySessions,
+    source_store: InMemorySources,
+    mailer: FakeMailer,
+    auth_clock: FakeClock,
+) -> WorkspaceService:
+    return WorkspaceService(
+        InMemoryWorkspaces(accounts, source_store, auth_clock), sessions, source_store,
+        InMemoryRateLimiter(auth_clock), auth_clock, mailer=mailer, app_url="https://slate.test",
+    )  # fmt: skip
+
+
+@pytest.fixture
 def app(
     probe: FakeHealthProbe,
     github: GitHubService,
     discord: DiscordService,
+    mail: MailService,
+    workspaces: WorkspaceService,
     source_store: InMemorySources,
     auth: AuthService,
     uploads: UploadService,
@@ -206,11 +261,15 @@ def app(
         chats=chats,
         github=github,
         discord=discord,
+        mail=mail,
+        workspaces=workspaces,
         actions=SourceActions(
             source_store,
             {
                 "github": ConnectorEntry("GitHub", github),
                 "discord": ConnectorEntry("Discord", discord),
+                "imap": ConnectorEntry("Email", mail),
+                "gmail_mbox": ConnectorEntry("Email import", MboxActions(mail)),
             },
         ),
     )

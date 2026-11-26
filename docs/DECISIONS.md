@@ -302,3 +302,103 @@ Format: number, title, status, context, decision, consequences. Add new ADRs at 
 7. **Generic source actions:** `POST /sources/{id}/sync` and `DELETE /sources/{id}` dispatch by connector (`SourceActions`). A source the caller can't see is a 404, the same rule as the sources list. Disconnecting works even when the integration is no longer configured.
 **Consequences:** No Gateway, so a message is searchable after the next hourly sync or "Sync now". Edits older than 48 h (outside the newest window) aren't picked up until webhooks or Gateway exist. Access is checked at connect only: someone who later loses a role keeps the channel indexed (the same accepted limit as GitHub). Disconnecting removes the bot from a server that no other source uses, so nothing is left behind.
 **Fixed on the way:** `GitHubSync` recorded failures with `stage="index"`, which `ingestion_errors`' CHECK rejects, so the first document that failed to index crashed the whole sync. Both connectors now record the real pipeline stage, the adapter maps any unknown stage to `store`, and the test fake enforces the CHECK.
+
+## ADR-0028: Email over IMAP with an app password; .mbox as the fallback
+**Status:** Accepted (2026-11-26, M6). Supersedes ADR-0015 (Internal Workspace OAuth app) and replaces ADR-0009's Takeout-only plan.
+**Context:** The owner wants Slate to answer questions about any email, kept current, for every account (open sign-up, ADR-0021). The Gmail API's `gmail.readonly` is a restricted scope. A public app needs Google's verification and a paid security assessment (CASA), which breaks the $0 rule. An unverified External app is limited to 100 hand-added testers whose tokens expire every 7 days. An Internal app admits only one Google Workspace organisation. A Takeout export is a one-off snapshot.
+**Decision (owner, 2026-11-26):**
+1. **Live mail through IMAP with an app password.**
+   - The user picks a provider from a fixed list (Gmail, Yahoo, iCloud, Fastmail). The host is never user-supplied (SSRF). Outlook.com is excluded because Microsoft disabled app-password IMAP for consumer accounts.
+   - The user types their address and an app password. Slate logs in once to check it, then stores it Fernet-encrypted in `credentials`. `CREDENTIALS_FERNET_KEY` may list several keys, which allows rotation.
+   - Login attempts are limited to 5 per hour and 20 per day per user, so Slate can't be used to guess passwords.
+2. **Read-only by construction.**
+   - Folders are opened with EXAMINE and messages fetched with `BODY.PEEK[]`.
+   - The adapter has no STORE, COPY, MOVE, EXPUNGE or APPEND.
+   - Only Inbox and Sent are read: Sent is found by its RFC 6154 special-use flag, then by a well-known name. Spam and Trash are never read.
+   - TLS with certificate checks; 30 s socket timeouts.
+3. **One conversation = one document.**
+   - Messages are grouped by Gmail's `X-GM-THRID` when the server offers it, else by the root of `References`/`In-Reply-To`.
+   - Quoted history is stripped, so each reply's text appears once.
+   - Attachments are listed by file name only and never read. Messages over 10 MB are skipped.
+   - Sections are built directly, not parsed from Markdown, so mail text can't forge document structure.
+   - Capped at 100 messages and 100k characters per thread.
+4. **Sync.**
+   - **First sync:** the newest 5,000 messages per folder from the last 90 days, keeping the 2,000 most recent conversations.
+   - **Later syncs:** only UIDs after the saved cursor, then the rest of each touched conversation in every folder, so the document is rebuilt whole. Unchanged threads are skipped by checksum.
+   - **UIDVALIDITY:** a change re-reads the folder.
+   - **Failures:** cursors advance only after every conversation indexed, so a failure, budget stop or deadline retries next time at no extra cost.
+   - **Scheduling:** hourly; "Sync now" runs inline for up to 90 s.
+   - **Deletions** in the mailbox aren't tracked yet.
+5. **Fallback: `.mbox` import, 25 MB** (owner's choice).
+   - It uses the reviewed direct-to-storage upload path with a new `mbox` kind, sniffed by its `From ` separator line.
+   - It runs in its own `import_mbox` job, never inline. The runner now refuses job kinds it doesn't handle.
+   - The file becomes thread documents in the user's own "Email import" source. Takeout's `X-GM-THRID` header gives the same threads as the live sync.
+   - The raw file is deleted once imported.
+6. **Privacy.**
+   - Email sources are `user:<connector>` and private data. The 0001 CHECK now covers `imap` (migration 0007).
+   - Deleting a source deletes its credential, by trigger and in code. There is one connection per mailbox per workspace.
+   - The password is never logged, echoed in errors or stored in config.
+**Consequences:**
+- Users must create an app password (2-Step Verification required), and the UI links to each provider's page.
+- An app password grants full IMAP/SMTP access; Slate uses it only to read, and the user can revoke it at the provider at any time.
+- No Google review and no expiring tokens.
+- Sender and date filters in search are deferred to M7, because the query rewrite prompt changes and needs a paid eval run.
+- "Load sample data" is dropped from M6 (owner).
+**Security review (2026-11-26), fixed:**
+- An outsider's reply with a non-ASCII Message-ID could crash every incremental sync while runs reported success. Now only printable-ASCII ids reach IMAP SEARCH, and any unexpected error is a *failed* run.
+- A non-ASCII app password caused a 500 and leaked the socket. It is now rejected up front, and any login failure closes the connection; the chained exception, which holds the password, is dropped.
+- A permanently failing conversation held the cursor and made every sync re-read. Only retryable failures hold it now.
+- Incremental reads could drop conversations past the thread cap. They now read at most as many messages as the cap.
+- IMAP dates no longer depend on the process locale.
+- A failed source insert no longer orphans the credential.
+
+## ADR-0029: Audit follow-ups: fair AI caps; GitHub access re-checked on every sync
+**Status:** Accepted (2026-11-26, M7). Amends ADR-0021 §5 and ADR-0023 §1.
+**Context:** The privacy audit (ADR-0026) left three items open:
+- About ten verified accounts could use up the global $0.50/day cap and lock everyone out, the owner included, until midnight UTC.
+- GitHub access was checked only at connect.
+- API error logs might contain private names.
+The owner chose (2026-11-26): exempt the owner and ramp new accounts; store the user's GitHub token to re-check on every sync.
+**Decision:**
+1. **Caps** (`core/domain/budget.py`):
+   - The workspace owned by the verified `OWNER_EMAIL` account ignores the global *daily* cap and the per-workspace caps. The global monthly hard stop still binds it.
+   - Workspaces younger than 7 days get `NEW_ACCOUNT_DAILY_BUDGET_USD` ($0.01, about 8 answers) a day instead of $0.05.
+   - The ledger reports the workspace's age and owner flag in the same single query as the sums, so no extra round trip.
+2. **GitHub re-check:**
+   - With `CREDENTIALS_FERNET_KEY` set, the install redirect's user token is kept, Fernet-encrypted, and attached to the repos connected with that grant.
+   - Every sync first asks GitHub which repos that user can still read through the installation. An expired token is refreshed, and the rotated refresh token is stored.
+   - **Can't verify** (revoked, expired, or the credential no longer decrypts): the run fails with "Connect GitHub again to re-verify", and the documents stay.
+   - **Access confirmed lost:** every document of that repo is removed and the run fails with the reason.
+   - Reconnecting re-attaches a fresh token to your own existing repos. Tokens no source uses are swept after 24 h. A source's credential is deleted with it (the migration 0007 trigger).
+   - Repos connected before this change have no token and keep the connect-time check only. Reconnect to upgrade them.
+   - Without an encryption key, ADR-0023's behaviour is unchanged.
+3. **Logs:** checked. The API logs an error's detail only for 5xx responses, whose text is fixed server wording. 4xx responses (where names such as repos appear) log only the code.
+**Consequences:** One user token per connect is stored encrypted, which reverses ADR-0023's "no stored GitHub secret" for the sake of access correctness. Each sync makes two extra GitHub calls, against the user's own rate limit. The owner can no longer be locked out by strangers.
+
+## ADR-0030: Shared workspaces: several per account, invitations, explicit sharing
+**Status:** Accepted (2026-11-26, M7). Lifts ADR-0021's one-workspace-per-account; builds on ADR-0026.
+**Context:** The owner wants ChatGPT-style workspaces: your data is private to you; you choose to share it with people you invite; unknown accounts never see it. The owner chose (2026-11-26): an account keeps its own workspace and can join others (with a switcher), and leaving or being removed deletes everything that person connected there.
+**Decision:**
+1. **Membership.**
+   - `memberships_one_per_user` is dropped (migration 0008).
+   - `sessions.workspace_id` is the *active* workspace, but only a preference. Session resolution joins `memberships` on every request and falls back to the user's own workspace (owner first) when they are no longer a member there, so a removal takes effect on the next request.
+   - Switching (`POST /workspaces/switch`) checks membership in the same UPDATE. The web app clears its whole query cache on a switch.
+2. **Invitations.**
+   - Owners invite admins, members and viewers; admins invite members and viewers.
+   - The token is 256 random bits, stored only as SHA-256. It is single use, expires after 14 days, and at most one is open per address (a resend replaces it).
+   - Invites are **bound to the invited address**: only the account with that canonical email can accept, so a forwarded link is useless.
+   - The link carries the token in the URL fragment, which never reaches a server log. The landing page keeps it in this tab's storage across a sign-in, and accepting needs a click, so mail scanners can't accept.
+   - Mail goes out only with SMTP and `APP_URL` configured, and shares the global mail budget. Otherwise the inviter copies the link.
+   - Limits: 20 invites per workspace per day, 50 members.
+3. **Roles.**
+   - Only the owner changes roles, never their own, never to or from owner.
+   - The owner can't leave or be removed (checked in the service and again in SQL).
+   - Admins remove members and viewers; anyone else may leave.
+4. **Leaving or removal** deletes, in one transaction, everything that person connected in that workspace: their sources (documents, chunks and runs cascade, and the 0007 trigger deletes stored tokens), their uploads in the shared upload sources, and their chats. It also clears sessions pointing there. Audited.
+5. **Sharing.**
+   - `PUT /sources/{id}/sharing` is allowed only for the person who connected the source (`created_by`). It switches the source's ACL between `user:<them>` and `user:<them>, workspace:<ws>`, and rewrites its documents' ACLs in the same transaction (chunks follow by trigger).
+   - Audited. Email asks for confirmation in the UI.
+   - Uploads keep their per-file "Only me" / "Workspace" choice.
+   - Hidden sources stay 404 for sync and disconnect (ADR-0026).
+6. **Budget** (ADR-0029 amended): the owner's exemption follows the *person*. Chat and search use the caller's `is_platform_admin`; background work uses the workspace's flag only while the owner is its sole member. So invitees never inherit it.
+**Consequences:** The data model already scoped everything by `workspace_id` and ACL, so retrieval SQL is unchanged: members see a source only once its connector shares it. There is no per-group sharing yet (groups exist in the schema for Phase 4).

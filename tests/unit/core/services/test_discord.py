@@ -621,3 +621,11 @@ async def test_the_connector_can_always_delete_their_own_source(env: Env) -> Non
     )
     await env.svc.disconnect(demoted, sid)
     assert sid not in env.sources.records
+
+
+async def test_running_syncs_report_progress(env: Env) -> None:
+    env.dc.post(GENERAL, *(msg(NOW - timedelta(hours=40 - i), f"topic {i}") for i in range(12)))
+    sid = await connected(env)
+    await env.run(sid)
+    assert env.sources.progressed  # every 10 items, so the source page shows live counts
+    assert env.sources.progressed[0][1] == 10

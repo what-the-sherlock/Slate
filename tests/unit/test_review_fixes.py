@@ -251,3 +251,22 @@ async def test_sweeper_never_deletes_referenced_objects() -> None:
     sources.used_blobs = {"uploads/used"}
     assert await sweep_abandoned_uploads(blobs, sources) == 0
     assert "uploads/used" in blobs.blobs
+
+
+async def test_activity_hides_upload_runs_from_members_but_not_admins() -> None:
+    ws = WorkspaceId(uuid4())
+    catalog = InMemoryCatalog()
+    src = _upload_source(ws)
+    catalog.source_rows.append((ws, src))
+    catalog.run_rows[src.id] = [
+        RunSummary(
+            id=RunId(uuid4()), kind="upload", status="succeeded", started_at=None,
+            finished_at=None, docs_seen=1, docs_changed=1, docs_failed=0, error_summary=None,
+            errors=(),
+        )
+    ]  # fmt: skip
+    service = CatalogService(catalog)
+    assert await service.activity(_identity(ws, Role.MEMBER)) == []
+    [row] = await service.activity(_identity(ws, Role.ADMIN))
+    assert row.source_name == src.name
+    assert await service.activity(_identity(WorkspaceId(uuid4()), Role.ADMIN)) == []

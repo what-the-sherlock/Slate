@@ -15,7 +15,11 @@ export interface SearchState {
   q: string;
   sources: string[];
   date: DatePreset;
+  /** Only documents by this person: name or email address (M7 filters). */
+  from: string;
 }
+
+export const MAX_FROM_CHARS = 200;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -26,6 +30,7 @@ export function parseSearchState(params: URLSearchParams): SearchState {
     q: (params.get("q") ?? "").slice(0, 500),
     sources: params.getAll("source").filter((s) => UUID_RE.test(s)).slice(0, 20),
     date: date in DATE_PRESETS ? (date as DatePreset) : "any",
+    from: (params.get("from") ?? "").trim().slice(0, MAX_FROM_CHARS),
   };
 }
 
@@ -34,6 +39,7 @@ export function toSearchParams(state: SearchState): URLSearchParams {
   if (state.q) out.set("q", state.q);
   for (const s of state.sources) out.append("source", s);
   if (state.date !== "any") out.set("date", state.date);
+  if (state.from.trim()) out.set("from", state.from.trim());
   return out;
 }
 

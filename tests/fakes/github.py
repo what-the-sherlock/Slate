@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
 from core.domain.errors import NotFound, RateLimited
-from core.domain.github import Comment, Issue, Repo, RepoFile
+from core.domain.github import Comment, Issue, Recheck, Repo, RepoFile, UserAccess
 
 
 @dataclass
@@ -28,6 +28,8 @@ class FakeGitHub:
         self.tarball_downloads = 0
         self.comment_calls = 0
         self.rate_limited = False
+        self.revoked: set[str] = set()
+        self.rechecks = 0
 
     @property
     def configured(self) -> bool:
@@ -50,13 +52,32 @@ class FakeGitHub:
     def install_url(self, state: str) -> str:
         return f"https://github.com/apps/slate/installations/new?state={state}"
 
-    async def user_installation_repos(self, code: str, installation_id: int) -> list[str] | None:
+    async def authorize(
+        self, code: str, installation_id: int, *, keep_token: bool
+    ) -> UserAccess | None:
+        names = self._names(code, installation_id)
+        if names is None:
+            return None
+        return UserAccess(tuple(names), f"tok:{code}" if keep_token else None)
+
+    def _names(self, code: str, installation_id: int) -> list[str] | None:
         if installation_id not in self.owners.get(code, set()):
             return None
         names = set(self.installations.get(installation_id, {}))
         if code in self.user_repos:
             names &= self.user_repos[code]
         return sorted(names)
+
+    async def recheck(self, secret: str, installation_id: int) -> Recheck:
+        self.rechecks += 1
+        code = secret.removeprefix("tok:")
+        if secret in self.revoked:
+            return Recheck(None, secret)
+        names = self._names(code, installation_id)
+        return Recheck(tuple(names) if names is not None else (), secret)
+
+    async def forget(self, secret: str) -> None:
+        self.revoked.add(secret)
 
     async def installation_repos(self, installation_id: int) -> list[Repo]:
         if installation_id not in self.installations:

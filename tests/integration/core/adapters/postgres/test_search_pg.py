@@ -317,3 +317,36 @@ async def test_neighbours_use_the_same_access_rule(uow: UnitOfWork, world: World
         data_class="private",
     )
     assert await index.neighbours(world.ws, world.guest_p(), [(secret_id, 0)]) == []
+
+
+async def test_author_filter_matches_substrings_and_escapes_wildcards(
+    uow: UnitOfWork, world: World
+) -> None:
+    """M7 filters: 'from' narrows inside the ACL-filtered SQL; % and _ are literal."""
+    async with uow() as s:
+        await s.execute(
+            text(
+                "UPDATE documents SET author = 'Priya Shah <priya@acme.test>'"
+                " WHERE workspace_id = :w AND external_id = 'salaries'"
+            ),
+            {"w": world.ws},
+        )
+    index = PostgresSearchIndex(uow)
+    by_priya = SearchFilters(author="PRIYA@acme")
+    assert titles(
+        await index.keyword_search(world.ws, world.owner_p(), "paid leave", 10, by_priya)
+    ) == {"Salaries"}
+    assert (
+        await index.keyword_search(
+            world.ws, world.owner_p(), "paid leave", 10, SearchFilters(author="%")
+        )
+        == []
+    )
+    assert (
+        await index.keyword_search(
+            world.ws, world.owner_p(), "paid leave", 10, SearchFilters(author="pri_a")
+        )
+        == []
+    )
+    # The filter never widens access: the outsider still sees nothing private.
+    assert await index.keyword_search(world.ws, world.guest_p(), "paid leave", 10, by_priya) == []

@@ -46,6 +46,7 @@ from core.ports.rate_limit import Limit, RateLimiter
 from core.ports.sources import SourceStore
 from core.ports.storage import BlobStore, PresignedUpload
 from core.ports.system import Clock
+from core.services.mail import IMPORT_MBOX, mbox_source
 
 PROCESS_UPLOAD = "process_upload"
 TOKEN_PURPOSE = "upload"  # noqa: S105 (token purpose label, not a secret)
@@ -80,6 +81,7 @@ class CompleteResult:
     job_id: JobId | None = None
     document_id: DocumentId | None = None
     size: int = 0
+    inline: bool = True  # may the API process it right away (an .mbox goes to the worker)
 
 
 def derive_key(root_secret: bytes, purpose: str) -> bytes:
@@ -200,6 +202,8 @@ class UploadService:
                 extra={"fields": {"file": f"The contents don't match a .{kind.value} file."}},
             )
 
+        if kind is FileKind.MBOX:
+            return await self._enqueue_mbox(identity, key, sha256, size, name)
         access = access_for(visibility, identity.user_id, identity.workspace_id)
         source = await self._sources.upload_source(identity.workspace_id, access.data_class)
         external_id = external_id_for(sha256, identity.user_id)
@@ -264,6 +268,27 @@ class UploadService:
             limit_mb = MAX_STORED_BYTES_PER_WORKSPACE // (1024 * 1024)
             message = f"This file would take your workspace over its {limit_mb} MB storage limit."
             raise ValidationFailed(message, extra={"fields": {"file": message}})
+
+    async def _enqueue_mbox(
+        self, identity: Identity, key: str, sha256: str, size: int, name: str
+    ) -> CompleteResult:
+        """Email exports become thread documents in the user's own "Email import" source,
+        always private to them (ADR-0028), whatever visibility was asked for."""
+        source = await mbox_source(self._sources, identity)
+        job_key = f"{IMPORT_MBOX}:{identity.workspace_id}:{identity.user_id}:{sha256}"
+        prior = await self._jobs.find_by_key(job_key)
+        if prior is not None and prior.status in _IN_FLIGHT:
+            return CompleteResult(UploadStatus.PROCESSING, job_id=prior.id, inline=False)
+        if prior is not None and prior.status in (JobStatus.DEAD, JobStatus.SUCCEEDED):
+            job_key = f"{job_key}:again:{prior.id}"  # importing the same file again re-runs it
+        job = await self._jobs.enqueue(
+            identity.workspace_id,
+            IMPORT_MBOX,
+            {"blob_key": key, "sha256": sha256, "size": size, "filename": name,
+             "source_id": str(source), "uploader": str(identity.user_id)},
+            job_key,
+        )  # fmt: skip
+        return CompleteResult(UploadStatus.UPLOAD, job_id=job, size=size, inline=False)
 
     @staticmethod
     def _require_uploader(identity: Identity) -> None:

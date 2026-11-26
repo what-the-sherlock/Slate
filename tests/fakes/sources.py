@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from core.domain.data_class import DataClass
 from core.domain.errors import Conflict
@@ -26,6 +27,7 @@ class InMemorySources:
         self.runs: dict[RunId, tuple[SourceId, str]] = {}
         self.finished: dict[RunId, tuple[str, int, int, int, str | None]] = {}
         self.errors: list[tuple[RunId, str, str, bool]] = []
+        self.progressed: list[tuple[RunId, int, int, int]] = []
         self.used_blobs: set[str] = set()
         self.usage: dict[WorkspaceId, tuple[int, int]] = {}  # (documents, bytes)
 
@@ -71,6 +73,9 @@ class InMemorySources:
     ) -> None:
         self.finished[run_id] = (status, seen, changed, failed, error_summary)
 
+    async def progress(self, run_id: RunId, *, seen: int, changed: int, failed: int) -> None:
+        self.progressed.append((run_id, seen, changed, failed))
+
     async def record_error(
         self, run_id: RunId, *, external_id: str | None, stage: str, message: str, retryable: bool
     ) -> None:
@@ -91,6 +96,7 @@ class InMemorySources:
         visibility: Sequence[str],
         data_class: DataClass,
         created_by: UserId | None = None,
+        credential_id: UUID | None = None,
     ) -> SourceId:
         if any(r.workspace_id == ws and r.name == name for r in self.records.values()):
             raise Conflict(f"{name} is already connected.")
@@ -105,8 +111,18 @@ class InMemorySources:
             "active",
             dict(config),
             created_by=created_by,
+            credential_id=credential_id,
         )
         return sid
+
+    async def set_credential(
+        self, ws: WorkspaceId, source_id: SourceId, credential_id: UUID
+    ) -> bool:
+        r = self.records.get(source_id)
+        if r is None or r.workspace_id != ws:
+            return False
+        self.records[source_id] = replace(r, credential_id=credential_id)
+        return True
 
     async def update_config(
         self, ws: WorkspaceId, source_id: SourceId, config: dict[str, object]

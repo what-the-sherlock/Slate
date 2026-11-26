@@ -7,6 +7,7 @@ from core.domain.ids import WorkspaceId
 from core.domain.jobs import Job, JobStatus
 from core.services.inline import InlineOutcome, InlineRunner
 from tests.fakes.jobs import FakeJobQueue
+from tests.fakes.system import FakeClock
 from tests.port_contracts.job_queue import PAST
 
 WS = WorkspaceId(uuid4())
@@ -65,3 +66,18 @@ async def test_unexpected_crash_is_deferred_not_raised() -> None:
 
     _, job_id, runner = await setup(boom)
     assert await runner.run(job_id) is InlineOutcome.DEFERRED
+
+
+async def test_runner_leaves_jobs_of_other_kinds_to_the_worker() -> None:
+    clock = FakeClock()
+    queue = FakeJobQueue(clock)
+    job = await queue.enqueue(WorkspaceId(uuid4()), "import_mbox", {}, "k-other")
+    ran: list[object] = []
+
+    async def handler(j: object) -> None:
+        ran.append(j)
+
+    runner = InlineRunner(queue, handler, runner_id="t", kinds=frozenset({"process_upload"}))
+    assert await runner.run(job) is InlineOutcome.DEFERRED
+    assert ran == []
+    assert (await queue.get(job)).status.value == "queued"  # untouched, still claimable

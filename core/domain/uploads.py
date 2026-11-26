@@ -31,6 +31,7 @@ class FileKind(StrEnum):
     TEXT = "txt"
     HTML = "html"
     CSV = "csv"
+    MBOX = "mbox"  # an email export: split into thread documents, not parsed as one file
 
 
 MIME: dict[FileKind, str] = {
@@ -40,6 +41,7 @@ MIME: dict[FileKind, str] = {
     FileKind.TEXT: "text/plain",
     FileKind.HTML: "text/html",
     FileKind.CSV: "text/csv",
+    FileKind.MBOX: "application/mbox",
 }
 _BY_EXTENSION: dict[str, FileKind] = {
     ".pdf": FileKind.PDF,
@@ -51,10 +53,13 @@ _BY_EXTENSION: dict[str, FileKind] = {
     ".html": FileKind.HTML,
     ".htm": FileKind.HTML,
     ".csv": FileKind.CSV,
+    ".mbox": FileKind.MBOX,
 }
 _TEXT_KINDS = {FileKind.MARKDOWN, FileKind.TEXT, FileKind.HTML, FileKind.CSV}
 
-ALLOWED_DESCRIPTION = "PDF, Word (.docx), Markdown, HTML, CSV or plain text"
+ALLOWED_DESCRIPTION = (
+    "PDF, Word (.docx), Markdown, HTML, CSV, plain text or an email export (.mbox)"
+)
 
 
 class Visibility(StrEnum):
@@ -76,6 +81,8 @@ def sniff_kind(head: bytes, claimed: FileKind) -> FileKind | None:
         return claimed if head.lstrip(b"\x00\t\r\n ").startswith(b"%PDF-") else None
     if claimed is FileKind.DOCX:
         return claimed if head.startswith(b"PK\x03\x04") else None
+    if claimed is FileKind.MBOX and not head.startswith(b"From "):
+        return None  # an mbox starts with its first message's "From " separator line
     if b"\x00" in head:
         return None
     try:

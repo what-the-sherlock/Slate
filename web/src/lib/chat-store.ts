@@ -31,6 +31,8 @@ export interface Thread {
 
 export interface AskOptions {
   sourceIds?: string[];
+  updatedAfter?: string;
+  author?: string;
   /** Regenerate / edit / retry: this turn and every later one are replaced. */
   replace?: Turn;
   /** A new chat got its session id (update the URL, add it to the history list). */
@@ -124,7 +126,7 @@ export function createChatStore({ stream = streamChat, now = Date.now, newKey = 
 
     try {
       await stream(
-        { question: q, session_id: thread.sessionId, source_ids: opts.sourceIds ?? [], replace_from: replaceFrom ?? null },
+        { question: q, session_id: thread.sessionId, source_ids: opts.sourceIds ?? [], updated_after: opts.updatedAfter ?? null, author: opts.author || null, replace_from: replaceFrom ?? null },
         (event) => {
           if (event.type === "meta") {
             gotMeta = true;
@@ -212,6 +214,19 @@ export function createChatStore({ stream = streamChat, now = Date.now, newKey = 
           r.controller.abort();
         }
       }
+    },
+    /** Forget every chat and stop every answer: the workspace changed, and nothing from the
+     * old one may stay on screen or keep streaming (ADR-0030). */
+    reset() {
+      for (const r of running.values()) {
+        r.reason = "user";
+        r.controller.abort();
+      }
+      running.clear();
+      threads.clear();
+      aliases.clear();
+      streamingSnapshot = [];
+      emit();
     },
     /** Load a reopened chat from the server, unless this tab already holds it. */
     hydrate(sessionId: string, messages: readonly StoredMessage[]) {

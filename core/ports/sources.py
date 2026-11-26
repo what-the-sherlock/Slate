@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
+from uuid import UUID
 
 from core.domain.data_class import DataClass
 from core.domain.ids import DocumentId, RunId, SourceId, UserId, WorkspaceId
@@ -31,6 +32,7 @@ class SourceRecord:
     checkpoint: dict[str, object] | None = None
     last_synced_at: datetime | None = None
     created_by: UserId | None = None  # who connected it; None for system upload sources
+    credential_id: UUID | None = None  # its encrypted secret, if the connector needs one
 
 
 class SourceStore(Protocol):
@@ -60,6 +62,10 @@ class SourceStore(Protocol):
         error_summary: str | None = None,
     ) -> None: ...
 
+    async def progress(self, run_id: RunId, *, seen: int, changed: int, failed: int) -> None:
+        """Counts so far for a running run (the source page shows live progress)."""
+        ...
+
     async def record_error(
         self, run_id: RunId, *, external_id: str | None, stage: str, message: str, retryable: bool
     ) -> None: ...
@@ -78,6 +84,7 @@ class SourceStore(Protocol):
         visibility: Sequence[str],
         data_class: DataClass,
         created_by: UserId | None = None,
+        credential_id: UUID | None = None,
     ) -> SourceId:
         """Raises Conflict if the workspace already has a source with this name.
 
@@ -88,6 +95,12 @@ class SourceStore(Protocol):
 
     async def get_source(self, ws: WorkspaceId, source_id: SourceId) -> SourceRecord | None:
         """The source if it's in this workspace (no probing across workspaces)."""
+        ...
+
+    async def set_credential(
+        self, ws: WorkspaceId, source_id: SourceId, credential_id: UUID
+    ) -> bool:
+        """Point a source at a new credential (a reconnect). False if not in this workspace."""
         ...
 
     async def update_config(

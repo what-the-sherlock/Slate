@@ -8,9 +8,9 @@ import { Kpi, PanelLabel, PanelRow } from "@/components/panel";
 import { Pill, SourceStatusPill, type PillVariant } from "@/components/status-pill";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiProblem, errorMessage } from "@/lib/api/client";
-import { useMe, useRuns, useSources } from "@/lib/api/hooks";
+import { useMe, useRuns, useSources, useWorkspaces } from "@/lib/api/hooks";
 import { absoluteTime, formatCount, relativeTime } from "@/lib/format";
-import { DangerZone, SyncNowButton } from "./source-actions";
+import { DangerZone, ShareToggle, SyncNowButton } from "./source-actions";
 
 const RUN_STATUS: Record<string, { variant: PillVariant; label: string }> = {
   succeeded: { variant: "success", label: "Succeeded" },
@@ -36,6 +36,7 @@ export function RunsView({ sourceId }: { sourceId: string }) {
   const me = useMe();
   const source = sources.data?.find((s) => s.id === sourceId);
   const canManage = me.data?.role === "owner" || me.data?.role === "admin";
+  const workspace = useWorkspaces().data?.find((w) => w.active);
   const notFound = runs.error instanceof ApiProblem && runs.error.status === 404;
 
   return (
@@ -56,6 +57,7 @@ export function RunsView({ sourceId }: { sourceId: string }) {
               <span className="ml-auto flex items-center gap-3">
                 <SourceStatusPill status={source.status} />
                 {me.data?.role !== "viewer" ? <SyncNowButton source={source} /> : null}
+                <ShareToggle source={source} members={workspace?.members ?? 1} />
               </span>
             ) : null}
           </div>
@@ -96,6 +98,8 @@ export function RunsView({ sourceId }: { sourceId: string }) {
                 ? "The first sync starts right after connecting. Repositories re-sync every hour."
                 : source?.connector === "discord"
                   ? "The first sync reads the last 90 days. New messages arrive with the hourly sync."
+                  : source?.connector === "imap"
+                    ? "The first sync reads the last 90 days of Inbox and Sent. New mail arrives hourly."
                   : "Runs appear here when files are processed."}
             </EmptyState>
           ) : (
@@ -107,7 +111,8 @@ export function RunsView({ sourceId }: { sourceId: string }) {
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-caption">
                       <Pill variant={st.variant}>{st.label}</Pill>
                       <span className="font-medium text-fg">{RUN_KIND[run.kind] ?? run.kind}</span>
-                      <span className="text-fg-subtle tabular-nums">
+                      <span className="text-fg-subtle tabular-nums" aria-live={run.status === "running" ? "polite" : undefined}>
+                        {run.status === "running" ? `${run.docs_seen} checked · ` : ""}
                         {run.docs_changed} changed · {run.docs_failed} failed
                       </span>
                       <time className="ml-auto text-fg-subtle" dateTime={run.started_at ?? undefined} title={absoluteTime(run.started_at)}>

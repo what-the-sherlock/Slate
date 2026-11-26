@@ -67,6 +67,11 @@ def _filters_sql(f: SearchFilters, params: dict[str, Any]) -> str:
     if f.updated_before is not None:
         parts.append("d.source_updated_at <= :before")
         params["before"] = f.updated_before
+    if f.author:
+        # A substring match; LIKE's wildcards in the user's text are escaped (bound value).
+        parts.append("d.author ILIKE :author ESCAPE '\\'")
+        escaped = f.author.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        params["author"] = f"%{escaped}%"
     return "".join(f" AND {p}" for p in parts)
 
 

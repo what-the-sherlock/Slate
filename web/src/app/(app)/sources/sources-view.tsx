@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { errorMessage } from "@/lib/api/client";
-import { useMe, useSources, type Source } from "@/lib/api/hooks";
+import { useActivity, useMe, useSources, type Source } from "@/lib/api/hooks";
 import { absoluteTime, formatCount, relativeTime } from "@/lib/format";
 import { AddSourceDialog } from "./add-source-dialog";
 
@@ -91,7 +91,10 @@ export function SourcesView() {
               : "Nothing has been shared with you yet."}
           </EmptyState>
         ) : (
-          <SourcesTable rows={sources.data} />
+          <>
+            <SourcesTable rows={sources.data} />
+            <RecentActivity />
+          </>
         )}
       </div>
       {canAdd ? (
@@ -174,5 +177,43 @@ function TableSkeleton() {
         </div>
       ))}
     </div>
+  );
+}
+
+const ACTIVITY_STATUS: Record<string, string> = {
+  succeeded: "text-success",
+  partial: "text-warning",
+  failed: "text-danger",
+  running: "text-brand",
+};
+
+/** Ingestion history across the sources you can see (M7): what synced, when, and how it went. */
+function RecentActivity() {
+  const activity = useActivity();
+  if (!activity.data?.length) return null;
+  return (
+    <section aria-labelledby="activity-h" className="border-t border-border">
+      <h2 id="activity-h" className="flex h-11 items-center px-4 text-label font-semibold tracking-wider text-fg-subtle uppercase sm:px-8">
+        Recent activity
+      </h2>
+      <ul className="divide-y divide-border border-t border-border">
+        {activity.data.map((r) => (
+          <li key={r.id}>
+            <Link href={`/sources/${r.source_id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-caption hover:bg-subtle sm:px-8">
+              <LogoTile connector={r.connector} size={20} />
+              <span className="min-w-0 flex-1 truncate font-medium text-fg">{r.source_name}</span>
+              <span className={ACTIVITY_STATUS[r.status] ?? "text-fg-subtle"}>{r.status === "running" ? "Syncing" : r.status}</span>
+              <span className="text-fg-subtle tabular-nums">
+                {r.status === "running" ? `${r.docs_seen} checked · ` : ""}
+                {r.docs_changed} changed{r.docs_failed ? ` · ${r.docs_failed} failed` : ""}
+              </span>
+              <time className="text-fg-subtle" dateTime={r.started_at ?? undefined} title={absoluteTime(r.started_at)}>
+                {relativeTime(r.started_at)}
+              </time>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

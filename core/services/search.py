@@ -17,7 +17,7 @@ from decimal import Decimal
 
 import structlog
 
-from core.domain.auth import Identity
+from core.domain.auth import Identity, Role
 from core.domain.budget import SpendLimits
 from core.domain.documents import DocumentPreview, ScoredChunk, SearchFilters
 from core.domain.errors import RateLimited, UpstreamUnavailable, ValidationFailed
@@ -40,6 +40,7 @@ log = structlog.get_logger(__name__)
 
 CANDIDATES_PER_LANE = 50
 MAX_LIMIT = 50
+MAX_AUTHOR_CHARS = 200
 MAX_SOURCE_FILTERS = 20
 PREVIEW_MAX_CHUNKS = 200
 # Each search may spend a (cheap) paid query embedding and two index scans, so a user
@@ -158,6 +159,10 @@ class SearchService:
         f = filters or SearchFilters()
         if len(f.source_ids) > MAX_SOURCE_FILTERS:
             raise ValidationFailed(f"Filter by at most {MAX_SOURCE_FILTERS} sources.")
+        if f.author is not None and len(f.author.strip()) > MAX_AUTHOR_CHARS:
+            raise ValidationFailed(
+                f"The sender filter is limited to {MAX_AUTHOR_CHARS} characters."
+            )
         if not await self._limiter.try_spend(f"search:{identity.user_id}", 1, SEARCH_LIMIT):
             raise RateLimited("Too many searches. Wait a moment and try again.", retry_after_s=60)
         if not await self._limiter.try_spend(
@@ -171,7 +176,10 @@ class SearchService:
     ) -> SearchResults:
         """Validated query -> hybrid retrieval, with spend checked and recorded. Shared by
         search and chat (no rate limit here: each caller applies its own)."""
-        plan, notice = await self._vector_plan(identity.workspace_id)
+        plan, notice = await self._vector_plan(
+            identity.workspace_id,
+            privileged=identity.is_platform_admin and identity.role is Role.OWNER,
+        )
         res = await hybrid_retrieve(
             self._index,
             identity.workspace_id,
@@ -212,7 +220,9 @@ class SearchService:
             )
         )
 
-    async def _vector_plan(self, ws: WorkspaceId) -> tuple[VectorLane | None, str | None]:
+    async def _vector_plan(
+        self, ws: WorkspaceId, *, privileged: bool
+    ) -> tuple[VectorLane | None, str | None]:
         """Whether the vector lane may run, and with which embedder and generation."""
         if self._embedder is None:
             return None, None  # no embedding model configured (e.g. local dev without a key)
@@ -220,7 +230,9 @@ class SearchService:
         if gen is None or gen.model != self._embedder.model:
             return None, None  # nothing embedded with this model yet: keyword is all there is
         # A query embedding costs a fraction of a cent; refuse once any cap is reached.
-        if reason := self._limits.refusal(await self._ledger.spend(ws), QUERY_EMBED_USD):
+        if reason := self._limits.refusal(
+            await self._ledger.spend(ws), QUERY_EMBED_USD, privileged=privileged
+        ):
             return None, f"Meaning-based search is paused. {reason}"
         return VectorLane(self._embedder, gen.id), None
 

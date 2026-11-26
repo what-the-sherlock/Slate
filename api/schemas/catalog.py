@@ -17,6 +17,9 @@ class SourceOut(BaseModel):
     documents: int
     last_synced_at: datetime | None
     last_error: str | None
+    shareable: bool = Field(
+        default=False, description="You connected it, so you may share it with the workspace"
+    )
 
 
 class RunErrorOut(BaseModel):
@@ -44,6 +47,12 @@ class JobOut(BaseModel):
     attempts: int
     error: str | None
     filename: str | None
+
+
+class ActivityOut(RunOut):
+    source_id: UUID
+    source_name: str
+    connector: str
 
 
 class SyncOut(BaseModel):

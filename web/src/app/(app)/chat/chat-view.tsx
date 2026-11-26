@@ -19,6 +19,7 @@ import { Composer, LIMIT } from "./composer";
 import { HistoryPanel } from "./history-panel";
 import { SourcesPanel } from "./sources-panel";
 import { TurnView, type TurnActions } from "./turn";
+import { updatedAfter, type DatePreset } from "@/lib/search";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -90,6 +91,8 @@ export function ChatView() {
   const [draft, setDraft] = useState("");
   const [composerError, setComposerError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [date, setDate] = useState<DatePreset>("any");
+  const [from, setFrom] = useState("");
   // The sources panel belongs to one chat: switching chats closes it (no effect needed).
   const [panelState, setPanelState] = useState<{ thread: string; turn: string; n: number | null } | null>(null);
   const panel = panelState?.thread === key ? panelState : null;
@@ -149,6 +152,8 @@ export function ChatView() {
   const options = useCallback(
     (startedOn: string): AskOptions => ({
       sourceIds: selected,
+      updatedAfter: updatedAfter(date),
+      author: from.trim() || undefined,
       onSession: (sid, question) => {
         // The new chat goes to the top of the history list at once (no refetch, no poll).
         client.setQueryData<InfiniteData<ChatSession[], string | null>>(keys.chatSessions, (old) => {
@@ -169,7 +174,7 @@ export function ChatView() {
         }
       },
     }),
-    [client, router, selected],
+    [client, router, selected, date, from],
   );
 
   function send(text: string = draft) {
@@ -200,7 +205,11 @@ export function ChatView() {
           el?.setSelectionRange(el.value.length, el.value.length);
         });
       },
-      onClearFilters: () => setSelected([]),
+      onClearFilters: () => {
+        setSelected([]);
+        setDate("any");
+        setFrom("");
+      },
     }),
     [key, options, scrollToBottom, setPanel],
   );
@@ -266,7 +275,7 @@ export function ChatView() {
             ) : (
               <div className="flex flex-col gap-10 pt-8 pb-10">
                 {turns.map((t, i) => (
-                  <TurnView key={t.key} turn={t} isLast={i === turns.length - 1} threadBusy={threadBusy} filtersActive={selected.length > 0} actions={actions} />
+                  <TurnView key={t.key} turn={t} isLast={i === turns.length - 1} threadBusy={threadBusy} filtersActive={selected.length > 0 || date !== "any" || !!from.trim()} actions={actions} />
                 ))}
               </div>
             )}
@@ -302,6 +311,10 @@ export function ChatView() {
               sources={sources.data ?? []}
               selected={selected}
               onSelected={setSelected}
+              date={date}
+              onDate={setDate}
+              from={from}
+              onFrom={setFrom}
             />
             <p className="mt-2 text-center text-data text-fg-subtle max-sm:hidden">
               Slate can make mistakes. Check answers against their cited sources.

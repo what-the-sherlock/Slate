@@ -56,9 +56,10 @@ _DELETE_UNVERIFIED = (
 )
 
 # A session with its user, membership and groups. The joins are the access rules: a
-# disabled user or a non-member resolves to no row (and memberships_one_per_user means a
-# user resolves to exactly one workspace). {source} and {where} are filled below from
-# fixed fragments only, at import time.
+# disabled user or a user with no membership resolves to no row. The workspace is the
+# session's active one *if the user is still a member* (re-checked on every request, ADR-0030),
+# else their own workspace (owner first), so removing someone takes effect immediately.
+# {source} and {where} are filled below from fixed fragments only, at import time.
 _RESOLVE_SESSION = (
     "SELECT s.id, s.user_id, s.csrf_secret, s.expires_at, s.last_seen_at,"
     " u.email, u.name, u.email_verified_at IS NOT NULL AS email_verified,"
@@ -68,7 +69,10 @@ _RESOLVE_SESSION = (
     "   FILTER (WHERE g.id IS NOT NULL), '{{}}') AS group_ids"
     " FROM {source} s"
     " JOIN users u ON u.id = s.user_id AND u.disabled_at IS NULL"
-    " JOIN memberships m ON m.user_id = u.id"
+    " JOIN LATERAL (SELECT mm.workspace_id, mm.role FROM memberships mm"
+    "   WHERE mm.user_id = u.id"
+    "   ORDER BY (mm.workspace_id = s.workspace_id) DESC NULLS LAST,"
+    "     (mm.role = 'owner') DESC, mm.created_at, mm.workspace_id LIMIT 1) m ON true"
     " LEFT JOIN group_members gm ON gm.user_id = u.id"
     " LEFT JOIN groups g ON g.id = gm.group_id"
     "   AND g.workspace_id = m.workspace_id"
@@ -222,6 +226,19 @@ class PostgresSessionStore:
     async def delete(self, session_id: SessionId) -> None:
         async with self._uow() as s:
             await s.execute(text("DELETE FROM sessions WHERE id = :id"), {"id": session_id})
+
+    async def set_workspace(self, session_id: SessionId, ws: WorkspaceId) -> bool:
+        """Make ``ws`` the session's active workspace, only if its user is a member."""
+        async with self._uow() as s:
+            result = await s.execute(
+                text(
+                    "UPDATE sessions s SET workspace_id = :ws WHERE s.id = :id AND EXISTS"
+                    " (SELECT 1 FROM memberships m WHERE m.user_id = s.user_id"
+                    "  AND m.workspace_id = :ws)"
+                ),
+                {"ws": ws, "id": session_id},
+            )
+        return int(getattr(result, "rowcount", 0) or 0) > 0
 
     async def delete_for_user(self, user_id: UserId) -> None:
         async with self._uow() as s:

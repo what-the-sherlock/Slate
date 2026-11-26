@@ -16,6 +16,9 @@ class SearchBody(BaseModel):
     source_ids: list[UUID] = Field(default_factory=list[UUID], max_length=MAX_SOURCE_FILTERS)
     updated_after: datetime | None = None
     updated_before: datetime | None = None
+    author: str | None = Field(
+        default=None, max_length=200, description="Only documents by this person (name or email)"
+    )
 
 
 class SearchHitOut(BaseModel):

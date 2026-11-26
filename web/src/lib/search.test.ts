@@ -15,8 +15,12 @@ const ID = "3f2b8c1e-1d2a-4c3b-9a8f-0e1d2c3b4a59";
 describe("URL state", () => {
   it("round-trips and validates untrusted params", () => {
     const state = parseSearchState(new URLSearchParams(`q=leave&source=${ID}&source=nope&date=week`));
-    expect(state).toEqual({ q: "leave", sources: [ID], date: "week" });
+    expect(state).toEqual({ q: "leave", sources: [ID], date: "week", from: "" });
     expect(toSearchParams(state).toString()).toBe(`q=leave&source=${ID}&date=week`);
+    const withFrom = parseSearchState(new URLSearchParams(`q=x&from=${encodeURIComponent("  priya@acme.test ")}`));
+    expect(withFrom.from).toBe("priya@acme.test");
+    expect(toSearchParams(withFrom).toString()).toBe("q=x&from=priya%40acme.test");
+    expect(parseSearchState(new URLSearchParams(`from=${"y".repeat(300)}`)).from).toHaveLength(200);
     expect(parseSearchState(new URLSearchParams("date=forever")).date).toBe("any");
     expect(parseSearchState(new URLSearchParams(`q=${"x".repeat(900)}`)).q).toHaveLength(500);
   });

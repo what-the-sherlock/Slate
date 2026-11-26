@@ -22,11 +22,15 @@ from decimal import Decimal
 import structlog
 
 from core.adapters.factories import (
+    credential_store,
     discord_service,
     discord_sync,
     github_service,
     github_sync,
     ingest_service,
+    mail_service,
+    mail_sync,
+    mbox_import,
     s3_blob_store,
     workersai_embedder,
 )
@@ -43,10 +47,12 @@ from core.adapters.postgres.sources import PostgresSourceStore
 from core.adapters.postgres.uow import UnitOfWork, make_uow
 from core.adapters.postgres.usage import PostgresGenerationStore, PostgresUsageLedger
 from core.config import Settings, get_settings
+from core.domain.github import CREDENTIAL_KIND as GITHUB_TOKEN
 from core.logs import configure_logging
 from core.services.backfill import BackfillReport, Provider, backfill_generation
 from core.services.discord import SYNC_DISCORD
 from core.services.github import SYNC_GITHUB
+from core.services.mail import IMPORT_MBOX, SYNC_MAIL
 from core.services.maintenance import sweep_abandoned_uploads, sweep_unverified_accounts
 from core.services.uploads import PROCESS_UPLOAD
 from worker.handlers import NOOP, noop
@@ -73,6 +79,14 @@ def build_handlers(settings: Settings, uow: UnitOfWork) -> dict[str, Handler]:
         handlers[SYNC_DISCORD] = dsync.handle
     else:
         log.warning("discord_sync_disabled", reason="bot token or OPENAI_API_KEY not configured")
+    msync = mail_sync(settings, uow)
+    if msync is not None:
+        handlers[SYNC_MAIL] = msync.handle
+    else:
+        log.warning("mail_sync_disabled", reason="CREDENTIALS_FERNET_KEY or OPENAI_API_KEY missing")
+    mbox = mbox_import(settings, uow)
+    if mbox is not None:
+        handlers[IMPORT_MBOX] = mbox.handle
     return handlers
 
 
@@ -95,6 +109,19 @@ async def housekeeping(settings: Settings, uow: UnitOfWork) -> None:
             log.info("discord_syncs_queued", count=queued)
     except Exception as e:
         log.warning("sweep_failed", sweep="discord_schedule", error_type=type(e).__name__)
+    try:
+        # Tokens kept from a GitHub connect that was never finished, or replaced by a reconnect.
+        swept = await credential_store(settings, uow).sweep_unreferenced(GITHUB_TOKEN, 24)
+        if swept:
+            log.info("credentials_swept", count=swept)
+    except Exception as e:
+        log.warning("sweep_failed", sweep="credentials", error_type=type(e).__name__)
+    try:
+        queued = await mail_service(settings, uow).enqueue_due()
+        if queued:
+            log.info("mail_syncs_queued", count=queued)
+    except Exception as e:
+        log.warning("sweep_failed", sweep="mail_schedule", error_type=type(e).__name__)
     blobs = s3_blob_store(settings)
     if blobs is None:
         return

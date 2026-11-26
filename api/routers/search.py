@@ -50,6 +50,7 @@ async def search(
             source_ids=tuple(SourceId(s) for s in body.source_ids),
             updated_after=body.updated_after,
             updated_before=body.updated_before,
+            author=(body.author or "").strip() or None,
         ),
         limit=body.limit,
     )

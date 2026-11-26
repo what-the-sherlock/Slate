@@ -597,7 +597,7 @@ Loop rules (`lib/motion.ts`): the whole card pauses while hovered or focused, wh
   - Upload files: "PDF, Word, Markdown, HTML, CSV and text, up to 25 MB each"
   - GitHub: "Code, docs, issues and pull requests"
   - Discord: "Channels and threads from a server"
-  - Gmail: "Import a Google Takeout export (.mbox). Always private"
+  - Email: "Gmail, Yahoo, iCloud or Fastmail, or an .mbox export. Always private"
 - **Coming later** section: a `caption` label, then the same tile layout for Slack, Notion, Google Drive and Confluence, **not interactive**: rendered as list items (not buttons), the logo in full colour, name and description in `--fg-subtle`, a "Later" tag in the top-right corner, and no hover or press effect. Screen readers hear "Slack, planned for a later release". There's no waitlist or email capture.
 
 **Connector setup** (inside the same dialog; a step indicator in the header "Step 2 of 4"; Back and Continue in the footer; state kept when going back):
@@ -633,7 +633,9 @@ Loop rules (`lib/motion.ts`): the whole card pauses while hovered or focused, wh
 ### 4.6 Settings (M7; owner and admin)
 
 - Left sub-nav (Members, Usage). Content max width 800.
-- **Members:** a table (avatar, name, email, role select, joined). Owners can change roles; the select is disabled for oneself with the tooltip "You can't change your own role". Inviting users waits until there's an API for it; don't add a dead button.
+- **Members (ADR-0030):** an invite form (email, role) for admins and the owner; the member list (initial, name, email, joined), with a role select for the owner (not for yourself or the owner), and Remove / Leave behind a confirm dialog that says what's deleted; then pending invitations with Revoke. Without email set up, the invite link is shown once to copy.
+- **Workspace switcher:** under the logo in the sidebar, shown once an account has more than one workspace or a workspace has more than one member. Switching clears the query cache.
+- **Share with workspace:** on source detail, for the source's connector only, when the workspace has other members. Email asks for confirmation.
 - **Usage (budget):** a card with the month-to-date spend shown big ("$1.84 of $5.00"), a progress bar (turns warning at 80% and danger at 100%), and "Resets Dec 1". Below it, a small daily-spend bar chart for the month (follow the `dataviz` guidance when building it), then a breakdown table: Provider (16 px mark: OpenAI and Gemini from the Answerline export; Groq and Cloudflare from their brand kits), Model, Kind (embed, chat, rewrite), Tokens in/out, Cost. At 80% and above, the matching banner from §3.6 shows app-wide for the owner.
 
 ### 4.7 System pages

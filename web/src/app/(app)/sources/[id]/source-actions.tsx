@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Trash2 } from "lucide-react";
+import { Lock, RefreshCw, Trash2, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -14,7 +14,7 @@ import { keys, type Source } from "@/lib/api/hooks";
 export function SyncNowButton({ source }: { source: Source }) {
   const client = useQueryClient();
   const [busy, setBusy] = useState(false);
-  if (source.connector !== "github" && source.connector !== "discord") return null;
+  if (!["github", "discord", "imap"].includes(source.connector)) return null; // uploads and imports don't sync
   const running = source.status === "syncing" || source.status === "queued";
 
   async function sync() {
@@ -47,6 +47,7 @@ export function DangerZone({ source, canManage }: { source: Source; canManage: b
   const [busy, setBusy] = useState(false);
   if (!canManage || source.connector === "upload") return null;
   const discord = source.connector === "discord";
+  const email = source.connector === "imap" || source.connector === "gmail_mbox";
 
   async function disconnect() {
     setBusy(true);
@@ -69,11 +70,13 @@ export function DangerZone({ source, canManage }: { source: Source; canManage: b
       </h2>
       <div className="mt-2 flex flex-wrap items-center gap-3">
         <p className="flex-1 text-caption text-fg-muted">
-          Disconnecting removes this {discord ? "server" : "repository"} and all {source.documents.toLocaleString()} indexed
-          documents from Slate.{" "}
-          {discord
-            ? "Slate's bot also leaves the server, unless another Slate account still uses it. Nothing is deleted on Discord."
-            : "Nothing changes on GitHub."}
+          Disconnecting removes this {email ? "mailbox" : discord ? "server" : "repository"} and all{" "}
+          {source.documents.toLocaleString()} indexed documents from Slate.{" "}
+          {email
+            ? "The saved app password is deleted too. Nothing changes in your mailbox; revoke the app password at your provider if you like."
+            : discord
+              ? "Slate's bot also leaves the server, unless another Slate account still uses it. Nothing is deleted on Discord."
+              : "Nothing changes on GitHub."}
         </p>
         <Button variant="secondary" className="text-danger" onClick={() => setOpen(true)}>
           <Trash2 aria-hidden="true" />
@@ -100,5 +103,41 @@ export function DangerZone({ source, canManage }: { source: Source; canManage: b
         </DialogContent>
       </Dialog>
     </section>
+  );
+}
+
+
+/**
+ * Share with workspace (ADR-0026, ADR-0030): only the person who connected a source may share
+ * it with this workspace's members, or make it private again. Shown only when there is
+ * someone to share with.
+ */
+export function ShareToggle({ source, members }: { source: Source; members: number }) {
+  const client = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  if (!source.shareable || members < 2) return null;
+  const shared = source.visibility === "workspace";
+  const email = source.connector === "imap" || source.connector === "gmail_mbox";
+
+  async function toggle() {
+    if (!shared && email && !window.confirm("Share this mailbox with every member of the workspace? They'll be able to search your email.")) return;
+    setBusy(true);
+    try {
+      const r = await api.PUT("/api/v1/sources/{source_id}/sharing", { params: { path: { source_id: source.id } }, body: { shared: !shared } });
+      if (!r.response.ok) unwrap(r);
+      toast.success(shared ? "Private to you again" : "Shared with the workspace");
+      void client.invalidateQueries({ queryKey: keys.sources });
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Button variant="secondary" onClick={() => void toggle()} loading={busy} aria-pressed={shared}>
+      {shared ? <Lock aria-hidden="true" /> : <Users aria-hidden="true" />}
+      {shared ? "Make private" : "Share with workspace"}
+    </Button>
   );
 }

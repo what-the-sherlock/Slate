@@ -186,6 +186,8 @@ class InMemoryIndex:
             updated = doc.source_updated_at
             if f.updated_after and (updated is None or updated < f.updated_after):
                 continue
+            if f.author and f.author.lower() not in (doc.author or "").lower():
+                continue
             if f.updated_before and (updated is None or updated > f.updated_before):
                 continue
             out.append(c)

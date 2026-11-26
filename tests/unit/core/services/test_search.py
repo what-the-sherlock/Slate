@@ -224,3 +224,12 @@ async def test_keyword_only_searches_cost_nothing() -> None:
     await seed(index, e)
     await svc.search(identity(OWNER), "leave")
     assert svc._ledger.entries == []  # type: ignore[attr-defined]
+
+
+async def test_author_filter_is_length_checked() -> None:
+    from core.domain.documents import SearchFilters
+    from core.domain.errors import ValidationFailed
+
+    svc, _, _ = make()
+    with pytest.raises(ValidationFailed):
+        await svc.search(identity(OWNER), "leave", filters=SearchFilters(author="x" * 201))

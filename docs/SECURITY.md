@@ -67,3 +67,24 @@ This is a personal project that indexes **private mail and code**, and anyone ca
   - Message text is untrusted: sections are built directly (no Markdown parsing), and the prompt boundary of ADR-0022 applies.
   - Worker logs carry counts and statuses only.
   - Accepted: access is checked at connect only.
+- **Email (M6, ADR-0028):**
+  - IMAP only to fixed provider hosts (never user-supplied), over TLS with certificate checks.
+  - Read-only by construction: EXAMINE, `BODY.PEEK[]`, and no commands that modify the mailbox.
+  - The app password is Fernet-encrypted (`CREDENTIALS_FERNET_KEY`, rotatable), sent once in a CSRF-protected body, never logged, echoed (422s carry field names only) or kept in config, and deleted with its source (trigger + code).
+  - 5 login attempts per hour and 20 per day per user.
+  - Only Inbox and Sent; attachments are never read; messages over 10 MB are skipped.
+  - Email is always private data, readable only by its connector.
+  - `.mbox` imports reuse the upload gate (25 MB, sniffed, SHA-256 re-verified by the worker); the job checks that the object belongs to the uploader; the raw file is deleted after import; imports never run inline (the inline runner refuses foreign job kinds).
+  - Accepted: deletions in the mailbox aren't propagated yet, and an app password could also send mail, though Slate never does.
+- **Audit follow-ups (M7, ADR-0029):**
+  - The owner's workspace is exempt from the global daily cap, but not the monthly hard stop.
+  - New workspaces get $0.01/day for their first 7 days.
+  - GitHub: the user token is kept Fernet-encrypted and re-checked every sync. If access can't be verified, the sync pauses and keeps the documents; if access is confirmed lost, the repo's documents are removed.
+  - Unused tokens are swept after 24 h.
+- **Shared workspaces (M7, ADR-0030):**
+  - A session's active workspace is re-checked against memberships on every request, so a removal takes effect immediately.
+  - Invitation tokens are 256-bit, stored hashed, single use, valid 14 days and bound to the invited address. They live in the link's fragment (never in server logs or queries), and accepting takes a click.
+  - Only a source's connector can share it; sharing rewrites document ACLs in the same transaction, and every share is audited.
+  - Leaving deletes everything that person connected there.
+  - The owner can't leave or be removed (enforced in the service and in SQL).
+  - The budget exemption never passes to invitees.

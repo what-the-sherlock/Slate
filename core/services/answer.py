@@ -54,6 +54,7 @@ from core.domain.answer import (
     validate_citations,
 )
 from core.domain.auth import Identity
+from core.domain.auth import Role as AccountRole
 from core.domain.budget import SpendLimits
 from core.domain.chat import ChatMessage, Role, Usage
 from core.domain.data_class import strictest
@@ -193,9 +194,7 @@ class AnswerService:
             if not any(m.id == replace_from and m.role is Role.USER for m in live):
                 raise NotFound("This message doesn't exist.")
         await self._spend_rate(identity)
-        await self._check_budget(
-            identity.workspace_id, _price(self._model.model, *ANSWER_ESTIMATE_TOKENS)
-        )
+        await self._check_budget(identity, _price(self._model.model, *ANSWER_ESTIMATE_TOKENS))
         return q, session_id
 
     async def answer(
@@ -254,7 +253,7 @@ class AnswerService:
         messages = build_messages(question, sources, history)
         tokens_in = sum(self._tokenizer.count(m.content) for m in messages)
         # The real request size, not the pre-flight guess (security review).
-        await self._check_budget(ws, _price(self._model.model, tokens_in, ANSWER_MAX_TOKENS))
+        await self._check_budget(identity, _price(self._model.model, tokens_in, ANSWER_MAX_TOKENS))
         sentinel, tracker = SentinelFilter(), CitationTracker(s.n for s in sources)
         no_cites = CitationTracker(())
         by_n = {s.n: s for s in sources}
@@ -333,7 +332,7 @@ class AnswerService:
         messages = plain_messages(CHAT_PROMPT if small_talk else GENERAL_PROMPT, question, history)
         tokens_in = sum(self._tokenizer.count(m.content) for m in messages)
         max_tokens = CHAT_MAX_TOKENS if small_talk else ANSWER_MAX_TOKENS
-        await self._check_budget(ws, _price(self._model.model, tokens_in, max_tokens))
+        await self._check_budget(identity, _price(self._model.model, tokens_in, max_tokens))
         sentinel = SentinelFilter()
         parts: list[str] = []
         usage: Usage | None = None
@@ -421,9 +420,9 @@ class AnswerService:
         if not await self._limiter.try_spend(f"chat-day:{identity.user_id}", 1, CHAT_DAILY_LIMIT):
             raise RateLimited("You've reached today's question limit.", retry_after_s=86400)
 
-    async def _check_budget(self, ws: WorkspaceId, upcoming: Decimal) -> None:
-        spend = await self._ledger.spend(ws)
-        if reason := self._limits.refusal(spend, upcoming):
+    async def _check_budget(self, identity: Identity, upcoming: Decimal) -> None:
+        spend = await self._ledger.spend(identity.workspace_id)
+        if reason := self._limits.refusal(spend, upcoming, privileged=_owner_at_home(identity)):
             raise BudgetExceeded(reason)
         if self._limits.near_global_limit(spend):
             log.warning("budget_80_percent", spent_usd=str(spend.month_all))
@@ -581,3 +580,9 @@ def _title(question: str) -> str:
 
 def _ms(started: float) -> int:
     return int((time.perf_counter() - started) * 1000)
+
+
+def _owner_at_home(identity: Identity) -> bool:
+    """The platform owner, acting in a workspace they own (ADR-0029/0030): never in someone
+    else's workspace, and never for anyone they invited."""
+    return identity.is_platform_admin and identity.role is AccountRole.OWNER

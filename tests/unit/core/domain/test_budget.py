@@ -61,3 +61,42 @@ def test_monthly_only_keeps_the_old_single_cap() -> None:
 def test_near_global_limit_at_80_percent() -> None:
     assert not LIMITS.near_global_limit(spend("3.99"))
     assert LIMITS.near_global_limit(spend("4"))
+
+
+# ------------------------------------------------- owner exemption + new-account ramp (M7)
+
+
+def _limits() -> SpendLimits:
+    return SpendLimits(
+        monthly_all=Decimal(5), daily_all=Decimal("0.50"), monthly_workspace=Decimal("0.25"),
+        daily_workspace=Decimal("0.05"), new_account_daily=Decimal("0.01"),
+    )  # fmt: skip
+
+
+def _spend(**kw: object) -> Spend:
+    base = {"month_all": Decimal(0), "day_all": Decimal(0), "month_workspace": Decimal(0),
+            "day_workspace": Decimal(0)}  # fmt: skip
+    return Spend(**{**base, **kw})
+
+
+def test_strangers_exhausting_the_day_cannot_lock_the_owner_out() -> None:
+    burned = _spend(day_all=Decimal("0.50"))
+    assert _limits().refusal(burned, Decimal("0.001")) is not None  # everyone else waits
+    owner = _spend(day_all=Decimal("0.50"), privileged=True, day_workspace=Decimal("3"))
+    assert _limits().refusal(owner, Decimal("0.001")) is None
+
+
+def test_the_monthly_hard_stop_binds_the_owner_too() -> None:
+    owner = _spend(month_all=Decimal(5), privileged=True)
+    assert _limits().refusal(owner, Decimal("0.001")) is not None
+
+
+def test_new_workspaces_get_a_smaller_daily_allowance() -> None:
+    new = _spend(day_workspace=Decimal("0.01"), workspace_age_days=2)
+    reason = _limits().refusal(new, Decimal("0.001"))
+    assert reason is not None
+    assert "first week" in reason
+    old = _spend(day_workspace=Decimal("0.01"), workspace_age_days=30)
+    assert _limits().refusal(old, Decimal("0.001")) is None
+    assert _limits().daily_for(new) == Decimal("0.01")
+    assert _limits().daily_for(old) == Decimal("0.05")
