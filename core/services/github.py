@@ -55,14 +55,14 @@ from core.domain.github import (
 )
 from core.domain.ids import JobId, RunId, SourceId
 from core.domain.jobs import Job, JobStatus
-from core.domain.principals import workspace_principal
+from core.domain.principals import user_principal
 from core.domain.signed_tokens import sign, verify
 from core.ports.github import GitHubApi
 from core.ports.jobs import JobQueue
 from core.ports.rate_limit import Limit, RateLimiter
 from core.ports.sources import SourceRecord, SourceStore
 from core.ports.system import Clock, Parser
-from core.services.ingest import IngestService
+from core.services.ingest import IngestService, Stage
 
 log = structlog.get_logger(__name__)
 
@@ -192,10 +192,11 @@ class GitHubService:
         ws = identity.workspace_id
         for name in wanted:
             repo = granted[name]
-            # Every connected repo is visible to this workspace only, and private data (security
-            # review). A public repo isn't put in front of other accounts: anyone can sign up
-            # and connect one, so it could carry spam or injected text into everyone's
-            # answers; and a public repo made private later must not stay public.
+            # Every connected repo is readable only by the person who connected it, and is
+            # private data (ADR-0026), even a public repo: anyone can sign up and connect
+            # one, so it could carry spam or injected text into others' answers, and a
+            # public repo made private later must not stay public. Sharing with workspace
+            # members will be an explicit action once invites exist.
             try:
                 sid = await self._sources.create_source(
                     ws,
@@ -208,8 +209,9 @@ class GitHubService:
                         "html_url": repo.html_url,
                         "private": repo.private,
                     },
-                    visibility=[workspace_principal(ws)],
+                    visibility=[user_principal(identity.user_id)],
                     data_class=DataClass.PRIVATE,
+                    created_by=identity.user_id,
                 )
             except Conflict:
                 continue  # already connected: connecting again is a no-op
@@ -242,9 +244,10 @@ class GitHubService:
         )
 
     async def disconnect(self, identity: Identity, source_id: SourceId) -> None:
-        if not identity.can(Role.ADMIN):
-            raise PermissionDenied("Only admins and the owner can disconnect sources.")
         source = await self._source(identity, source_id)
+        # Whoever connected it can always delete their own data, whatever their role.
+        if not identity.can(Role.ADMIN) and source.created_by != identity.user_id:
+            raise PermissionDenied("Only admins, the owner and its connector can disconnect it.")
         if not await self._sources.delete_source(identity.workspace_id, source.id):
             raise NotFound("This source doesn't exist.")
         log.info("github.disconnected")
@@ -270,7 +273,7 @@ class GitHubService:
     def _claims(self, token: str, purpose: str, identity: Identity) -> dict[str, object]:
         try:
             claims = verify(token, secret=self._secret, purpose=purpose, now=self._clock.now())
-        except ValueError:
+        except ValidationFailed:
             raise ValidationFailed(EXPIRED_LINK) from None
         if claims.get("u") != str(identity.user_id) or claims.get("w") != str(
             identity.workspace_id
@@ -507,6 +510,9 @@ class GitHubSync:
         created: datetime | None = None,
         updated: datetime | None = None,
     ) -> None:
+        # The stage the failure happened in: ingestion_errors.stage only allows the real
+        # pipeline stages (a CHECK), so a made-up one would crash the run instead.
+        stage = Stage("parse")
         try:
             parsed = self._parser.parse(data, mime)
             result = await self._ingest.index_document(
@@ -526,6 +532,7 @@ class GitHubSync:
                 ),
                 parsed.sections,
                 data_class=source.data_class,
+                stage=stage,
             )
             if result.changed:
                 tally.changed += 1
@@ -534,7 +541,11 @@ class GitHubSync:
         except AppError as e:
             tally.failed += 1
             await self._sources.record_error(
-                run, external_id=external_id, stage="index", message=e.detail, retryable=e.retryable
+                run,
+                external_id=external_id,
+                stage=stage.name,
+                message=e.detail,
+                retryable=e.retryable,
             )
 
 

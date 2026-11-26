@@ -16,7 +16,7 @@ from core.domain.errors import NotFound, PermissionDenied, RateLimited, Validati
 from core.domain.github import Comment, Issue, Repo
 from core.domain.ids import JobId, SessionId, SourceId, UserId, WorkspaceId
 from core.domain.jobs import Job, JobStatus
-from core.domain.principals import PUBLIC, Principals, workspace_principal
+from core.domain.principals import PUBLIC, Principals, user_principal, workspace_principal
 from core.services.github import SYNC_GITHUB, GitHubService, GitHubSync
 from core.services.ingest import IngestService
 from tests.fakes.github import FakeGitHub, FakeRepo
@@ -192,14 +192,18 @@ async def test_repos_are_listed_with_connected_flags(env: Env) -> None:
     assert (await env.svc.repos(env.me, grant))[0].connected
 
 
-async def test_connect_creates_a_private_workspace_source_and_queues_the_first_sync(
+async def test_connect_creates_a_source_only_the_connector_can_read(
     env: Env,
 ) -> None:
     sid = await env.connect()
     rec = env.sources.records[sid]
     assert rec.name == "octo/docs"
     assert rec.data_class == "private"
-    assert rec.visibility == (workspace_principal(env.me.workspace_id),)
+    # ADR-0026: private to whoever connected it, not the whole workspace, so a future
+    # invite never shares a repo nobody chose to share.
+    assert rec.visibility == (user_principal(env.me.user_id),)
+    assert workspace_principal(env.me.workspace_id) not in rec.visibility
+    assert rec.created_by == env.me.user_id
     assert rec.config["installation_id"] == INSTALL
     (job,) = env.jobs.jobs.values()
     assert job.kind == SYNC_GITHUB

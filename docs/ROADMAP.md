@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status:** M1, M2, accounts (ADR-0021) and **M3 cited chat complete** (2026-11-25; ADR-0022). Next: M4 GitHub.
+**Status:** M1–M4 code-complete; **M5 Discord code-complete** (2026-11-26, ADR-0027) after the privacy hardening (ADR-0026, migration 0006). Owner steps pending (below). Next: M6 Gmail.
 
 **Chat redesign (2026-11-26, owner-requested, outside the milestone plan):** answer modes (general knowledge and small talk, ADR-0025), regenerate and edit by superseding (ADR-0024, migration 0005), GitHub sync retries failed items, `scripts/diagnose_sources.py`, and the redesigned Chat page (UI_DESIGN §4.3). Pending owner steps: run `alembic upgrade head` on prod, run `evals.answers` (paid) and record it in EVALS.md, and run the diagnosis script against prod for the 0-document repo.
 
@@ -58,8 +58,16 @@ Update this line and tick items as work completes. Only the current milestone is
 - Deferred (owner decision): code indexing, webhooks, dispatch token
 - Done when: a push is searchable within the next sync
 
+### Pre-M5 — Private by default (ADR-0026)
+- [x] Connector-only ACLs (`sources.created_by`), no public user data (triggers + `allows_public`), backfill scoped to the eval workspace, worker payload checks, migration 0006
+- [ ] Owner: `alembic upgrade head` on the test branch, `uv run pytest -m integration`, then prod
+- Follow-ups from the audit (not scheduled): the shared global daily AI cap can be exhausted by ~10 accounts; GitHub org access re-check; private repo names in API error logs
+
 ### M5 — Discord (days 14–15)
-- [ ] Bot, backfill, incremental with `after=`, thread/window grouping, channel visibility
+- [x] One Slate bot with install proof, channel picker by the user's own permissions (private channels ok), one source per server (ADR-0027)
+- [x] 90-day backfill, incremental `after=` with 48 h re-read, window/thread grouping, pruning, per-channel cursors, hourly schedule, Sync now inline, disconnect (bot leaves when unused)
+- [ ] Owner: create the Discord application + bot; turn on Message Content intent and "Requires OAuth2 Code Grant"; add the redirect URL; set `DISCORD_*` in Vercel and `DISCORD_BOT_TOKEN` in GitHub Secrets; try it on a test server; security review
+- Done when: a message is searchable after the next sync
 
 ### M6 — Gmail + demo data (days 16–17)
 - [ ] Gmail OAuth connector, Internal Workspace app (ADR-0015; thread = document, always private; owner's org only, others import `.mbox`); "Load sample data" for new workspaces (ADR-0021)

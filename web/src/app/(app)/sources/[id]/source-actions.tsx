@@ -14,7 +14,7 @@ import { keys, type Source } from "@/lib/api/hooks";
 export function SyncNowButton({ source }: { source: Source }) {
   const client = useQueryClient();
   const [busy, setBusy] = useState(false);
-  if (source.connector !== "github") return null;
+  if (source.connector !== "github" && source.connector !== "discord") return null;
   const running = source.status === "syncing" || source.status === "queued";
 
   async function sync() {
@@ -46,6 +46,7 @@ export function DangerZone({ source, canManage }: { source: Source; canManage: b
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   if (!canManage || source.connector === "upload") return null;
+  const discord = source.connector === "discord";
 
   async function disconnect() {
     setBusy(true);
@@ -68,8 +69,11 @@ export function DangerZone({ source, canManage }: { source: Source; canManage: b
       </h2>
       <div className="mt-2 flex flex-wrap items-center gap-3">
         <p className="flex-1 text-caption text-fg-muted">
-          Disconnecting removes this repository and all {source.documents.toLocaleString()} indexed documents from Slate.
-          Nothing changes on GitHub.
+          Disconnecting removes this {discord ? "server" : "repository"} and all {source.documents.toLocaleString()} indexed
+          documents from Slate.{" "}
+          {discord
+            ? "Slate's bot also leaves the server, unless another Slate account still uses it. Nothing is deleted on Discord."
+            : "Nothing changes on GitHub."}
         </p>
         <Button variant="secondary" className="text-danger" onClick={() => setOpen(true)}>
           <Trash2 aria-hidden="true" />

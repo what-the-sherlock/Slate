@@ -78,7 +78,7 @@ All timestamps are `timestamptz` in UTC. IDs are `uuid` (`gen_random_uuid()`) un
 
 ```sql
 -- identity
-workspaces(id, name, slug UNIQUE, settings jsonb, created_at)
+workspaces(id, name, slug UNIQUE, settings jsonb, allows_public bool, created_at)   -- 0006: true only for the eval workspace
 users(id, email citext UNIQUE, email_canonical citext UNIQUE, name, password_hash NOT NULL, email_verified_at, created_at, disabled_at)   -- 0004, ADR-0021
 email_codes(user_id, purpose, code_hash bytea(32), expires_at, attempts, consumed_at, created_at, PRIMARY KEY (user_id, purpose))   -- HMAC'd one-time codes
 memberships(workspace_id, user_id, role CHECK (role IN ('owner','admin','member','viewer')), PRIMARY KEY (workspace_id, user_id))
@@ -89,7 +89,7 @@ api_keys(id, workspace_id, user_id, prefix, key_hash, scopes text[], created_at,
 
 -- sources and ingestion
 credentials(id, workspace_id, kind, secret_encrypted bytea, created_by, created_at)   -- Fernet, key from env
-sources(id, workspace_id, connector, name, config jsonb, credential_id, visibility text[] NOT NULL,
+sources(id, workspace_id, connector, name, config jsonb, credential_id, created_by, visibility text[] NOT NULL,
         data_class DEFAULT 'private',             -- ADR-0012: public only if 'public' ∈ visibility; gmail always private
         schedule_interval interval, status, checkpoint jsonb, last_synced_at, created_at)
 ingestion_runs(id, source_id, kind, status, started_at, finished_at, docs_seen, docs_changed, docs_failed, error_summary)
@@ -139,7 +139,7 @@ eval_runs(id, git_sha, generation_id, config jsonb, metrics jsonb, created_at)
 
 - **Principals** (strings): `user:<uuid>`, `group:<uuid>`, `workspace:<uuid>`, `public`.
 - **Accounts (ADR-0021):** anyone can sign up; each account gets its own workspace and is its `owner`, so users are isolated by `workspace_id` before any ACL applies. A user's principals are `user:<id>`, `workspace:<id>`, their groups and `public`. `Principals.for_outsider` (`user:<id>`, `public`) models someone entitled to nothing but public content; the isolation tests use it.
-- A **source's** `visibility` is a principal list. Defaults: GitHub public repos `['workspace:<id>','public']`, Discord demo server `['workspace:<id>','public']`, Gmail `['user:<owner_id>']`, uploads `['user:<uploader>']` unless shared.
+- A **source's** `visibility` is a principal list. **Private by default (ADR-0026):** a connected source (GitHub, Discord, Gmail) is `['user:<connector>']` (`sources.created_by`); uploads are `['user:<uploader>']` unless the uploader chooses "Workspace". Sharing with workspace members is always an explicit act (invites, M7). The `public` principal and `data_class='public'` exist only in the synthetic eval workspace (`workspaces.allows_public`, enforced by triggers).
 - A **document's** `acl` is the connector-supplied ACL if present (Phase 4), else the source's visibility. Chunks copy it.
 - **Enforcement:** every retrieval query includes `workspace_id = :ws AND acl && :principals`. Document preview, citation resolution and download endpoints re-check with the same function.
 - **Roles** (`owner` > `admin` > `member` > `viewer`) gate actions: managing sources and users, uploading, chatting. Role checks live in services, not routers.
@@ -186,7 +186,7 @@ Connectors declare their capabilities by which protocols they implement. A conne
 | --- | --- | --- |
 | `upload` | (API-driven) | Direct-to-storage, two steps (ADR-0016): `POST /uploads` checks role, size, type and duplicates and returns a size-limited presigned POST plus a signed upload token; the browser sends the file straight to the bucket; `POST /uploads/complete` checks size and sniffs the first 8 KB, then enqueues `process_upload`. The worker re-verifies the sha256 |
 | `github` | FullLoad, Poll, SlimList | GitHub App (ADR-0023): the installation is verified as the user's through OAuth during install. Docs come from one tarball per changed default branch, issues and PRs via REST with `since`; one source per repo; unchanged files skipped by checksum, deleted files pruned; hourly, plus "Sync now" inline (90 s, then the worker). No code and no webhooks in M4 |
-| `discord` | FullLoad, Poll | Bot with Message Content intent; page with `after=<snowflake>`; group messages by thread or 30-min window into one document |
+| `discord` | FullLoad, Poll | One Slate bot (ADR-0027), added through Discord's OAuth flow, which proves Manage Server; the user's own roles decide which channels they may pick (private ones included). REST only: a 90-day backfill, then `after=<snowflake>` with a 48 h re-read. One document per thread or 30-minute window; pruning after complete passes; hourly, plus "Sync now" inline |
 | `gmail_mbox` | FullLoad | Import of a Google Takeout `.mbox` uploaded to BlobStore; one document per thread; visibility `user:<owner>` |
 
 ## 7. Ingestion pipeline
@@ -235,13 +235,13 @@ sequenceDiagram
 
 ## 9. API surface (v1, initial)
 
-`GET /api/v1/auth/config`, `POST /api/v1/auth/signup|login|logout`, `POST /api/v1/auth/verify`, `POST /api/v1/auth/verify/resend`, `POST /api/v1/auth/password/forgot|reset`, `GET /api/v1/me`, `GET|POST /api/v1/sources`, `GET /api/v1/sources/github/status`, `POST /api/v1/sources/github/install|installations|repos|connect`, `POST /api/v1/sources/{id}/sync`, `DELETE /api/v1/sources/{id}`, `GET /api/v1/sources/{id}/runs`, `POST /api/v1/uploads`, `POST /api/v1/uploads/complete`, `GET /api/v1/documents/{id}` (preview, ACL-checked), `POST /api/v1/search`, `POST /api/v1/chat` (SSE), `GET /api/v1/chat/sessions`, `GET /api/v1/chat/sessions/{id}/messages`, `POST /api/v1/messages/{id}/feedback`, `POST /api/v1/webhooks/{connector}`, `GET /healthz`, `GET /readyz`.
+`GET /api/v1/auth/config`, `POST /api/v1/auth/signup|login|logout`, `POST /api/v1/auth/verify`, `POST /api/v1/auth/verify/resend`, `POST /api/v1/auth/password/forgot|reset`, `GET /api/v1/me`, `GET|POST /api/v1/sources`, `GET /api/v1/sources/github/status`, `POST /api/v1/sources/github/install|installations|repos|connect`, `GET /api/v1/sources/discord/status`, `POST /api/v1/sources/discord/install|installations|channels|connect`, `POST /api/v1/sources/{id}/sync`, `DELETE /api/v1/sources/{id}`, `GET /api/v1/sources/{id}/runs`, `POST /api/v1/uploads`, `POST /api/v1/uploads/complete`, `GET /api/v1/documents/{id}` (preview, ACL-checked), `POST /api/v1/search`, `POST /api/v1/chat` (SSE), `GET /api/v1/chat/sessions`, `GET /api/v1/chat/sessions/{id}/messages`, `POST /api/v1/messages/{id}/feedback`, `POST /api/v1/webhooks/{connector}`, `GET /healthz`, `GET /readyz`.
 
 Errors use RFC 9457 `application/problem+json` with a stable `type` URI per domain error. List endpoints use cursor pagination.
 
 ## 10. Configuration (env vars, all read in `core/config.py`)
 
-`ENV` (`dev|test|prod`), `OWNER_EMAIL`, `SETUP_TOKEN`, `SIGNUPS_ENABLED`, `SMTP_HOST|PORT|SECURITY|USERNAME|PASSWORD`, `MAIL_FROM`, `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `DAILY_LLM_BUDGET_USD`, `WORKSPACE_MONTHLY_BUDGET_USD`, `WORKSPACE_DAILY_BUDGET_USD`, `DATABASE_URL` (pooled), `DATABASE_URL_DIRECT`, `SESSION_SECRET`, `CREDENTIALS_FERNET_KEY`, `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL` (default gpt-4o-mini), `CHAT_MIN_SIMILARITY`, `OPENAI_EMBED_MODEL`, `EMBED_DIMS=1024`, `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `UPLOADS_BUCKET` (Neon Object Storage, ADR-0014), `GITHUB_DISPATCH_TOKEN`, `GITHUB_REPO`, `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY` (ADR-0023), `DISCORD_BOT_TOKEN`, `MONTHLY_LLM_BUDGET_USD=5`, `SENTRY_DSN`, `LOG_LEVEL`.
+`ENV` (`dev|test|prod`), `OWNER_EMAIL`, `SETUP_TOKEN`, `SIGNUPS_ENABLED`, `SMTP_HOST|PORT|SECURITY|USERNAME|PASSWORD`, `MAIL_FROM`, `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `DAILY_LLM_BUDGET_USD`, `WORKSPACE_MONTHLY_BUDGET_USD`, `WORKSPACE_DAILY_BUDGET_USD`, `DATABASE_URL` (pooled), `DATABASE_URL_DIRECT`, `SESSION_SECRET`, `CREDENTIALS_FERNET_KEY`, `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL` (default gpt-4o-mini), `CHAT_MIN_SIMILARITY`, `OPENAI_EMBED_MODEL`, `EMBED_DIMS=1024`, `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `UPLOADS_BUCKET` (Neon Object Storage, ADR-0014), `GITHUB_DISPATCH_TOKEN`, `GITHUB_REPO`, `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY` (ADR-0023), `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI` (ADR-0027), `MONTHLY_LLM_BUDGET_USD=5`, `SENTRY_DSN`, `LOG_LEVEL`.
 
 `.env.example` lists them all with comments. The app refuses to start in `prod` if a required one is missing.
 

@@ -55,6 +55,13 @@ class InMemoryIndex:
             if src == source_id and ext.startswith(prefix) and doc_id in self._docs
         }
 
+    def versions(self, source_id: object, prefix: str) -> dict[str, tuple[str, datetime | None]]:
+        return {
+            ext: (self._docs[doc_id][1].checksum, self._docs[doc_id][1].source_updated_at)
+            for (src, ext), doc_id in self._by_key.items()
+            if src == source_id and ext.startswith(prefix) and doc_id in self._docs
+        }
+
     def delete(self, source_id: object, external_ids: Sequence[str]) -> int:
         n = 0
         for ext in external_ids:

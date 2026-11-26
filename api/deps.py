@@ -16,6 +16,8 @@ from alembic.script import ScriptDirectory
 from core.adapters.factories import (
     answer_service,
     auth_service,
+    discord_service,
+    discord_sync,
     github_service,
     github_sync,
     ingest_service,
@@ -37,9 +39,13 @@ from core.ports.system import HealthProbe
 from core.services.answer import AnswerService
 from core.services.auth import AuthService
 from core.services.catalog import CatalogService
+from core.services.discord import CONNECTOR as DISCORD
+from core.services.discord import DiscordService
+from core.services.github import CONNECTOR as GITHUB
 from core.services.github import GitHubService
 from core.services.inline import InlineRunner
 from core.services.search import SearchService
+from core.services.source_actions import ConnectorEntry, SourceActions
 from core.services.uploads import UploadService
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -58,7 +64,16 @@ class Container:
     answers: AnswerService | None = None  # None without an OpenAI key
     chats: ChatStore | None = None
     github: GitHubService | None = None
-    github_inline: InlineRunner | None = None  # runs a first/manual sync right away
+    discord: DiscordService | None = None
+    # Sync now / disconnect for any connected source; built from the fields above when the
+    # caller doesn't pass one (tests).
+    actions: SourceActions | None = None
+
+    @property
+    def source_actions(self) -> SourceActions:
+        if self.actions is None:
+            raise RuntimeError("Container.actions is not wired")
+        return self.actions
 
 
 @lru_cache(maxsize=1)
@@ -75,6 +90,7 @@ def get_container() -> Container:
     settings.require_api_settings()
     engine = create_engine(settings.require_database_url(), EngineKind.POOLED)
     uow = make_uow(create_session_factory(engine))
+    github, discord = github_service(settings, uow), discord_service(settings, uow)
     return Container(
         settings=settings,
         health=PostgresHealthProbe(uow),
@@ -86,8 +102,15 @@ def get_container() -> Container:
         search=search_service(settings, uow),
         answers=answer_service(settings, uow),
         chats=PostgresChatStore(uow),
-        github=github_service(settings, uow),
-        github_inline=_github_inline(settings, uow),
+        github=github,
+        discord=discord,
+        actions=SourceActions(
+            PostgresSourceStore(uow),
+            {
+                GITHUB: ConnectorEntry("GitHub", github, _github_inline(settings, uow)),
+                DISCORD: ConnectorEntry("Discord", discord, _discord_inline(settings, uow)),
+            },
+        ),
     )
 
 
@@ -107,6 +130,13 @@ def _upload_service(settings: Settings, uow: UnitOfWork) -> UploadService | None
 
 def _github_inline(settings: Settings, uow: UnitOfWork) -> InlineRunner | None:
     sync = github_sync(settings, uow)
+    if sync is None:
+        return None
+    return InlineRunner(PostgresJobQueue(uow), sync.handle_inline, runner_id="api-inline")
+
+
+def _discord_inline(settings: Settings, uow: UnitOfWork) -> InlineRunner | None:
+    sync = discord_sync(settings, uow)
     if sync is None:
         return None
     return InlineRunner(PostgresJobQueue(uow), sync.handle_inline, runner_id="api-inline")

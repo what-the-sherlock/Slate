@@ -22,7 +22,8 @@ async def ws(uow: UnitOfWork) -> AsyncIterator[WorkspaceId]:
         wid = (
             await s.execute(
                 text(
-                    "INSERT INTO workspaces (name, slug) VALUES ('cat', 'cat-' || gen_random_uuid()) RETURNING id"
+                    "INSERT INTO workspaces (name, slug, allows_public)"
+                    " VALUES ('cat', 'cat-' || gen_random_uuid(), true) RETURNING id"
                 )
             )
         ).scalar_one()

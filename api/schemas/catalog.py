@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SourceOut(BaseModel):
@@ -44,3 +44,8 @@ class JobOut(BaseModel):
     attempts: int
     error: str | None
     filename: str | None
+
+
+class SyncOut(BaseModel):
+    job_id: UUID
+    status: str = Field(description="done: synced now; queued: the worker finishes it")

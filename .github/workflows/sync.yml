@@ -44,6 +44,8 @@ jobs:
       # GitHub App (ADR-0023): only the id and private key; the worker mints install tokens.
       GITHUB_APP_ID: ${{ secrets.SLATE_GITHUB_APP_ID }}
       GITHUB_APP_PRIVATE_KEY: ${{ secrets.SLATE_GITHUB_APP_PRIVATE_KEY }}
+      # Discord (ADR-0027): the worker reads servers with the bot token only.
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

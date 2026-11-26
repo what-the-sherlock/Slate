@@ -88,7 +88,9 @@ async def _write(
 @pytest.fixture
 async def world(uow: UnitOfWork) -> AsyncIterator[World]:
     new_ws = (
-        "INSERT INTO workspaces (name, slug) VALUES ('s', 's-' || gen_random_uuid()) RETURNING id"
+        # allows_public: the fixture plants public documents (ADR-0026 allows them only here).
+        "INSERT INTO workspaces (name, slug, allows_public)"
+        " VALUES ('s', 's-' || gen_random_uuid(), true) RETURNING id"
     )
     new_user = (
         "INSERT INTO users (email, email_canonical, name, password_hash)"

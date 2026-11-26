@@ -47,8 +47,3 @@ class ConnectedOut(BaseModel):
     source_id: UUID
     name: str
     job_id: UUID
-
-
-class SyncOut(BaseModel):
-    job_id: UUID
-    status: str = Field(description="done: synced now; queued: the worker finishes it")

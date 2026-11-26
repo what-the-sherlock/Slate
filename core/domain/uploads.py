@@ -13,7 +13,7 @@ from pathlib import PurePosixPath
 
 from core.domain.data_class import DataClass
 from core.domain.ids import UserId, WorkspaceId
-from core.domain.principals import PUBLIC, user_principal, workspace_principal
+from core.domain.principals import user_principal, workspace_principal
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 # Per workspace (ADR-0021): open sign-up must not fill Neon's 1 GB database or 5 GB
@@ -60,7 +60,6 @@ ALLOWED_DESCRIPTION = "PDF, Word (.docx), Markdown, HTML, CSV or plain text"
 class Visibility(StrEnum):
     ONLY_ME = "only_me"
     WORKSPACE = "workspace"
-    PUBLIC = "public"  # guests can see it; owner/admin only
 
 
 def kind_from_filename(filename: str) -> FileKind | None:
@@ -105,14 +104,17 @@ class AccessPlan:
 
 
 def access_for(visibility: Visibility, user: UserId, workspace: WorkspaceId) -> AccessPlan:
-    """Who may read an upload, and its data class (ADR-0012)."""
+    """Who may read an upload, and its data class (ADR-0012).
+
+    User uploads are always private data: there is no "public" choice (ADR-0026), so they
+    are never eligible for free-tier AI providers and never visible outside the workspace.
+    """
     match visibility:
         case Visibility.ONLY_ME:
             return AccessPlan((user_principal(user),), DataClass.PRIVATE)
         case Visibility.WORKSPACE:
+            # An explicit choice to share with the workspace's members (ADR-0026).
             return AccessPlan((workspace_principal(workspace),), DataClass.PRIVATE)
-        case Visibility.PUBLIC:
-            return AccessPlan((PUBLIC, workspace_principal(workspace)), DataClass.PUBLIC)
 
 
 def external_id_for(sha256: str, uploader: UserId) -> str:

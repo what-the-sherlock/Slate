@@ -8,9 +8,11 @@ import hashlib
 import hmac
 import secrets
 from decimal import Decimal
+from urllib.parse import urlsplit
 
 import structlog
 
+from core.adapters.discord.api import DiscordBot
 from core.adapters.email.dev import AllowAllHumanVerifier, LogEmailSender
 from core.adapters.email.smtp import SmtpEmailSender
 from core.adapters.github.app import GitHubApp
@@ -47,6 +49,8 @@ from core.ports.email import EmailSender
 from core.ports.storage import BlobStore
 from core.services.answer import AnswerService
 from core.services.auth import AuthPolicy, AuthService
+from core.services.discord import DiscordService
+from core.services.discord_sync import DiscordSync
 from core.services.github import GitHubService, GitHubSync
 from core.services.ingest import IngestService
 from core.services.search import SearchService
@@ -204,6 +208,67 @@ def github_sync(settings: Settings, uow: UnitOfWork) -> GitHubSync | None:
     if ingest is None:
         return None
     return GitHubSync(api, PostgresSourceStore(uow), PostgresJobQueue(uow), ingest, FormatParser())
+
+
+def _discord_redirect(settings: Settings) -> str | None:
+    """The OAuth redirect, only if it's https (or localhost in dev): the code it carries
+    must never travel in clear text."""
+    uri = (settings.discord_redirect_uri or "").strip()
+    if not uri:
+        return None
+    parsed = urlsplit(uri)
+    local = parsed.hostname in {"localhost", "127.0.0.1"} and settings.env is Env.DEV
+    if parsed.scheme != "https" and not (parsed.scheme == "http" and local):
+        log.warning("discord_redirect_rejected", reason="not https")
+        return None
+    return uri
+
+
+def discord_api(settings: Settings) -> DiscordBot:
+    s = settings
+    return DiscordBot(
+        bot_token=s.discord_bot_token.get_secret_value().strip() if s.discord_bot_token else None,
+        client_id=s.discord_client_id,
+        client_secret=s.discord_client_secret.get_secret_value()
+        if s.discord_client_secret
+        else None,
+        redirect_uri=_discord_redirect(s),
+    )
+
+
+def _discord_key(settings: Settings) -> bytes:
+    """Signs the install state and channel-picker grants; its own label (key separation)."""
+    if settings.session_secret is None:
+        return secrets.token_bytes(32)
+    root = settings.session_secret.get_secret_value().encode()
+    return hmac.new(root, b"slate/discord/v1", hashlib.sha256).digest()
+
+
+def discord_service(settings: Settings, uow: UnitOfWork) -> DiscordService:
+    return DiscordService(
+        discord_api(settings),
+        PostgresSourceStore(uow),
+        PostgresJobQueue(uow),
+        PostgresRateLimiter(uow),
+        SystemClock(),
+        secret=_discord_key(settings),
+    )
+
+
+def discord_sync(settings: Settings, uow: UnitOfWork) -> DiscordSync | None:
+    """The sync_discord handler, or None without the bot token or an OpenAI key."""
+    if not settings.discord_bot_token:
+        return None
+    ingest = _ingest(settings, uow, s3_blob_store(settings) or _NoBlobs())  # type: ignore[arg-type]
+    if ingest is None:
+        return None
+    return DiscordSync(
+        discord_api(settings),
+        PostgresSourceStore(uow),
+        PostgresJobQueue(uow),
+        ingest,
+        SystemClock(),
+    )
 
 
 def email_sender(settings: Settings) -> EmailSender | None:

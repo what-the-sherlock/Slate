@@ -14,7 +14,7 @@ class BeginUploadBody(BaseModel):
         max_length=64,
         description="Hex SHA-256 of the file, computed in the browser.",
     )
-    visibility: Literal["only_me", "workspace", "public"] = "only_me"
+    visibility: Literal["only_me", "workspace"] = "only_me"
 
 
 class PresignedPost(BaseModel):

@@ -95,7 +95,7 @@ export function SourcesView() {
         )}
       </div>
       {canAdd ? (
-        <AddSourceDialog open={dialogOpen} onOpenChange={setDialogOpen} canPublish={me.data?.role === "owner" || me.data?.role === "admin"} />
+        <AddSourceDialog open={dialogOpen} onOpenChange={setDialogOpen} />
       ) : null}
     </>
   );

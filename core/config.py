@@ -81,7 +81,14 @@ class Settings(BaseSettings):
     github_app_client_id: str | None = None
     github_app_client_secret: SecretStr | None = None
     github_app_private_key: SecretStr | None = None  # the .pem contents (\n escapes ok)
+    # Discord (ADR-0027): one Slate bot users add to their servers. The connect flow needs
+    # all four; the worker needs only the bot token.
     discord_bot_token: SecretStr | None = None
+    discord_client_id: str | None = None
+    discord_client_secret: SecretStr | None = None
+    # Must match a redirect registered on the Discord application, e.g.
+    # https://<web host>/sources/discord/callback (http://localhost:3000/... in dev).
+    discord_redirect_uri: str | None = None
 
     sentry_dsn: SecretStr | None = None
 

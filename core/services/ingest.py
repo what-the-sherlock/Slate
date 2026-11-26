@@ -26,6 +26,7 @@ from core.domain.documents import DocumentUpsert, NewChunk, Section
 from core.domain.errors import AppError, BudgetExceeded, UpstreamUnavailable, ValidationFailed
 from core.domain.ids import DocumentId, RunId, SourceId, UserId, WorkspaceId
 from core.domain.jobs import Job
+from core.domain.principals import user_principal, workspace_principal
 from core.domain.uploads import MAX_UPLOAD_BYTES, MIME, SNIFF_BYTES, FileKind, sniff_kind
 from core.ports.models import Embedder, Tokenizer
 from core.ports.sources import SourceStore
@@ -129,6 +130,7 @@ class IngestService:
 
     async def process_upload(self, job: Job) -> None:
         payload = UploadPayload.from_job(job)
+        await self._check_payload_scope(job, payload)
         run = await self._sources.create_run(payload.source_id, "upload")
         bound = log.bind(job_id=str(job.id), run_id=str(run))
         stage = Stage("fetch")
@@ -186,6 +188,19 @@ class IngestService:
             run, status="succeeded", seen=1, changed=int(changed), failed=0
         )
         bound.info("ingest_succeeded", chunks=result.chunks, changed=changed)
+
+    async def _check_payload_scope(self, job: Job, payload: UploadPayload) -> None:
+        """Defence in depth: payloads are built by the server, but a buggy or forged one must
+        not write into another workspace's source or widen an ACL. Raises ValidationFailed
+        (not retryable, so the job goes dead instead of looping)."""
+        source = await self._sources.get_source(job.workspace_id, payload.source_id)
+        if source is None or source.connector != "upload":
+            raise ValidationFailed("Malformed job payload (source).")
+        allowed = {user_principal(payload.uploader), workspace_principal(job.workspace_id)}
+        if not payload.acl or not set(payload.acl) <= allowed:
+            raise ValidationFailed("Malformed job payload (acl).")
+        if payload.data_class != source.data_class:
+            raise ValidationFailed("Malformed job payload (data class).")
 
     async def index_document(
         self,

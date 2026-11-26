@@ -47,7 +47,7 @@ export function GitHubPanel({ onBack }: { onBack: () => void }) {
       <section className="rounded-md border border-border bg-subtle px-3 py-2.5 text-caption text-fg-muted">
         <p>
           <span className="font-medium text-fg">What gets indexed:</span> README and other docs, plus issues and pull
-          requests. Source code isn&apos;t indexed yet. Everything you connect stays visible only to your workspace.
+          requests. Source code isn&apos;t indexed yet. What you connect is private to you, not shared with other accounts.
         </p>
         <p className="mt-1.5">
           On GitHub you choose which repositories the app may see. Back here, you pick which of those to index.

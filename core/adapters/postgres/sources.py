@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -11,13 +12,13 @@ from sqlalchemy import text
 from core.adapters.postgres.uow import UnitOfWork
 from core.domain.data_class import DataClass, classify
 from core.domain.errors import Conflict
-from core.domain.ids import DocumentId, RunId, SourceId, WorkspaceId
+from core.domain.ids import DocumentId, RunId, SourceId, UserId, WorkspaceId
 from core.domain.principals import PUBLIC, workspace_principal
 from core.ports.sources import ExistingUpload, SourceRecord
 
 _SOURCE_COLS = (
     "id, workspace_id, connector, name, visibility, data_class, status, config, checkpoint,"
-    " last_synced_at"
+    " last_synced_at, created_by"
 )
 
 
@@ -36,9 +37,11 @@ def _source(r: Any) -> SourceRecord:  # reason: RowMapping values are Any
         config=dict(r["config"] or {}),
         checkpoint=dict(r["checkpoint"]) if r["checkpoint"] is not None else None,
         last_synced_at=r["last_synced_at"],
+        created_by=UserId(r["created_by"]) if r["created_by"] is not None else None,
     )
 
 
+_ERROR_STAGES = frozenset({"fetch", "parse", "chunk", "embed", "store"})  # 0001's CHECK
 _UPLOAD_SOURCE_NAMES = {DataClass.PRIVATE: "Uploads", DataClass.PUBLIC: "Public uploads"}
 
 
@@ -150,6 +153,10 @@ class PostgresSourceStore:
     async def record_error(
         self, run_id: RunId, *, external_id: str | None, stage: str, message: str, retryable: bool
     ) -> None:
+        # Defence in depth: an unknown stage would violate the CHECK and lose the error
+        # *and* crash the run that was trying to record it.
+        if stage not in _ERROR_STAGES:
+            stage = "store"
         async with self._uow() as s:
             await s.execute(
                 text(
@@ -183,14 +190,15 @@ class PostgresSourceStore:
         config: dict[str, object],
         visibility: Sequence[str],
         data_class: DataClass,
+        created_by: UserId | None = None,
     ) -> SourceId:
         async with self._uow() as s:
             row = (
                 await s.execute(
                     text(
                         "INSERT INTO sources (workspace_id, connector, name, config, visibility,"
-                        " data_class) VALUES (:ws, :c, :n, CAST(:cfg AS jsonb),"
-                        " CAST(:v AS text[]), :dc)"
+                        " data_class, created_by) VALUES (:ws, :c, :n, CAST(:cfg AS jsonb),"
+                        " CAST(:v AS text[]), :dc, :by)"
                         " ON CONFLICT (workspace_id, name) DO NOTHING RETURNING id"
                     ),
                     {
@@ -200,12 +208,26 @@ class PostgresSourceStore:
                         "cfg": json.dumps(config),
                         "v": list(visibility),
                         "dc": data_class.value,
+                        "by": created_by,
                     },
                 )
             ).first()
         if row is None:
             raise Conflict(f"{name} is already connected.")
         return SourceId(row[0])
+
+    async def update_config(
+        self, ws: WorkspaceId, source_id: SourceId, config: dict[str, object]
+    ) -> bool:
+        async with self._uow() as s:
+            result = await s.execute(
+                text(
+                    "UPDATE sources SET config = CAST(:cfg AS jsonb)"
+                    " WHERE id = :id AND workspace_id = :ws"
+                ),
+                {"cfg": json.dumps(config), "id": source_id, "ws": ws},
+            )
+        return int(getattr(result, "rowcount", 0) or 0) > 0
 
     async def get_source(self, ws: WorkspaceId, source_id: SourceId) -> SourceRecord | None:
         async with self._uow() as s:
@@ -262,6 +284,35 @@ class PostgresSourceStore:
                 )
             ).all()
         return [(WorkspaceId(r[0]), SourceId(r[1])) for r in rows]
+
+    async def document_versions(
+        self, source_id: SourceId, prefix: str
+    ) -> dict[str, tuple[str, datetime | None]]:
+        async with self._uow() as s:
+            rows = (
+                await s.execute(
+                    text(
+                        "SELECT external_id, checksum, source_updated_at FROM documents"
+                        " WHERE source_id = :s AND starts_with(external_id, :p)"
+                        " AND deleted_at IS NULL"
+                    ),
+                    {"s": source_id, "p": prefix},
+                )
+            ).all()
+        return {str(r[0]): (str(r[1]), r[2]) for r in rows}
+
+    async def config_in_use(self, connector: str, key: str, value: str) -> bool:
+        async with self._uow() as s:
+            found = (
+                await s.execute(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM sources WHERE connector = :c"
+                        " AND config ->> :k = :v AND status <> 'deleting')"
+                    ),
+                    {"c": connector, "k": key, "v": value},
+                )
+            ).scalar_one()
+        return bool(found)
 
     async def document_checksums(self, source_id: SourceId, prefix: str) -> dict[str, str]:
         async with self._uow() as s:

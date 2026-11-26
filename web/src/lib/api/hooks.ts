@@ -156,3 +156,16 @@ export function useGitHubStatus(enabled = true) {
     staleTime: 5 * 60_000,
   });
 }
+
+export type DiscordChannel = components["schemas"]["DiscordChannelOut"];
+export type DiscordServer = components["schemas"]["DiscordServerOut"];
+
+/** Whether this server's Discord bot is configured (the Discord tile is live only then). */
+export function useDiscordStatus(enabled = true) {
+  return useQuery({
+    queryKey: ["discord-status"] as const,
+    queryFn: async () => unwrap(await api.GET("/api/v1/sources/discord/status")),
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+}

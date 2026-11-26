@@ -94,7 +94,9 @@ export function RunsView({ sourceId }: { sourceId: string }) {
             <EmptyState icon={History} title="No runs yet">
               {source?.connector === "github"
                 ? "The first sync starts right after connecting. Repositories re-sync every hour."
-                : "Runs appear here when files are processed."}
+                : source?.connector === "discord"
+                  ? "The first sync reads the last 90 days. New messages arrive with the hourly sync."
+                  : "Runs appear here when files are processed."}
             </EmptyState>
           ) : (
             <ul className="divide-y divide-border border-b border-border">

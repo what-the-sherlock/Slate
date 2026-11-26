@@ -20,8 +20,9 @@ class PostgresEvalStore:
         async with self._uow() as s:
             await s.execute(
                 text(
-                    "INSERT INTO workspaces (name, slug) VALUES (:n, :s)"
-                    " ON CONFLICT (slug) DO NOTHING"
+                    # The only workspace allowed public data (ADR-0026, migration 0006).
+                    "INSERT INTO workspaces (name, slug, allows_public) VALUES (:n, :s, true)"
+                    " ON CONFLICT (slug) DO UPDATE SET allows_public = true"
                 ),
                 {"n": name, "s": slug},
             )

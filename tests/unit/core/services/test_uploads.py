@@ -15,10 +15,12 @@ from core.domain.signed_tokens import sign
 from core.domain.uploads import MAX_UPLOAD_BYTES, Visibility, access_for, external_id_for
 from core.services.uploads import (
     PROCESS_UPLOAD,
+    TOKEN_PURPOSE,
     BeginResult,
     CompleteResult,
     UploadService,
     UploadStatus,
+    derive_key,
 )
 from tests.fakes.jobs import FakeJobQueue
 from tests.fakes.rate_limit import InMemoryRateLimiter
@@ -109,14 +111,31 @@ async def test_happy_path_queues_processing_with_the_access_plan(env: Env) -> No
     assert next(iter(env.blobs.upload_policies.values()))[1] == MAX_UPLOAD_BYTES
 
 
-async def test_admin_can_publish_publicly(env: Env) -> None:
-    done = await env.upload(identity(Role.ADMIN), visibility=Visibility.PUBLIC)
+@pytest.mark.parametrize("role", [Role.MEMBER, Role.ADMIN, Role.OWNER])
+@pytest.mark.parametrize("visibility", list(Visibility))
+async def test_no_upload_is_ever_public(env: Env, role: Role, visibility: Visibility) -> None:
+    """ADR-0026: whatever the role or choice, user uploads are private data with no
+    'public' principal, so they never reach free-tier AI or other accounts."""
+    done = await env.upload(identity(role), visibility=visibility)
     assert done.job_id is not None
     job = await env.jobs.get(done.job_id)
-    assert job.payload["data_class"] == "public"
+    assert job.payload["data_class"] == "private"
     acl = job.payload["acl"]
     assert isinstance(acl, list)
-    assert PUBLIC in acl
+    assert PUBLIC not in acl
+
+
+async def test_a_token_minted_for_the_removed_public_choice_is_refused(env: Env) -> None:
+    """A link issued before ADR-0026 shipped (15-minute tokens) fails cleanly, not with 500."""
+    who = identity(Role.OWNER)
+    token = sign(
+        {"u": str(who.user_id), "w": str(who.workspace_id), "v": "public"},
+        secret=derive_key(ROOT, "upload-token"),
+        purpose=TOKEN_PURPOSE,
+        expires_at=env.clock.now() + timedelta(minutes=5),
+    )
+    with pytest.raises(ValidationFailed, match="expired"):
+        await env.svc.complete(who, token)
 
 
 # ---------------------------------------------------------------- dedup and visibility
@@ -158,9 +177,8 @@ async def test_reupload_with_same_access_is_a_duplicate(env: Env) -> None:
     [
         (Visibility.WORKSPACE, Visibility.ONLY_ME),  # narrowing: must NOT say "duplicate"
         (Visibility.ONLY_ME, Visibility.WORKSPACE),  # widening
-        (Visibility.ONLY_ME, Visibility.PUBLIC),  # private -> public (the other source)
     ],
-    ids=["narrow", "widen", "to-public"],
+    ids=["narrow", "widen"],
 )
 async def test_reupload_with_different_access_is_flagged(
     env: Env, indexed_as: Visibility, requested: Visibility
@@ -284,9 +302,9 @@ async def test_tokens_signed_with_the_raw_root_secret_are_rejected(env: Env) -> 
     [
         (identity(Role.VIEWER), Visibility.ONLY_ME),
         (identity(Role.VIEWER, guest=True), Visibility.ONLY_ME),
-        (identity(Role.MEMBER), Visibility.PUBLIC),  # only admins may publish
+        (identity(Role.VIEWER), Visibility.WORKSPACE),
     ],
-    ids=["viewer", "guest", "member-public"],
+    ids=["viewer", "guest", "viewer-workspace"],
 )
 async def test_role_checks(env: Env, who: Identity, visibility: Visibility) -> None:
     with pytest.raises(PermissionDenied):

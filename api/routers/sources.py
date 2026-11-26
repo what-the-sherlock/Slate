@@ -6,12 +6,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 
 from api.deps import Container, get_container
-from api.schemas.catalog import JobOut, RunErrorOut, RunOut, SourceOut
-from api.security import CurrentIdentity
+from api.schemas.catalog import JobOut, RunErrorOut, RunOut, SourceOut, SyncOut
+from api.security import CurrentIdentity, MutatingIdentity
 from core.domain.ids import JobId, SourceId
 from core.domain.principals import PUBLIC
 from core.ports.catalog import SourceSummary
 from core.services.catalog import CatalogService
+from core.services.inline import InlineOutcome
+from core.services.source_actions import SourceActions
 
 router = APIRouter(tags=["sources"])
 
@@ -21,6 +23,13 @@ def _catalog(container: Annotated[Container, Depends(get_container)]) -> Catalog
 
 
 Catalog = Annotated[CatalogService, Depends(_catalog)]
+
+
+def _actions(container: Annotated[Container, Depends(get_container)]) -> SourceActions:
+    return container.source_actions
+
+
+Actions = Annotated[SourceActions, Depends(_actions)]
 
 
 def _status(s: SourceSummary) -> str:
@@ -104,3 +113,22 @@ async def get_job(job_id: UUID, identity: CurrentIdentity, catalog: Catalog) -> 
         error=job.last_error if job.status in {"dead", "failed"} else None,
         filename=job.filename,
     )
+
+
+@router.post(
+    "/sources/{source_id}/sync",
+    summary="Sync a connected source now (GitHub repo, Discord server)",
+    response_model=SyncOut,
+)
+async def sync_now(source_id: UUID, identity: MutatingIdentity, actions: Actions) -> SyncOut:
+    job, outcome = await actions.sync_now(identity, SourceId(source_id))
+    return SyncOut(job_id=job, status="done" if outcome is InlineOutcome.DONE else "queued")
+
+
+@router.delete(
+    "/sources/{source_id}",
+    summary="Disconnect a source and delete what it indexed",
+    status_code=204,
+)
+async def disconnect(source_id: UUID, identity: MutatingIdentity, actions: Actions) -> None:
+    await actions.disconnect(identity, SourceId(source_id))

@@ -8,6 +8,7 @@ import pytest
 
 from core.adapters.parsers.formats import FormatParser
 from core.domain.budget import SpendLimits
+from core.domain.data_class import DataClass
 from core.domain.documents import SearchFilters
 from core.domain.errors import BudgetExceeded, ValidationFailed
 from core.domain.ids import JobId, SourceId, UserId, WorkspaceId
@@ -24,7 +25,6 @@ from tests.fixtures.documents import minimal_pdf
 
 WS = WorkspaceId(uuid4())
 UPLOADER = UserId(uuid4())
-SOURCE = SourceId(uuid4())
 MD = b"# Handbook\n\n## Leave\n\nEveryone gets 25 days of paid leave per year.\n"
 
 
@@ -55,12 +55,15 @@ class Env:
         stored: bytes | None = None,
         acl: tuple[str, ...] = (f"user:{UPLOADER}",),
         data_class: str = "private",
+        source: SourceId | None = None,
+        workspace: WorkspaceId = WS,
     ) -> Job:
         key = f"uploads/{WS}/{UPLOADER}/{hashlib.sha256(data).hexdigest()}.{kind.value}"
+        source = source or await self.sources.upload_source(WS, DataClass(data_class))
         await self.blobs.put(key, data if stored is None else stored, MIME[kind])
         return Job(
             id=JobId(uuid4()),
-            workspace_id=WS,
+            workspace_id=workspace,
             kind="process_upload",
             payload={
                 "blob_key": key,
@@ -71,7 +74,7 @@ class Env:
                 "sha256": hashlib.sha256(data).hexdigest(),
                 "acl": list(acl),
                 "data_class": data_class,
-                "source_id": str(SOURCE),
+                "source_id": str(source),
                 "external_id": f"upload:{UPLOADER}:{hashlib.sha256(data).hexdigest()}",
                 "uploader": str(UPLOADER),
             },
@@ -177,3 +180,54 @@ async def test_a_workspace_over_its_allowance_cannot_embed_but_others_can() -> N
     with pytest.raises(BudgetExceeded, match="this month's AI allowance"):
         await env.svc.process_upload(await env.job(MD))
     assert env.embedder.calls == []
+
+
+# ------------------------------------------------- payload scope (defence in depth)
+
+
+async def test_payload_naming_another_workspaces_source_is_refused(env: Env) -> None:
+    """A job of workspace A must never write into workspace B's source."""
+    other = await env.sources.upload_source(WorkspaceId(uuid4()), DataClass.PRIVATE)
+    with pytest.raises(ValidationFailed, match="source"):
+        await env.svc.process_upload(await env.job(MD, source=other))
+    assert env.sources.runs == {}  # refused before a run row is written
+    assert env.embedder.calls == []
+
+
+async def test_payload_naming_a_connector_source_is_refused(env: Env) -> None:
+    repo = await env.sources.create_source(
+        WS, connector="github", name="o/r", config={}, visibility=[f"user:{UPLOADER}"],
+        data_class=DataClass.PRIVATE,
+    )  # fmt: skip
+    with pytest.raises(ValidationFailed, match="source"):
+        await env.svc.process_upload(await env.job(MD, source=repo))
+
+
+@pytest.mark.parametrize(
+    "acl",
+    [
+        (PUBLIC,),
+        (f"user:{UPLOADER}", PUBLIC),
+        (f"user:{uuid4()}",),  # someone else
+        (f"workspace:{uuid4()}",),  # another workspace
+        (),
+    ],
+    ids=["public", "plus-public", "other-user", "other-workspace", "empty"],
+)
+async def test_payload_acl_wider_than_the_uploader_or_workspace_is_refused(
+    env: Env, acl: tuple[str, ...]
+) -> None:
+    with pytest.raises(ValidationFailed, match="acl"):
+        await env.svc.process_upload(await env.job(MD, acl=acl))
+    assert env.embedder.calls == []
+
+
+async def test_payload_data_class_must_match_its_source(env: Env) -> None:
+    private = await env.sources.upload_source(WS, DataClass.PRIVATE)
+    with pytest.raises(ValidationFailed, match="data class"):
+        await env.svc.process_upload(await env.job(MD, source=private, data_class="public"))
+
+
+async def test_workspace_shared_upload_is_accepted(env: Env) -> None:
+    await env.svc.process_upload(await env.job(MD, acl=(f"workspace:{WS}",)))
+    assert env.run_status() == "succeeded"

@@ -39,8 +39,8 @@ async def world(uow: UnitOfWork) -> AsyncIterator[WorkspaceId]:
                     (
                         await s.execute(
                             text(
-                                "INSERT INTO workspaces (name, slug)"
-                                " VALUES ('b', 'b-' || gen_random_uuid()) RETURNING id"
+                                "INSERT INTO workspaces (name, slug, allows_public)"
+                                " VALUES ('b', 'b-' || gen_random_uuid(), true) RETURNING id"
                             )
                         )
                     ).scalar_one()

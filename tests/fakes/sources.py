@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from core.domain.data_class import DataClass
 from core.domain.errors import Conflict
-from core.domain.ids import DocumentId, RunId, SourceId, WorkspaceId
+from core.domain.ids import DocumentId, RunId, SourceId, UserId, WorkspaceId
 from core.ports.sources import ExistingUpload, SourceRecord
 from tests.fakes.system import SequentialIds
 
@@ -31,7 +32,12 @@ class InMemorySources:
     async def upload_source(self, ws: WorkspaceId, data_class: DataClass) -> SourceId:
         key = (ws, data_class)
         if key not in self.sources:
-            self.sources[key] = SourceId(self._ids.new_uuid())
+            sid = SourceId(self._ids.new_uuid())
+            self.sources[key] = sid
+            name = "Uploads" if data_class is DataClass.PRIVATE else "Public uploads"
+            self.records[sid] = SourceRecord(
+                sid, ws, "upload", name, (f"workspace:{ws}",), data_class.value, "active"
+            )
         return self.sources[key]
 
     async def upload_usage(self, ws: WorkspaceId) -> tuple[int, int]:
@@ -68,6 +74,8 @@ class InMemorySources:
     async def record_error(
         self, run_id: RunId, *, external_id: str | None, stage: str, message: str, retryable: bool
     ) -> None:
+        # Mirrors ingestion_errors' CHECK (migration 0001): a made-up stage fails in Postgres.
+        assert stage in {"fetch", "parse", "chunk", "embed", "store"}, f"invalid stage {stage!r}"
         self.errors.append((run_id, stage, message, retryable))
 
     async def blob_in_use(self, blob_key: str) -> bool:
@@ -82,14 +90,32 @@ class InMemorySources:
         config: dict[str, object],
         visibility: Sequence[str],
         data_class: DataClass,
+        created_by: UserId | None = None,
     ) -> SourceId:
         if any(r.workspace_id == ws and r.name == name for r in self.records.values()):
             raise Conflict(f"{name} is already connected.")
         sid = SourceId(self._ids.new_uuid())
         self.records[sid] = SourceRecord(
-            sid, ws, connector, name, tuple(visibility), data_class.value, "active", dict(config)
+            sid,
+            ws,
+            connector,
+            name,
+            tuple(visibility),
+            data_class.value,
+            "active",
+            dict(config),
+            created_by=created_by,
         )
         return sid
+
+    async def update_config(
+        self, ws: WorkspaceId, source_id: SourceId, config: dict[str, object]
+    ) -> bool:
+        r = self.records.get(source_id)
+        if r is None or r.workspace_id != ws:
+            return False
+        self.records[source_id] = replace(r, config=dict(config))
+        return True
 
     async def get_source(self, ws: WorkspaceId, source_id: SourceId) -> SourceRecord | None:
         r = self.records.get(source_id)
@@ -121,6 +147,19 @@ class InMemorySources:
         if self._index is None:
             return {}
         return self._index.checksums(source_id, prefix)
+
+    async def document_versions(
+        self, source_id: SourceId, prefix: str
+    ) -> dict[str, tuple[str, datetime | None]]:
+        if self._index is None:
+            return {}
+        return self._index.versions(source_id, prefix)
+
+    async def config_in_use(self, connector: str, key: str, value: str) -> bool:
+        return any(
+            r.connector == connector and str(r.config.get(key)) == value
+            for r in self.records.values()
+        )
 
     async def delete_documents(self, source_id: SourceId, external_ids: Sequence[str]) -> int:
         if self._index is None:

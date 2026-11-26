@@ -284,7 +284,7 @@ function RepoPicker({
 
       {anyPublic ? (
         <p className="rounded-md border border-border bg-subtle px-3 py-2 text-caption text-fg-muted">
-          Public repositories are searchable only inside your workspace, just like private ones.
+          Public repositories are searchable only by you, just like private ones.
         </p>
       ) : null}
 

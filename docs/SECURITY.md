@@ -53,3 +53,17 @@ This is a personal project that indexes **private mail and code**, and anyone ca
   - Connecting and disconnecting need admin or owner. Sync now needs member and is limited to one per repo per 5 minutes.
   - Every repo, public or private, is workspace-only private data. The grant lists only repos this user can read. Tarballs are streamed with caps on entries and unpacked size. Tokens never leave `api.github.com`: pagination is host-checked and token calls don't follow redirects. Worker logs carry counts and statuses only.
 - **Workers AI (BGE-M3) is a free tier (ADR-0012):** only public chunks are ever sent (public-scoped generation, checked in code and by trigger). Eval questions are synthetic.
+- **Private by default (ADR-0026, migration 0006):**
+  - A connected source is readable only by its connector (`user:<id>`). Sharing is explicit (M7).
+  - There is no public user data: triggers allow `public` data or the `public` principal only in workspaces with `allows_public` (the eval corpus), and the BGE-M3 backfill reads only those.
+  - `process_upload` refuses a payload whose source, ACL or data class doesn't belong to the job's workspace and uploader.
+  - Sync and disconnect 404 for a source the caller can't see.
+- **Discord (M5, ADR-0027):**
+  - Read-only bot permissions. The install is accepted only when Discord's token response names the same server, which proves Manage Server.
+  - The user's token is used once, to read their roles, and revoked. The bot token is in env only.
+  - The grant lists only channels the user can read, computed with Discord's permission algorithm; `connect` re-checks the grant and that the bot can read the channel. Private threads are never indexed.
+  - State and grant are HMAC-signed under their own key (`slate/discord/v1`), bound to user and workspace, and travel in bodies; the callback strips the code from the URL.
+  - Ids are validated as snowflakes before use in URLs; only discord.com is called, with no redirects; the redirect URI must be https outside dev.
+  - Message text is untrusted: sections are built directly (no Markdown parsing), and the prompt boundary of ADR-0022 applies.
+  - Worker logs carry counts and statuses only.
+  - Accepted: access is checked at connect only.

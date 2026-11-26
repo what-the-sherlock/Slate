@@ -118,7 +118,7 @@ class UploadService:
         sha256: str,
         visibility: Visibility,
     ) -> BeginResult:
-        self._require_uploader(identity, visibility)
+        self._require_uploader(identity)
         name = safe_filename(filename)
         kind = kind_from_filename(name)
         errors: dict[str, str] = {}
@@ -175,8 +175,12 @@ class UploadService:
         )
         if claim.get("u") != str(identity.user_id) or claim.get("w") != str(identity.workspace_id):
             raise PermissionDenied("This upload belongs to someone else.")
-        visibility = Visibility(str(claim["v"]))
-        self._require_uploader(identity, visibility)
+        try:
+            visibility = Visibility(str(claim["v"]))
+        except ValueError:
+            # e.g. a token issued for the removed "public" choice before ADR-0026 shipped
+            raise ValidationFailed("This upload link has expired. Upload the file again.") from None
+        self._require_uploader(identity)
         key, kind, size = str(claim["k"]), FileKind(str(claim["t"])), int(str(claim["s"]))
         sha256, name = str(claim["h"]), str(claim["n"])
 
@@ -262,11 +266,9 @@ class UploadService:
             raise ValidationFailed(message, extra={"fields": {"file": message}})
 
     @staticmethod
-    def _require_uploader(identity: Identity, visibility: Visibility) -> None:
+    def _require_uploader(identity: Identity) -> None:
         if not identity.can(Role.MEMBER):
             raise PermissionDenied("Your role can't upload files.")
-        if visibility is Visibility.PUBLIC and not identity.can(Role.ADMIN):
-            raise PermissionDenied("Only admins and the owner can make uploads public.")
 
 
 def _job_key(ws: WorkspaceId, external_id: str) -> str:

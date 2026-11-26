@@ -234,9 +234,12 @@ SELECT c.id, c.workspace_id, d.title, c.heading_path, c.content, c.ordinal
 FROM chunks c
 JOIN documents d ON d.id = c.document_id
 JOIN sources src ON src.id = d.source_id
+JOIN workspaces w ON w.id = c.workspace_id
 WHERE d.deleted_at IS NULL AND src.status <> 'deleting'
   AND (CAST(:after AS bigint) IS NULL OR c.id > CAST(:after AS bigint))
-  AND (NOT CAST(:po AS boolean) OR c.data_class = 'public')
+  -- A public-scoped (free-tier) generation only ever reads workspaces that allow public
+  -- data, which is the synthetic eval corpus alone (ADR-0026); the DB trigger agrees.
+  AND (NOT CAST(:po AS boolean) OR (c.data_class = 'public' AND w.allows_public))
   AND NOT EXISTS (
       SELECT 1 FROM chunk_embeddings e WHERE e.chunk_id = c.id AND e.generation_id = :g)
 ORDER BY c.id

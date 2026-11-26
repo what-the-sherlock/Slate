@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Protocol
 
 from core.domain.data_class import DataClass
-from core.domain.ids import DocumentId, RunId, SourceId, WorkspaceId
+from core.domain.ids import DocumentId, RunId, SourceId, UserId, WorkspaceId
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +30,7 @@ class SourceRecord:
     config: dict[str, object] = field(default_factory=dict[str, object])
     checkpoint: dict[str, object] | None = None
     last_synced_at: datetime | None = None
+    created_by: UserId | None = None  # who connected it; None for system upload sources
 
 
 class SourceStore(Protocol):
@@ -76,12 +77,23 @@ class SourceStore(Protocol):
         config: dict[str, object],
         visibility: Sequence[str],
         data_class: DataClass,
+        created_by: UserId | None = None,
     ) -> SourceId:
-        """Raises Conflict if the workspace already has a source with this name."""
+        """Raises Conflict if the workspace already has a source with this name.
+
+        A connected source's ``visibility`` is normally just ``user:<created_by>``:
+        private to whoever connected it until they share it (ADR-0026).
+        """
         ...
 
     async def get_source(self, ws: WorkspaceId, source_id: SourceId) -> SourceRecord | None:
         """The source if it's in this workspace (no probing across workspaces)."""
+        ...
+
+    async def update_config(
+        self, ws: WorkspaceId, source_id: SourceId, config: dict[str, object]
+    ) -> bool:
+        """Replace a source's config. False if the source isn't in this workspace."""
         ...
 
     async def sources_by_connector(self, ws: WorkspaceId, connector: str) -> list[SourceRecord]: ...
@@ -98,6 +110,18 @@ class SourceStore(Protocol):
 
     async def document_checksums(self, source_id: SourceId, prefix: str) -> dict[str, str]:
         """external_id -> checksum for this source's documents whose id starts with prefix."""
+        ...
+
+    async def document_versions(
+        self, source_id: SourceId, prefix: str
+    ) -> dict[str, tuple[str, datetime | None]]:
+        """external_id -> (checksum, source_updated_at), like ``document_checksums``."""
+        ...
+
+    async def config_in_use(self, connector: str, key: str, value: str) -> bool:
+        """Whether any source of this connector, in *any* workspace, has ``config[key] ==
+        value``. Returns a yes/no only (e.g. "is this Discord server still connected
+        anywhere?"); nothing about the other workspace leaves the adapter."""
         ...
 
     async def delete_documents(self, source_id: SourceId, external_ids: Sequence[str]) -> int:

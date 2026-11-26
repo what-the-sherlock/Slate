@@ -76,9 +76,12 @@ def test_access_plans() -> None:
     u, w = UserId(uuid4()), WorkspaceId(uuid4())
     assert access_for(Visibility.ONLY_ME, u, w).acl == (f"user:{u}",)
     assert access_for(Visibility.WORKSPACE, u, w).data_class is DataClass.PRIVATE
-    public = access_for(Visibility.PUBLIC, u, w)
-    assert PUBLIC in public.acl
-    assert public.data_class is DataClass.PUBLIC
+    assert access_for(Visibility.WORKSPACE, u, w).acl == (f"workspace:{w}",)
+    # ADR-0026: no choice produces public data or the 'public' principal.
+    for v in Visibility:
+        plan = access_for(v, u, w)
+        assert plan.data_class is DataClass.PRIVATE
+        assert PUBLIC not in plan.acl
 
 
 def test_blob_keys_are_scoped_to_the_uploader() -> None:

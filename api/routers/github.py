@@ -2,12 +2,12 @@
 
 Every route that changes something needs CSRF and a verified email (MutatingIdentity).
 Grants travel in request bodies, never in URLs, so they stay out of logs and history.
+Sync now and disconnect are the generic ``/sources/{id}`` routes (sources.py).
 """
 
 from __future__ import annotations
 
 from typing import Annotated
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
 
@@ -21,13 +21,10 @@ from api.schemas.github import (
     InstallationBody,
     InstallLinkOut,
     RepoOut,
-    SyncOut,
 )
 from api.security import CurrentIdentity, MutatingIdentity
 from core.domain.errors import UpstreamUnavailable
-from core.domain.ids import SourceId
 from core.services.github import GitHubService
-from core.services.inline import InlineOutcome
 
 router = APIRouter(tags=["github"])
 ContainerDep = Annotated[Container, Depends(get_container)]
@@ -100,24 +97,3 @@ async def connect(
 ) -> list[ConnectedOut]:
     done = await github.connect(identity, body.grant, body.repos)
     return [ConnectedOut(source_id=c.source_id, name=c.name, job_id=c.job_id) for c in done]
-
-
-@router.post("/sources/{source_id}/sync", summary="Sync a repo now", response_model=SyncOut)
-async def sync_now(
-    source_id: UUID, identity: MutatingIdentity, github: GitHub, container: ContainerDep
-) -> SyncOut:
-    job = await github.sync_now(identity, SourceId(source_id))
-    outcome = InlineOutcome.DEFERRED
-    if container.github_inline is not None:
-        # Up to ~90 s here; a big repo continues in the background from its checkpoint.
-        outcome = await container.github_inline.run(job)
-    return SyncOut(job_id=job, status="done" if outcome is InlineOutcome.DONE else "queued")
-
-
-@router.delete(
-    "/sources/{source_id}",
-    summary="Disconnect a source and delete what it indexed",
-    status_code=204,
-)
-async def disconnect(source_id: UUID, identity: MutatingIdentity, github: GitHub) -> None:
-    await github.disconnect(identity, SourceId(source_id))

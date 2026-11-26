@@ -13,14 +13,15 @@ import { ACCEPTED, precheck, uploadFile, type UploadPhase, type Visibility } fro
 
 type Item = { id: string; file: File; phase: UploadPhase };
 
-const VISIBILITIES: { value: Visibility; label: string; hint: string; adminOnly?: boolean }[] = [
+// ADR-0026: uploads are private to you unless you share them with your workspace's members.
+// There is no "public" choice: nothing you add is ever visible to other accounts.
+const VISIBILITIES: { value: Visibility; label: string; hint: string }[] = [
   { value: "only_me", label: "Only me", hint: "Private to you" },
-  { value: "workspace", label: "Workspace", hint: "Everyone in the workspace" },
-  { value: "public", label: "Public", hint: "Can also go to free AI providers", adminOnly: true },
+  { value: "workspace", label: "Workspace", hint: "Members of your workspace" },
 ];
 
 /** Dropzone + per-file progress (UI_DESIGN §3.2, §4.5). */
-export function UploadPanel({ canPublish, onBack }: { canPublish: boolean; onBack: () => void }) {
+export function UploadPanel({ onBack }: { onBack: () => void }) {
   const client = useQueryClient();
   const [items, setItems] = useState<Item[]>([]);
   const [visibility, setVisibility] = useState<Visibility>("only_me");
@@ -59,7 +60,7 @@ export function UploadPanel({ canPublish, onBack }: { canPublish: boolean; onBac
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-body font-medium text-fg">Who can see these files?</legend>
         <div className="grid gap-2 sm:grid-cols-3">
-          {VISIBILITIES.filter((v) => !v.adminOnly || canPublish).map((v) => (
+          {VISIBILITIES.map((v) => (
             <label
               key={v.value}
               className={cn(

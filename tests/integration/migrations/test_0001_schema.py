@@ -28,8 +28,11 @@ INDEXES = {
     "chat_sessions_user_idx", "messages_session_idx", "audit_log_workspace_idx",
 }  # fmt: skip
 
+# allows_public: these tests exercise the 0001 constraints on public data (ADR-0026 limits
+# public data to workspaces that allow it, see test_0006_private_by_default.py).
 NEW_WORKSPACE = (
-    "INSERT INTO workspaces (name, slug) VALUES ('t', 't-' || gen_random_uuid()) RETURNING id"
+    "INSERT INTO workspaces (name, slug, allows_public)"
+    " VALUES ('t', 't-' || gen_random_uuid(), true) RETURNING id"
 )
 NEW_SOURCE = (
     "INSERT INTO sources (workspace_id, connector, name, visibility, data_class) "

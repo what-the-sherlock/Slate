@@ -14,8 +14,10 @@ from core.domain.budget import SpendLimits
 from core.services.answer import AnswerService
 from core.services.auth import AuthPolicy, AuthService
 from core.services.catalog import CatalogService
+from core.services.discord import DiscordService
 from core.services.github import GitHubService
 from core.services.search import SearchService
+from core.services.source_actions import ConnectorEntry, SourceActions
 from core.services.uploads import UploadService
 from tests.fakes.auth import (
     FakeHasher,
@@ -28,6 +30,7 @@ from tests.fakes.auth import (
 )
 from tests.fakes.catalog import InMemoryCatalog
 from tests.fakes.chat import InMemoryChatStore
+from tests.fakes.discord import FakeDiscord
 from tests.fakes.github import FakeGitHub
 from tests.fakes.jobs import FakeJobQueue
 from tests.fakes.models import FakeChatModel, FakeEmbedder, WordTokenizer
@@ -160,9 +163,29 @@ def github(fake_github: FakeGitHub, source_store: InMemorySources) -> GitHubServ
 
 
 @pytest.fixture
+def fake_discord() -> FakeDiscord:
+    return FakeDiscord()
+
+
+@pytest.fixture
+def discord(fake_discord: FakeDiscord, source_store: InMemorySources) -> DiscordService:
+    clock = FakeClock()
+    return DiscordService(
+        fake_discord,
+        source_store,
+        FakeJobQueue(clock),
+        InMemoryRateLimiter(clock),
+        clock,
+        secret=b"d" * 32,
+    )
+
+
+@pytest.fixture
 def app(
     probe: FakeHealthProbe,
     github: GitHubService,
+    discord: DiscordService,
+    source_store: InMemorySources,
     auth: AuthService,
     uploads: UploadService,
     catalog: InMemoryCatalog,
@@ -182,6 +205,14 @@ def app(
         answers=answers,
         chats=chats,
         github=github,
+        discord=discord,
+        actions=SourceActions(
+            source_store,
+            {
+                "github": ConnectorEntry("GitHub", github),
+                "discord": ConnectorEntry("Discord", discord),
+            },
+        ),
     )
     application.dependency_overrides[get_container] = lambda: container
     return application

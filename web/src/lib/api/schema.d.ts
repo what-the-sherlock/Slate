@@ -333,6 +333,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sources/discord/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The server's channels, and which ones you can connect */
+        post: operations["channels_api_v1_sources_discord_channels_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/discord/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Connect channels of a server as one source (it starts syncing) */
+        post: operations["connect_api_v1_sources_discord_connect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/discord/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start adding Slate's bot to a Discord server */
+        post: operations["install_api_v1_sources_discord_install_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/discord/installations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finish adding the bot: verify it, get a grant for picking channels */
+        post: operations["installation_api_v1_sources_discord_installations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sources/discord/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether Discord can be connected */
+        get: operations["discord_status_api_v1_sources_discord_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sources/github/connect": {
         parameters: {
             query?: never;
@@ -461,7 +546,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Sync a repo now */
+        /** Sync a connected source now (GitHub repo, Discord server) */
         post: operations["sync_now_api_v1_sources__source_id__sync_post"];
         delete?: never;
         options?: never;
@@ -566,7 +651,7 @@ export interface components {
              * @default only_me
              * @enum {string}
              */
-            visibility: "only_me" | "workspace" | "public";
+            visibility: "only_me" | "workspace";
         };
         /** BeginUploadResponse */
         BeginUploadResponse: {
@@ -692,6 +777,104 @@ export interface components {
              * Format: uuid
              */
             source_id: string;
+        };
+        /** DiscordChannelOut */
+        DiscordChannelOut: {
+            /** Category */
+            category: string | null;
+            /** Connected */
+            connected: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @description text | announcement | forum | media
+             */
+            kind: string;
+            /** Name */
+            name: string;
+            /**
+             * Private
+             * @description Hidden from @everyone: only some roles can see it
+             */
+            private: boolean;
+            /**
+             * Reason
+             * @description Why it can't be picked, when it can't
+             */
+            reason: string | null;
+            /** Selectable */
+            selectable: boolean;
+        };
+        /** DiscordConnectBody */
+        DiscordConnectBody: {
+            /** Channels */
+            channels: string[];
+            /** Grant */
+            grant: string;
+        };
+        /** DiscordConnectedOut */
+        DiscordConnectedOut: {
+            /** Channels */
+            channels: number;
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+        };
+        /** DiscordGrantBody */
+        DiscordGrantBody: {
+            /** Grant */
+            grant: string;
+        };
+        /** DiscordGrantOut */
+        DiscordGrantOut: {
+            /**
+             * Grant
+             * @description Short-lived proof of the server and the channels you can read
+             */
+            grant: string;
+        };
+        /** DiscordInstallBody */
+        DiscordInstallBody: {
+            /** Code */
+            code: string;
+            /** Guild Id */
+            guild_id: string;
+            /** State */
+            state: string;
+        };
+        /** DiscordInstallLinkOut */
+        DiscordInstallLinkOut: {
+            /** Url */
+            url: string;
+        };
+        /** DiscordServerOut */
+        DiscordServerOut: {
+            /** Channels */
+            channels: components["schemas"]["DiscordChannelOut"][];
+            /** Icon Url */
+            icon_url: string | null;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** DiscordStatusOut */
+        DiscordStatusOut: {
+            /**
+             * Available
+             * @description False until the server's Discord bot is configured
+             */
+            available: boolean;
         };
         /** DocumentPreviewOut */
         DocumentPreviewOut: {
@@ -1800,6 +1983,145 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourceOut"][];
+                };
+            };
+        };
+    };
+    channels_api_v1_sources_discord_channels_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiscordGrantBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscordServerOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    connect_api_v1_sources_discord_connect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiscordConnectBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscordConnectedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    install_api_v1_sources_discord_install_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscordInstallLinkOut"];
+                };
+            };
+        };
+    };
+    installation_api_v1_sources_discord_installations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiscordInstallBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscordGrantOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discord_status_api_v1_sources_discord_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscordStatusOut"];
                 };
             };
         };

@@ -111,8 +111,7 @@
             "default": "only_me",
             "enum": [
               "only_me",
-              "workspace",
-              "public"
+              "workspace"
             ],
             "title": "Visibility",
             "type": "string"
@@ -474,6 +473,248 @@
           "job_id"
         ],
         "title": "ConnectedOut",
+        "type": "object"
+      },
+      "DiscordChannelOut": {
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "text | announcement | forum | media",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "private": {
+            "description": "Hidden from @everyone: only some roles can see it",
+            "title": "Private",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it can't be picked, when it can't",
+            "title": "Reason"
+          },
+          "selectable": {
+            "title": "Selectable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "category",
+          "private",
+          "selectable",
+          "reason",
+          "connected"
+        ],
+        "title": "DiscordChannelOut",
+        "type": "object"
+      },
+      "DiscordConnectBody": {
+        "properties": {
+          "channels": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Channels",
+            "type": "array"
+          },
+          "grant": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Grant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant",
+          "channels"
+        ],
+        "title": "DiscordConnectBody",
+        "type": "object"
+      },
+      "DiscordConnectedOut": {
+        "properties": {
+          "channels": {
+            "title": "Channels",
+            "type": "integer"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "name",
+          "job_id",
+          "channels"
+        ],
+        "title": "DiscordConnectedOut",
+        "type": "object"
+      },
+      "DiscordGrantBody": {
+        "properties": {
+          "grant": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Grant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant"
+        ],
+        "title": "DiscordGrantBody",
+        "type": "object"
+      },
+      "DiscordGrantOut": {
+        "properties": {
+          "grant": {
+            "description": "Short-lived proof of the server and the channels you can read",
+            "title": "Grant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant"
+        ],
+        "title": "DiscordGrantOut",
+        "type": "object"
+      },
+      "DiscordInstallBody": {
+        "properties": {
+          "code": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "guild_id": {
+            "pattern": "^[0-9]{15,21}$",
+            "title": "Guild Id",
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "guild_id",
+          "code",
+          "state"
+        ],
+        "title": "DiscordInstallBody",
+        "type": "object"
+      },
+      "DiscordInstallLinkOut": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "DiscordInstallLinkOut",
+        "type": "object"
+      },
+      "DiscordServerOut": {
+        "properties": {
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/DiscordChannelOut"
+            },
+            "title": "Channels",
+            "type": "array"
+          },
+          "icon_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Url"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "icon_url",
+          "channels"
+        ],
+        "title": "DiscordServerOut",
+        "type": "object"
+      },
+      "DiscordStatusOut": {
+        "properties": {
+          "available": {
+            "description": "False until the server's Discord bot is configured",
+            "title": "Available",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "available"
+        ],
+        "title": "DiscordStatusOut",
         "type": "object"
       },
       "DocumentPreviewOut": {
@@ -2528,6 +2769,171 @@
         ]
       }
     },
+    "/api/v1/sources/discord/channels": {
+      "post": {
+        "operationId": "channels_api_v1_sources_discord_channels_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscordGrantBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscordServerOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The server's channels, and which ones you can connect",
+        "tags": [
+          "discord"
+        ]
+      }
+    },
+    "/api/v1/sources/discord/connect": {
+      "post": {
+        "operationId": "connect_api_v1_sources_discord_connect_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscordConnectBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscordConnectedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connect channels of a server as one source (it starts syncing)",
+        "tags": [
+          "discord"
+        ]
+      }
+    },
+    "/api/v1/sources/discord/install": {
+      "post": {
+        "operationId": "install_api_v1_sources_discord_install_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscordInstallLinkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Start adding Slate's bot to a Discord server",
+        "tags": [
+          "discord"
+        ]
+      }
+    },
+    "/api/v1/sources/discord/installations": {
+      "post": {
+        "operationId": "installation_api_v1_sources_discord_installations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscordInstallBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscordGrantOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish adding the bot: verify it, get a grant for picking channels",
+        "tags": [
+          "discord"
+        ]
+      }
+    },
+    "/api/v1/sources/discord/status": {
+      "get": {
+        "operationId": "discord_status_api_v1_sources_discord_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscordStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Whether Discord can be connected",
+        "tags": [
+          "discord"
+        ]
+      }
+    },
     "/api/v1/sources/github/connect": {
       "post": {
         "operationId": "connect_api_v1_sources_github_connect_post",
@@ -2733,7 +3139,7 @@
         },
         "summary": "Disconnect a source and delete what it indexed",
         "tags": [
-          "github"
+          "sources"
         ]
       }
     },
@@ -2833,9 +3239,9 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Sync a repo now",
+        "summary": "Sync a connected source now (GitHub repo, Discord server)",
         "tags": [
-          "github"
+          "sources"
         ]
       }
     },
