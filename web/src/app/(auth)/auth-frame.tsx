@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { Check } from "lucide-react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { Logo, LogoTile } from "@/components/brand";
 import { delay, REVEAL } from "@/lib/reveal";
@@ -26,23 +27,34 @@ export function AuthFrame({
     <div className="flex h-svh flex-col overflow-hidden bg-bg">
       <header className="flex h-14 shrink-0 items-center justify-between px-5 sm:h-16 lg:px-10">
         <Logo size={28} />
-        {aside ?? (
-          <a
-            href="https://github.com/what-the-sherlock/Slate"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-body text-fg-muted transition-colors hover:bg-muted hover:text-fg"
+        <div className="flex items-center gap-1">
+          <Link
+            href="/privacy"
+            className="inline-flex h-8 items-center rounded-md px-3 text-body text-fg-muted transition-colors hover:bg-muted hover:text-fg"
           >
-            <LogoTile connector="github" size={18} />
-            <span className="hidden sm:inline">Source on GitHub</span>
-            <span aria-hidden="true">↗</span>
-          </a>
-        )}
+            Privacy
+          </Link>
+          {aside ?? (
+            <a
+              href="https://github.com/what-the-sherlock/Slate"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-body text-fg-muted transition-colors hover:bg-muted hover:text-fg"
+            >
+              <LogoTile connector="github" size={18} />
+              <span className="hidden sm:inline">Source on GitHub</span>
+              <span aria-hidden="true">↗</span>
+            </a>
+          )}
+        </div>
       </header>
 
       <GrainPanel className="mx-3 mb-3 flex min-h-0 flex-1 flex-col items-center rounded-[24px] px-4 pt-[clamp(16px,4vh,48px)] sm:mx-5 sm:mb-5 sm:rounded-[28px]">
         <div className="min-h-0 flex-[2]" />
-        <main id="main" className="relative flex w-full shrink-0 flex-col items-center text-center">
+        <main
+          id="main"
+          className="relative flex w-full shrink-0 flex-col items-center text-center"
+        >
           <h1
             className={cn(
               "text-[clamp(28px,4.6vh,50px)] leading-[1.05] font-semibold tracking-[-0.03em] text-balance text-white",
@@ -61,7 +73,13 @@ export function AuthFrame({
           >
             {subtitle}
           </p>
-          <div className={cn("mt-[clamp(16px,3.2vh,36px)] w-full max-w-[600px]", REVEAL)} style={delay(160)}>
+          <div
+            className={cn(
+              "mt-[clamp(16px,3.2vh,36px)] w-full max-w-[600px]",
+              REVEAL,
+            )}
+            style={delay(160)}
+          >
             {children}
           </div>
         </main>
@@ -79,7 +97,13 @@ export function AuthFrame({
  * (white on mid 5.05:1). Overlay grain is ~2.5x weaker on dark blue than on light, so a second
  * layer of the same tile fades out top to bottom to make the texture read evenly.
  */
-function GrainPanel({ className, children }: { className?: string; children: ReactNode }) {
+function GrainPanel({
+  className,
+  children,
+}: {
+  className?: string;
+  children: ReactNode;
+}) {
   return (
     <div className={cn("relative overflow-hidden", className)}>
       <div
