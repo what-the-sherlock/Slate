@@ -213,10 +213,16 @@ async def test_workspaces_never_mix(uow: UnitOfWork, world: World) -> None:
 
 async def test_filters_and_deleted_documents(uow: UnitOfWork, world: World) -> None:
     index = PostgresSearchIndex(uow)
+    # "Team" has no source date, so the filter uses its created_at (the date the UI shows):
+    # an upload must not vanish from date-filtered questions (IMPROVEMENT_PLAN P1-6).
     after = SearchFilters(updated_after=datetime(2026, 3, 1, tzinfo=UTC))
     assert titles(
         await index.keyword_search(world.ws, world.owner_p(), "paid leave", 10, after)
-    ) == {"Salaries"}
+    ) == {"Salaries", "Team"}
+    before = SearchFilters(updated_before=datetime(2026, 3, 1, tzinfo=UTC))
+    assert titles(
+        await index.keyword_search(world.ws, world.owner_p(), "paid leave", 10, before)
+    ) == {"Handbook"}
     other_source = SearchFilters(source_ids=(SourceId(UUID(int=7)),))
     assert (
         await index.keyword_search(world.ws, world.owner_p(), "paid leave", 10, other_source) == []
@@ -319,6 +325,40 @@ async def test_neighbours_use_the_same_access_rule(uow: UnitOfWork, world: World
     assert await index.neighbours(world.ws, world.guest_p(), [(secret_id, 0)]) == []
 
 
+async def test_chunks_by_id_use_the_same_access_rule(uow: UnitOfWork, world: World) -> None:
+    """A reopened chat rebuilds its citations from chunk ids (UI_DESIGN §4.3): the lookup
+    must hide what search hides, so revoked access shows as unavailable."""
+    vecs = (await embedder.embed_documents(["p0"])).vectors
+    store, index = PostgresDocumentStore(uow), PostgresSearchIndex(uow)
+    pub, _ = await store.write_document(
+        world.ws,
+        DocumentUpsert(world.source, "byid", "upload://b", "Byid", "text/plain", "b", (PUBLIC,)),
+        [NewChunk(0, "p0", 1)],
+        {world.gen: vecs},
+        data_class="private",
+    )
+    secret, _ = await store.write_document(
+        world.ws,
+        DocumentUpsert(
+            world.source, "byid-s", "upload://bs", "S", "text/plain", "bs", (f"user:{world.owner}",)
+        ),
+        [NewChunk(0, "s0", 1)],
+        {world.gen: vecs},
+        data_class="private",
+    )
+    async with uow() as s:
+        rows = await s.execute(
+            text("SELECT id, document_id FROM chunks WHERE document_id IN (:a, :b)"),
+            {"a": pub, "b": secret},
+        )
+        ids = {r.document_id: r.id for r in rows}
+    both = [ids[pub], ids[secret]]
+    got = await index.chunks_by_id(world.ws, world.owner_p(), both)
+    assert sorted(str(c.title) for c in got) == ["Byid", "S"]
+    assert [c.title for c in await index.chunks_by_id(world.ws, world.guest_p(), both)] == ["Byid"]
+    assert await index.chunks_by_id(world.other_ws, world.owner_p(), both) == []
+
+
 async def test_author_filter_matches_substrings_and_escapes_wildcards(
     uow: UnitOfWork, world: World
 ) -> None:
@@ -398,3 +438,44 @@ async def test_recent_lane_honours_filters_and_k(uow: UnitOfWork, world: World) 
     assert len(await index.recent_chunks(world.ws, world.owner_p(), 1, SearchFilters())) == 1
     with pytest.raises(ValueError, match="k must be"):
         await index.recent_chunks(world.ws, world.owner_p(), 0, SearchFilters())
+
+
+async def test_anchored_chunks_rank_cited_documents_and_recheck_access(
+    uow: UnitOfWork, world: World
+) -> None:
+    """P1-5: the follow-up lane returns chunks of the given documents even when the new
+    question shares no words with them, and still applies the visibility rule in SQL."""
+    vecs = (await embedder.embed_documents(["a", "b"])).vectors
+    store = PostgresDocumentStore(uow)
+    public_id, _ = await store.write_document(
+        world.ws,
+        DocumentUpsert(world.source, "anc", "upload://anc", "Anc", "text/plain", "anc", (PUBLIC,)),
+        [NewChunk(0, "the owner is Mei", 4), NewChunk(1, "budget is fixed", 3)],
+        {world.gen: vecs},
+        data_class="private",
+    )
+    secret_id, _ = await store.write_document(
+        world.ws,
+        DocumentUpsert(world.source, "anc-s", "upload://s", "S", "text/plain", "anc-s",
+                       (f"user:{world.owner}",)),
+        [NewChunk(0, "secret plan", 2)],
+        {world.gen: vecs[:1]},
+        data_class="private",
+    )  # fmt: skip
+    index = PostgresSearchIndex(uow)
+    anchor = [public_id, secret_id]
+    got = await index.anchored_chunks(
+        world.ws, world.owner_p(), anchor, "budget", 10, SearchFilters()
+    )
+    assert got[0].content == "budget is fixed"  # the follow-up's words rank first
+    assert {c.document_id for c in got} == {public_id, secret_id}
+    none = await index.anchored_chunks(
+        world.ws, world.owner_p(), anchor, "zzz", 10, SearchFilters()
+    )
+    assert len(none) == 3  # nothing matches, everything anchored is still returned
+    guest = await index.anchored_chunks(
+        world.ws, world.guest_p(), anchor, "zzz", 10, SearchFilters()
+    )
+    assert {c.document_id for c in guest} == {public_id}
+    assert await index.anchored_chunks(world.other_ws, world.owner_p(), anchor, "zzz", 10,
+                                       SearchFilters()) == []  # fmt: skip

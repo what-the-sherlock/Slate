@@ -146,7 +146,7 @@ function SourcesTable({ rows }: { rows: Source[] }) {
                     {vis.label}
                   </Pill>
                 </td>
-                <td className={TD}>
+                <td className={`${TD} py-1.5`}>
                   {s.status_reason ?? s.last_error ? (
                     <Tooltip>
                       <TooltipTrigger className="relative z-10">
@@ -157,8 +157,19 @@ function SourcesTable({ rows }: { rows: Source[] }) {
                   ) : (
                     <SourceStatusPill status={s.status} />
                   )}
+                  {/* P2-3: an unhealthy source says why at a glance, not only on hover. */}
+                  {!s.healthy && (s.status_reason ?? s.last_error) ? (
+                    <span className="mt-0.5 block max-w-[260px] truncate text-data text-fg-muted">{s.status_reason ?? s.last_error}</span>
+                  ) : null}
                 </td>
-                <td className={`${TD} text-right text-fg tabular-nums`}>{formatCount(s.documents)}</td>
+                <td className={`${TD} py-1.5 text-right tabular-nums`}>
+                  <span className="block text-fg">{formatCount(s.documents)}</span>
+                  {s.skipped_summary ? (
+                    <span className="block text-data text-fg-subtle" title={s.skipped_summary}>
+                      {skippedCount(s.skipped_summary)}
+                    </span>
+                  ) : null}
+                </td>
                 <td className={`${TD} text-fg-subtle`}>
                   <time dateTime={s.last_synced_at ?? undefined} title={absoluteTime(s.last_synced_at)}>
                     {relativeTime(s.last_synced_at)}
@@ -171,6 +182,19 @@ function SourcesTable({ rows }: { rows: Source[] }) {
       </table>
     </div>
   );
+}
+
+/**
+ * "37 skipped" from a run's skip summary ("30 PDFs (not supported yet), 7 Sheets (…), 2 more",
+ * core.domain.skips.describe_skips): the leading count of each part, summed. The full
+ * sentence is the tooltip.
+ */
+export function skippedCount(summary: string): string {
+  const total = summary
+    .split(/,\s*/)
+    .map((part) => Number(part.match(/^(\d+)\s/)?.[1] ?? 0))
+    .reduce((a, b) => a + b, 0);
+  return total > 0 ? `${total.toLocaleString()} skipped` : "Some skipped";
 }
 
 function TableSkeleton() {

@@ -45,6 +45,7 @@ from core.domain.answer import (
     MAX_SOURCES,
     AnswerMode,
     CitationTracker,
+    FollowupFilter,
     Passage,
     SentinelFilter,
     Source,
@@ -78,10 +79,12 @@ from core.domain.planner import (
     planner_messages,
     search_queries,
 )
-from core.domain.search import FusedHit
+from core.domain.rerank import RERANK_CANDIDATES, RERANK_KEEP, RERANK_MAX_TOKENS, snippet
+from core.domain.search import DIVERSITY_POOL, FusedHit, diversify
 from core.ports.chat import ChatStore, Citation, NewMessage
 from core.ports.models import ChatModel, Tokenizer
 from core.ports.rate_limit import Limit, RateLimiter
+from core.ports.reranker import RerankCandidate, Reranker
 from core.ports.system import Clock
 from core.ports.usage import UsageEntry, UsageLedger
 from core.services.search import SearchResults, SearchService
@@ -149,6 +152,7 @@ class Done:
     closest: tuple[Source, ...] = field(default=())  # shown when abstaining
     notices: tuple[str, ...] = ()
     mode: AnswerMode = "grounded"
+    followups: tuple[str, ...] = ()  # suggested next questions, grounded answers only (P2-1)
 
 
 AnswerEvent = Meta | SourcesFound | Token | Cited | Done
@@ -170,7 +174,10 @@ class AnswerService:
         limits: SpendLimits,
         min_similarity: float = DEFAULT_MIN_SIMILARITY,
         clock: Clock | None = None,
+        reranker: Reranker | None = None,
     ) -> None:
+        # The optional selection step (P1-4, ADR-0040); None: fused rank order.
+        self._reranker = reranker
         self._search = search
         self._model = model
         self._chats = chats
@@ -242,7 +249,7 @@ class AnswerService:
         user_msg = await self._chats.add_message(
             ws, user, sid, NewMessage(Role.USER, question), supersede_from=replace_from
         )
-        history = await self._history(identity, sid, exclude=user_msg)
+        history, anchor = await self._history(identity, sid, exclude=user_msg)
 
         if is_small_talk(question):
             yield Meta(sid, user_msg, question)
@@ -257,8 +264,18 @@ class AnswerService:
         queries = search_queries(plan, question, first_turn=not history)
         yield Meta(sid, user_msg, queries[0], plan)
 
-        results = await self._retrieve(identity, queries, filters or SearchFilters(), plan, zone)
-        passages = await self._assemble(identity, results.hits)
+        user_filters = filters or SearchFilters()
+        results = await self._retrieve(identity, queries, user_filters, plan, zone, anchor=anchor)
+        # Without a source filter, every connector that found something strong gets a
+        # voice (P1-7); with one, the person asked for that source only.
+        narrowed = bool(plan.kinds or user_filters.connectors or user_filters.source_ids)
+        hits = (
+            list(results.hits[:MAX_SOURCES]) if narrowed else diversify(results.hits, MAX_SOURCES)
+        )
+        if self._reranker is not None and plan.intent == "lookup":
+            # Recent and summary questions are about dates, not relevance: no selection.
+            hits = await self._select(identity, queries[0], results.hits) or hits
+        passages = await self._assemble(identity, hits)
         sources = tuple(number_sources(passages))
         notices = results.notices
 
@@ -282,6 +299,7 @@ class AnswerService:
         # The real request size, not the pre-flight guess (security review).
         await self._check_budget(identity, _price(self._model.model, tokens_in, ANSWER_MAX_TOKENS))
         sentinel, tracker = SentinelFilter(), CitationTracker(s.n for s in sources)
+        follow = FollowupFilter()  # strips the hidden FOLLOWUPS line (P2-1)
         no_cites = CitationTracker(())
         by_n = {s.n: s for s in sources}
         parts: list[str] = []
@@ -292,13 +310,14 @@ class AnswerService:
                 if isinstance(item, Usage):
                     usage = item
                     continue
-                out = sentinel.feed(item.text)
+                out = follow.feed(sentinel.feed(item.text))
                 # A general answer (GENERAL_ANSWER) confirms no citations.
                 cites = no_cites if sentinel.general else tracker
                 for ev in self._emit(out, parts, cites, by_n):
                     yield ev
             cites = no_cites if sentinel.general else tracker
-            for ev in self._emit(sentinel.flush(), parts, cites, by_n):
+            tail = follow.feed(sentinel.flush()) + follow.flush()
+            for ev in self._emit(tail, parts, cites, by_n):
                 yield ev
         finally:
             # A stream cut by the client or the provider was still paid for: record the
@@ -325,7 +344,10 @@ class AnswerService:
                 text,
                 parent_id=user_msg,
                 model=self._model.model,
-                usage=_usage_json(usage, self._model.model, mode),
+                usage={
+                    **_usage_json(usage, self._model.model, mode),
+                    "followups": list(follow.followups) if mode == "grounded" else [],
+                },
                 latency_ms=latency,
             ),
         )
@@ -337,8 +359,9 @@ class AnswerService:
             "answer.done", mode=mode, sources=len(sources), cited=len(kept), latency_ms=latency
         )
         yield Done(
-            msg_id, False, self._model.model, latency, tuple(kept), notices=notices, mode=mode
-        )
+            msg_id, False, self._model.model, latency, tuple(kept), notices=notices, mode=mode,
+            followups=follow.followups if mode == "grounded" else (),
+        )  # fmt: skip
 
     async def _unsourced(
         self,
@@ -459,16 +482,25 @@ class AnswerService:
 
     async def _history(
         self, identity: Identity, sid: ChatSessionId, *, exclude: MessageId
-    ) -> list[ChatMessage]:
-        """The turns before the question just stored (``exclude``)."""
-        stored = await self._chats.messages(
-            identity.workspace_id, identity.user_id, sid, limit=MAX_HISTORY_TURNS + 1
-        )
-        return [
-            ChatMessage(m.role, m.content)
-            for m in stored
+    ) -> tuple[list[ChatMessage], tuple[DocumentId, ...]]:
+        """The turns before the question just stored (``exclude``), and the documents the
+        latest answer cited: the anchor for a follow-up (P1-5). Ids only; the search lane
+        re-checks access to each before anything is shown."""
+        stored = [
+            m
+            for m in await self._chats.messages(
+                identity.workspace_id, identity.user_id, sid, limit=MAX_HISTORY_TURNS + 1
+            )
             if m.id != exclude and m.role is not Role.SYSTEM
-        ][-MAX_HISTORY_TURNS:]
+        ]
+        history = [ChatMessage(m.role, m.content) for m in stored][-MAX_HISTORY_TURNS:]
+        last_answer = next((m for m in reversed(stored) if m.role is Role.ASSISTANT), None)
+        cited = (
+            ()
+            if last_answer is None
+            else tuple(dict.fromkeys(c.document_id for c in last_answer.citations if c.document_id))
+        )
+        return history, cited
 
     def _now(self) -> datetime:
         return self._clock.now() if self._clock is not None else datetime.now(UTC)
@@ -512,6 +544,8 @@ class AnswerService:
         user_filters: SearchFilters,
         plan: QueryPlan,
         zone: tzinfo,
+        *,
+        anchor: Sequence[DocumentId] = (),
     ) -> SearchResults:
         """Retrieval under the plan's filters merged with the user's. If the plan's own
         period, kind or sender hid everything, retry with the user's filters alone: a
@@ -520,14 +554,16 @@ class AnswerService:
             identity,
             queries,
             merge_filters(user_filters, plan, zone),
-            limit=MAX_SOURCES,
+            limit=DIVERSITY_POOL,  # a pool: _answer keeps MAX_SOURCES (P1-7)
             recent=plan.wants_recent,
+            anchor=anchor,
         )
         if not results.hits and plan.narrows:
             log.info("answer.plan_filters_dropped")
             results = await self._search.retrieve(
-                identity, queries, user_filters, limit=MAX_SOURCES, recent=plan.wants_recent
-            )
+                identity, queries, user_filters, limit=DIVERSITY_POOL, recent=plan.wants_recent,
+                anchor=anchor,
+            )  # fmt: skip
         log.info(
             "answer.planned",
             planned=plan.planned,
@@ -537,6 +573,45 @@ class AnswerService:
             hits=len(results.hits),
         )  # never the queries themselves: they're private text
         return results
+
+    async def _select(
+        self, identity: Identity, question: str, pool: Sequence[FusedHit]
+    ) -> list[FusedHit] | None:
+        """The LLM selection step (P1-4): which of the top fused hits are worth reading.
+        None (use the rank order) when the pool is small, the budget can't cover it, the
+        provider fails, or the reply is unusable. A failed selection never fails an answer."""
+        assert self._reranker is not None
+        offered = list(pool[:RERANK_CANDIDATES])
+        if len(offered) <= RERANK_KEEP:
+            return None
+        candidates = [
+            RerankCandidate(
+                n=i,
+                title=h.chunk.title or "Untitled",
+                kind=h.chunk.connector,
+                date=h.chunk.updated_at.date().isoformat() if h.chunk.updated_at else None,
+                snippet=snippet(h.chunk.content),
+            )
+            for i, h in enumerate(offered, start=1)
+        ]
+        tokens_in = 200 + sum(self._tokenizer.count(c.snippet) + 20 for c in candidates)
+        model = self._reranker.model
+        try:
+            await self._check_budget(identity, _price(model, tokens_in, RERANK_MAX_TOKENS))
+            selection = await self._reranker.select(question, candidates, RERANK_KEEP)
+        except (BudgetExceeded, UpstreamUnavailable, RateLimited) as exc:
+            log.info("answer.rerank_skipped", reason=type(exc).__name__)
+            return None
+        # Passage text is private data (fail closed, ADR-0012).
+        await self._record(
+            identity.workspace_id, "rerank", "private",
+            selection.usage or Usage(model=model, tokens_in=tokens_in, tokens_out=0),
+        )  # fmt: skip
+        if not selection.keep:
+            log.info("answer.rerank_skipped", reason="unusable reply")
+            return None
+        log.info("answer.reranked", offered=len(offered), kept=len(selection.keep))
+        return [offered[n - 1] for n in selection.keep]
 
     async def _assemble(self, identity: Identity, hits: Sequence[FusedHit]) -> list[Passage]:
         """Top hits, then their neighbouring chunks (ordinal +-1), under the token budget.

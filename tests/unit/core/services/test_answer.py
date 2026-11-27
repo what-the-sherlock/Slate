@@ -659,3 +659,69 @@ async def test_hits_that_overflow_the_budget_are_left_out_but_the_best_stays() -
     events = await env.ask("leave")
     found = next(e for e in events if isinstance(e, SourcesFound))
     assert [s.passage.title for s in found.sources] == ["Big"]  # best hit always kept
+
+
+async def test_a_follow_up_with_no_words_of_its_own_stays_on_what_was_cited() -> None:
+    """P1-5: "who decides that?" matches nothing by itself; the anchor lane brings back
+    the document the previous answer cited, under the same access rule."""
+    env = Env()
+    await env.doc("handbook", [LEAVE])
+    await env.doc("pets", ["Dogs are welcome in the office on Fridays."])
+    first = (await env.ask("How much paid leave?"))[0]
+    assert isinstance(first, Meta)
+    events = await env.ask("who decides that?", session=first.session_id)
+    [found] = [e for e in events if isinstance(e, SourcesFound)]
+    assert {s.passage.title for s in found.sources} == {"Handbook"}
+    assert not done(events).abstained
+
+
+async def test_the_anchor_is_rechecked_so_lost_access_hides_the_document() -> None:
+    env = Env()
+    await env.doc("handbook", [LEAVE], acl=(user_principal(OWNER),))
+    first = (await env.ask("How much paid leave?"))[0]
+    assert isinstance(first, Meta)
+    lost = (user_principal(UserId(uuid4())),)  # shared away: the asker can't read it now
+    await env.index.upsert_document(
+        WS,
+        DocumentUpsert(SOURCE, "handbook", "upload://handbook", "Handbook", "text/plain",
+                       "handbook", lost),
+    )  # fmt: skip
+    events = await env.ask("who decides that?", session=first.session_id)
+    assert not [e for e in events if isinstance(e, SourcesFound)]
+
+
+async def test_a_cross_source_question_hears_from_every_connector_that_found_something() -> None:
+    """P1-7: 17 uploads outrank one email by keyword; the email still reaches the model,
+    unless the question was narrowed to one source."""
+    env = Env()
+    mail = SourceId(uuid4())
+    env.index.connectors[mail] = "imap"
+    for i in range(17):
+        await env.doc(f"note{i}", [f"leave leave leave note {i}"])
+    await env.doc("mail", ["leave approved by Ines"], source=mail)
+    events = await env.ask("leave")
+    [found] = [e for e in events if isinstance(e, SourcesFound)]
+    titles = [s.passage.title for s in found.sources]
+    assert "Mail" in titles
+    assert titles.index("Mail") == 3  # right after the three best, where the budget can't cut it
+    narrowed = await env.ask("leave", filters=SearchFilters(connectors=("upload",)))
+    [only] = [e for e in narrowed if isinstance(e, SourcesFound)]
+    assert "Mail" not in [s.passage.title for s in only.sources]
+
+
+async def test_follow_up_suggestions_reach_done_but_never_the_text() -> None:
+    """P2-1: the hidden last line is stripped from the stream and the stored answer."""
+    line = 'FOLLOWUPS: ["Who approves leave?", "Does it carry over?"]'
+    env = Env(
+        lambda m: '{"queries": ["leave"]}' if is_planner(m) else f"Leave is 25 days [1].\n{line}"
+    )
+    await env.doc("handbook", [LEAVE])
+    events = await env.ask("How much leave?")
+    assert "FOLLOWUPS" not in text(events)
+    assert done(events).followups == ("Who approves leave?", "Does it carry over?")
+    meta = events[0]
+    assert isinstance(meta, Meta)
+    stored = await env.chats.messages(WS, OWNER, meta.session_id, limit=10)
+    assert all("FOLLOWUPS" not in m.content for m in stored)
+    # Saved with the answer, so a reopened chat still offers them.
+    assert stored[-1].followups == ("Who approves leave?", "Does it carry over?")

@@ -208,6 +208,8 @@ Each item lists: problem → root cause → change → files → schema → test
 
 #### P1-1 Google Drive: index PDFs, Sheets and Slides
 
+**Status: complete, 2026-11-27 (ADR-0036).** Docs and Slides are exported as text, Sheets as CSV (the first sheet), and PDFs and `.docx` are downloaded. The connected engine parses bytes through `FormatParser` (`FetchedDocument.raw`). Tests: `test_drive_reads_sheets_slides_pdfs_and_word_files` and the export-size cap in `tests/unit/core/adapters/test_connectors.py`, plus engine parsing and skip counting in `tests/unit/core/services/test_connected.py`. `.xlsx` and `.pptx` are still counted as unsupported.
+
 - **Change:**
   - Export Sheets as `text/csv`; the CSV parser already exists, and tables become Markdown.
   - Export Slides as `text/plain`.
@@ -220,6 +222,8 @@ Each item lists: problem → root cause → change → files → schema → test
 - **Cost:** more chunks to embed (~$0.02 per 1M tokens). The budget guard already caps it.
 
 #### P1-2 GitHub: a cheap repository overview
+
+**Status: complete, 2026-11-27 (ADR-0023 amendment).** There is one `repo:overview` document per repo, built from the tarball walk the sync already does plus `releases/latest`. Tests: `tests/unit/core/domain/test_github_overview.py`, the adapter tests for the overview tree and the release, and the service tests, including the real adapter under `GitHubSync`.
 
 - **Problem:** "What does this repo do?" fails on code-heavy repos.
 - **Change:** per repo, index one synthetic **overview document**:
@@ -235,6 +239,8 @@ Each item lists: problem → root cause → change → files → schema → test
 
 #### P1-3 Make titles and metadata keyword-searchable
 
+**Status: code complete, 2026-11-27 (ADR-0037, migration 0012); waiting on the owner.** `chunks.search_context` is in both tsvectors at weight A. The embedding prefix is unchanged on purpose (see the ADR). Tests: `test_search_context_*`, the in-memory title-only eval, and `tests/integration/migrations/test_0012_chunk_search_context.py`. **Owner steps:** (1) with the P1-8 commit checked out (before this slice, whose code writes the new column), run `uv run python -m evals.load` and then `uv run python -m evals.run --embedder none --config before-0012`; (2) check out this slice and run `uv run alembic upgrade head` on each Neon branch, before deploying; (3) `uv run python -m evals.run --embedder none --config after-0012`.
+
 - **Problem:** `chunks.tsv_en` is built from `heading_path + content` only. The document title, repo, channel, sender and labels aren't keyword-searchable, so "find the latest PRD" or "the onboarding doc" miss when those words appear only in the title. The embedding text gets the title, so only the vector lane sees it.
 - **Onyx reference:** `indexing/chunker.py` `get_metadata_suffix_for_document_index` adds metadata as natural language for embeddings and as bare values for keyword search.
 - **Change:**
@@ -246,6 +252,8 @@ Each item lists: problem → root cause → change → files → schema → test
 - **Cost:** $0, or about $0.01 if the eval corpus is re-embedded.
 
 #### P1-4 A selection step before generation (behind the planned `Reranker` port)
+
+**Status: built and off by default, 2026-11-27 (ADR-0040, migration 0013).** The `Reranker` port, plus `LLMReranker` over the `ChatModel` port (so the planned `core/adapters/openai/reranker.py` isn't needed), and `FakeReranker`. Every failure falls back to rank order, and spend is budget-checked and recorded as `rerank`. Tests: `tests/unit/core/services/test_rerank.py` and the 0013 migration test. **Owner step before enabling:** apply 0013, then compare `evals.answers` with `CHAT_RERANK=true` against the default.
 
 - **Problem:** the model gets up to 16 passages chosen by RRF rank alone. Noisy passages dilute cross-source answers and invite wrong citations.
 - **Onyx reference:** `tools/tool_implementations/search/search_tool.py`, step 3. An LLM selects which retrieved sections to read; keeping each LLM decision small is their stated reason it works.
@@ -262,6 +270,8 @@ Each item lists: problem → root cause → change → files → schema → test
 
 #### P1-5 Follow-up questions
 
+**Status: complete, 2026-11-27 (ADR-0038).** The anchor lane (`SearchIndex.anchored_chunks`) is fed from the last answer's citations in chat and from `history` in the evals. The planner check holds: `test_follow_ups_are_planned_with_history_and_send_the_history` covers the rewrite. Tests: anchor tests in `test_answer.py` and `test_search.py`, plus `test_anchored_chunks_rank_cited_documents_and_recheck_access` (integration). The multi-turn eval numbers come from the owner's next `evals.run`.
+
 - **Change:**
   - **Previous-answer lane:** for turns after the first, add the previous answer's cited documents as an extra RRF lane (weight 1.0, under the same ACL rule in `search.py`). "What about the second one?" or "who owns that?" then stays anchored.
   - **Planner check:** confirm the planner rewrites follow-ups into standalone queries (`search_queries(first_turn=…)`).
@@ -272,6 +282,8 @@ Each item lists: problem → root cause → change → files → schema → test
 
 #### P1-6 Date filters skip documents without a source date
 
+**Status: code complete, 2026-11-27.** Both bounds filter on `COALESCE(d.source_updated_at, d.created_at)`. `test_filters_and_deleted_documents` now covers an undated upload on both sides of the filter. The integration run is still pending a Neon test branch.
+
 - **Problem:** `_filters_sql` filters on `d.source_updated_at`, but the displayed date is `COALESCE(d.source_updated_at, d.created_at)`. Uploads have no `source_updated_at`, so they vanish from "last week" questions.
 - **Change:** filter on the same `COALESCE` expression the results show.
 - **Files:** [core/adapters/postgres/search.py:70-75](../core/adapters/postgres/search.py).
@@ -280,12 +292,16 @@ Each item lists: problem → root cause → change → files → schema → test
 
 #### P1-7 Source diversity for cross-source questions
 
+**Status: code complete, 2026-11-27 (ADR-0039); waiting on the owner's paid answer eval.** `diversify` runs over a pool of 50, and extras go after the top three. Prompt rule 9 covers cross-kind evidence and conflicts. Tests: `tests/unit/core/domain/test_diversify.py` and `test_a_cross_source_question_hears_from_every_connector_that_found_something`. **Owner step:** `uv run python -m evals.answers --ids xs-001,xs-002,xs-003,xs-004,xs-005,xs-006,xs-007,xs-008,cf-001,cf-002,cf-003,cf-004,cf-005` (about $0.02).
+
 - **Change:** when the plan has no source filter, the assembled context includes the best passage from each connector that had a hit in the top 50, provided that passage reaches at least half the top passage's fused score. This is a light form of MMR (maximal marginal relevance). The answer prompt already labels each source's `kind`. Also tell the model to connect evidence across kinds and to state conflicts: *"the March email says X; the April issue says Y (newer)"*.
 - **Files:** `core/services/answer.py` (assembly), prompts.
 - **Tests:** cross-source eval cases (P1-8) must cite at least two connectors.
 - **Cost:** $0.
 
 #### P1-8 Evals that can fail
+
+**Status: code complete, 2026-11-27; the baseline is waiting on the owner.** There are now 118 cases over 73 documents: 34 new cases (multi-turn, cross-source, conflict, temporal and title-only), 10 new documents for them, and 30 distractors. `Case.history`, `Case.min_cited_kinds`, an opt-in judge (`evals.answers --judge`) and multi-turn replay are all in place. The sync-coverage contract tests already existed from P0-1 and P0-4. **Owner steps:** run `uv run python -m evals.load` (it embeds the 40 new documents, about $0.0001), then `uv run python -m evals.run --embedder none` and `--embedder openai` to record the new baseline in EVALS.md. Per-stage latency is not added yet: logs give it per request, not per stage.
 
 The current 84 cases are mostly single-hop, retrieval is saturated, and the corpus is small and clean. Add:
 
@@ -318,11 +334,15 @@ Record every run in `docs/EVALS.md` as before.
 
 #### P2-1 Follow-up suggestions after each answer
 
+**Status: complete, 2026-11-28.** Prompt rule 10, `FollowupFilter` with a property test over arbitrary chunking, `Done.followups` (an optional v1 field), and the chips in `turn.tsx`, which fill the composer (owner's choice). It costs about 30 output tokens per answer. The prompt change is measured by the owner's next `evals.answers` run.
+
 Up to three short follow-up chips under a grounded answer. Generate them in the same call by asking for a final `FOLLOWUPS: ["…"]` line, stripped and never streamed, like the existing sentinels. This adds no second call.
 
 - **Files:** prompts, `SentinelFilter`, `Done` event v1 (an optional field), `turn.tsx`.
 
 #### P2-2 Citation hover card
+
+**Status: complete, 2026-11-28.** Built to UI_DESIGN §3.10 (`chat/citation-card.tsx`, with `components/ui/hover-card.tsx` over the radix-ui package already shipped). It opens after 300 ms or on focus. The `sources` event now carries `connector`, `updated_at` and `author`. The link comes only from the ACL-checked documents endpoint, fetched once the card opens, and only http(s) links are shown. Reopened chats keep their bare badges (the §4.3 known gap).
 
 Hovering an inline `[n]` shows a card with:
 
@@ -335,6 +355,8 @@ Hovering an inline `[n]` shows a card with:
 The chips and sources panel already exist. This brings the evidence to the sentence.
 
 #### P2-3 Source health at a glance
+
+**Status: complete, 2026-11-28.** The Sources table keeps the UI_DESIGN §4.5 status pill, which stands in for the dot, and adds a one-line reason under any unhealthy source, plus a skip count under Documents, with the full skip summary on hover. Home shows one warning banner when any source needs attention. Every figure comes from the existing GET /sources (P0-2 status facts), with no new endpoint.
 
 The Sources table shows, per source:
 
@@ -356,6 +378,8 @@ The how-it-works page gets:
 Add a 60–90 s demo video or GIF to the README. Recruiters read the README and the landing page, not the code.
 
 #### P2-5 Answer feedback loop
+
+**Status: deferred by the owner, 2026-11-28.** Thumbs up and down stay and keep collecting ratings. A review page must show only the viewer's own feedback, because chats are private, and any eval draft must be rewritten as synthetic before it is committed.
 
 `feedback` is already stored. Add an owner-only page listing thumbs-down answers with their retrieved passages, and a one-click *"add to eval set"* that writes a case draft to `evals/questions.yaml`.
 

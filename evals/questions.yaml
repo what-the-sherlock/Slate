@@ -520,3 +520,237 @@
   question: What did the team decide on Discord about the holiday party?
   tags: [connector, no-answer]
   visibility: private
+
+# ---- IMPROVEMENT_PLAN P1-8: cases built to fail (multi-turn, cross-source, conflicts,
+# temporal, title-only), over a corpus with 30 distractors (evals/corpus/archive, misc).
+
+# multi-turn: the scored follow-up shares no keywords with the documents it needs. The
+# retrieval eval runs it alone (no planner), so it measures follow-up anchoring (P1-5).
+- id: mt-001
+  history: [{question: "What does error KF-4031 mean?", cited_documents: [discord/support-carrier-api.md]}]
+  question: Is anyone fixing it?
+  expected_documents: [github/pr-419-carrier-backoff.md]
+  expected_answer_points: ["#419"]
+  tags: [multi-turn, connector]
+  visibility: private
+- id: mt-002
+  history: [{question: "Who was the Acme invoice sent to?", cited_documents: [email/acme-invoice.md]}]
+  question: Has it been paid yet?
+  expected_documents: [email/acme-invoice.md]
+  expected_answer_points: ["19 November"]
+  tags: [multi-turn, connector]
+  visibility: private
+- id: mt-003
+  history: [{question: "What does the Growth plan cost?", cited_documents: [product/pricing.md]}]
+  question: And what uptime does it guarantee?
+  expected_documents: [product/sla.md]
+  expected_answer_points: ["99.9%"]
+  tags: [multi-turn]
+  visibility: public
+- id: mt-004
+  history: [{question: "How many days of paid leave do we get?", cited_documents: [handbook/leave-policy.md]}]
+  question: Can I keep the ones I do not use?
+  expected_documents: [handbook/leave-policy.md]
+  expected_answer_points: ["5 days"]
+  tags: [multi-turn]
+  visibility: public
+- id: mt-005
+  history: [{question: "What is Wayfinder?", cited_documents: [engineering/architecture.md]}]
+  question: How often does it get updated?
+  expected_documents: [engineering/architecture.md]
+  expected_answer_points: ["every Sunday"]
+  tags: [multi-turn]
+  visibility: public
+- id: mt-006
+  history: [{question: "What happened in the ledger latency incident?", cited_documents: [discord/incident-ledger-latency.md]}]
+  question: Who sorted it out, and how?
+  expected_documents: [discord/incident-ledger-latency.md]
+  expected_answer_points: ["index"]
+  tags: [multi-turn, connector]
+  visibility: private
+- id: mt-007
+  history: [{question: "Tell me about pull request 412.", cited_documents: [github/pr-412-uk-preclearance.md]}]
+  question: Is that on the public roadmap?
+  expected_documents: [product/roadmap.md, github/pr-412-uk-preclearance.md]
+  expected_answer_points: ["Q1 2027"]
+  tags: [multi-turn, connector]
+  visibility: private
+- id: mt-008
+  history: [{question: "When is the final backend interview?", cited_documents: [email/interview-schedule.md]}]
+  question: What should the interviewers focus on?
+  expected_documents: [email/interview-schedule.md]
+  expected_answer_points: ["idempotency"]
+  tags: [multi-turn, connector]
+  visibility: private
+- id: mt-009
+  history: [{question: "What did Beacon email us about?", cited_documents: [email/beacon-renewal.md]}]
+  question: What did Tomasz suggest we do?
+  expected_documents: [email/beacon-renewal.md]
+  expected_answer_points: ["annual contract"]
+  tags: [multi-turn, connector]
+  visibility: private
+- id: mt-010
+  history: [{question: "How does the on-call rotation work?", cited_documents: [engineering/oncall.md]}]
+  question: Do we get paid extra for it?
+  expected_documents: [engineering/oncall.md]
+  expected_answer_points: ["40 euros per day"]
+  tags: [multi-turn]
+  visibility: public
+
+# cross-source: the answer must cite at least two source kinds (min_cited_kinds).
+- id: xs-001
+  question: Where are we on customs pre-clearance, both the plan and the code?
+  expected_documents: [product/roadmap.md, github/pr-412-uk-preclearance.md]
+  expected_answer_points: ["Q1 2027", "merged"]
+  tags: [cross-source, connector]
+  visibility: private
+  min_cited_kinds: 2
+- id: xs-002
+  question: What is the API rate limit now, and which error code do clients get when they hit it?
+  expected_documents: [engineering/api-errors.md, github/issue-377-rate-limit.md]
+  expected_answer_points: ["1,200", "KF-2003"]
+  tags: [cross-source, connector]
+  visibility: private
+  min_cited_kinds: 2
+- id: xs-003
+  question: How fast must we answer Growth customers, and what uptime do they get?
+  expected_documents: [email/growth-support-response.md, product/sla.md]
+  expected_answer_points: ["2 business hours", "99.9%"]
+  tags: [cross-source, connector]
+  visibility: private
+  min_cited_kinds: 2
+- id: xs-004
+  question: What has changed about how and when we deploy?
+  expected_documents: [github/pr-401-canary-window.md, discord/eng-deploy-freeze.md]
+  expected_answer_points: ["10%", "18 December"]
+  tags: [cross-source, connector]
+  visibility: private
+  min_cited_kinds: 2
+- id: xs-005
+  question: What caused the ledger latency incident, and what happened in the earlier ledger outage?
+  expected_documents: [discord/incident-ledger-latency.md, engineering/postmortem-ledger-outage.md]
+  expected_answer_points: ["tracking_ref", "TLS certificate"]
+  tags: [cross-source, connector]
+  visibility: private
+  min_cited_kinds: 2
+- id: xs-006
+  question: How many carriers do we support, and what are the steps to add a new one?
+  expected_documents: [discord/product-carrier-count.md, operations/carrier-onboarding-checklist.md]
+  expected_answer_points: ["165", "sandbox"]
+  tags: [cross-source, connector]
+  visibility: private
+  min_cited_kinds: 2
+- id: xs-007
+  question: Nordlys complained about customs delays; is any code change going to help with customs?
+  expected_documents: [email/nordlys-escalation.md, github/pr-412-uk-preclearance.md]
+  expected_answer_points: ["EORI", "#412"]
+  tags: [cross-source, connector]
+  visibility: private
+  min_cited_kinds: 2
+- id: xs-008
+  question: What problems has Sofia raised on Discord and GitHub?
+  expected_documents: [discord/support-carrier-api.md, github/issue-398-label-printing.md]
+  expected_answer_points: ["KF-4031", "#398"]
+  tags: [cross-source, connector]
+  visibility: private
+  min_cited_kinds: 2
+
+# conflicting or updated facts: a newer connector document overrides an older file. The
+# answer should give the newer value (the point) and may mention the older one.
+- id: cf-001
+  question: When is the holiday deploy freeze this year?
+  expected_documents: [discord/eng-deploy-freeze.md, engineering/deploys.md]
+  expected_answer_points: ["18 December", "4 January"]
+  tags: [conflict, connector]
+  visibility: private
+- id: cf-002
+  question: What is the default API rate limit per key?
+  expected_documents: [github/issue-377-rate-limit.md, engineering/api-errors.md]
+  expected_answer_points: ["1,200"]
+  tags: [conflict, connector]
+  visibility: private
+- id: cf-003
+  question: How quickly do Growth customers get a first support response?
+  expected_documents: [email/growth-support-response.md, product/sla.md]
+  expected_answer_points: ["2 business hours"]
+  tags: [conflict, connector]
+  visibility: private
+- id: cf-004
+  question: How many carriers does Kestrel integrate with?
+  expected_documents: [discord/product-carrier-count.md, customers/faq.md]
+  expected_answer_points: ["165"]
+  tags: [conflict, connector]
+  visibility: private
+- id: cf-005
+  question: How much traffic does the canary get, and for how long?
+  expected_documents: [github/pr-401-canary-window.md, engineering/deploys.md]
+  expected_answer_points: ["10%", "15 minutes"]
+  tags: [conflict, connector]
+  visibility: private
+
+# temporal: periods relative to the eval world's today (Fri 27 Nov 2026), oracle-planned.
+- id: tm-001
+  question: What happened on GitHub in October?
+  expected_documents: [github/issue-377-rate-limit.md, github/issue-405-webhook-retries.md, github/pr-401-canary-window.md]
+  tags: [temporal, connector, period]
+  visibility: private
+  plan: {intent: summary, after: 2026-10-01, before: 2026-10-31, sources: [github]}
+- id: tm-002
+  question: What did Tomasz email about in October?
+  expected_documents: [email/growth-support-response.md]
+  expected_answer_points: ["2 business hours"]
+  tags: [temporal, connector, sender]
+  visibility: private
+  plan: {intent: lookup, after: 2026-10-01, before: 2026-10-31, sources: [email], sender: Tomasz}
+- id: tm-003
+  question: What was discussed on Discord in the first week of November?
+  expected_documents: [discord/product-carrier-count.md]
+  expected_answer_points: ["165"]
+  tags: [temporal, connector, period]
+  visibility: private
+  plan: {intent: summary, after: 2026-11-01, before: 2026-11-08, sources: [discord]}
+- id: tm-004
+  question: Which emails did I get before the offsite was moved?
+  expected_documents: [email/hiring-budget.md]
+  tags: [temporal, connector, period]
+  visibility: private
+  plan: {intent: recent, before: 2026-10-01, sources: [email]}
+- id: tm-005
+  question: Summarise my emails from the last ten days.
+  expected_documents: [email/acme-invoice.md, email/nordlys-escalation.md, email/interview-schedule.md, email/beacon-renewal.md]
+  tags: [temporal, connector, period]
+  visibility: private
+  plan: {intent: summary, after: 2026-11-17, before: 2026-11-27, sources: [email]}
+
+# title-only: the words asked for appear only in the document title, so the keyword lane
+# can't find them until titles are indexed for keyword search (P1-3 before/after).
+- id: to-001
+  question: carrier onboarding checklist
+  expected_documents: [operations/carrier-onboarding-checklist.md]
+  tags: [title-only]
+  visibility: public
+- id: to-002
+  question: brand guidelines
+  expected_documents: [marketing/brand-guidelines.md]
+  tags: [title-only]
+  visibility: public
+- id: to-003
+  question: Q4 OKRs
+  expected_documents: [company/okrs-q4-2026.md]
+  tags: [title-only]
+  visibility: public
+- id: to-004
+  question: visa sponsorship
+  expected_documents: [people/visa-sponsorship.md]
+  tags: [title-only]
+  visibility: public
+- id: to-005
+  question: incident severity matrix
+  expected_documents: [engineering/incident-severity-matrix.md]
+  tags: [title-only]
+  visibility: public
+- id: to-006
+  question: office Wi-Fi
+  expected_documents: [company/office-wifi.md]
+  tags: [title-only]
+  visibility: public

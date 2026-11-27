@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
+from core.domain.chunking import search_context
 from core.domain.documents import (
     ChunkToEmbed,
     Document,
@@ -45,6 +46,8 @@ class InMemoryIndex:
         self._by_key: dict[tuple[object, str], DocumentId] = {}
         self._chunks: list[_StoredChunk] = []
         self.data_classes: dict[DocumentId, str] = {}
+        # What Postgres stores in chunks.search_context (P1-3), per document.
+        self.search_contexts: dict[DocumentId, str] = {}
         # source id -> connector name, for the connector filter and prompt metadata
         # (sources not listed are uploads)
         self.connectors: dict[object, str] = {}
@@ -133,6 +136,7 @@ class InMemoryIndex:
         if existing is not None and self._docs[existing][1].checksum == doc.checksum:
             return existing, False
         doc_id = await self.upsert_document(ws, doc)
+        self.search_contexts[doc_id] = search_context(doc.title, doc.author, doc.metadata)
         await self.replace_chunks(ws, doc_id, chunks, embeddings)
         self.data_classes[doc_id] = data_class
         return doc_id, True
@@ -218,6 +222,29 @@ class InMemoryIndex:
             connector=self._connector(doc),
         )
 
+    async def anchored_chunks(
+        self,
+        ws: WorkspaceId,
+        principals: Principals,
+        documents: Sequence[DocumentId],
+        query: str,
+        k: int,
+        filters: SearchFilters,
+    ) -> list[ScoredChunk]:
+        wanted = set(documents)
+        terms = {t for t in query.lower().split() if t}
+        order = {d: i for i, d in enumerate(documents)}
+        mine = [c for c in self._visible(ws, principals, filters) if c.document_id in wanted]
+        ranked = sorted(
+            mine,
+            key=lambda c: (
+                -sum(c.chunk.content.lower().split().count(t) for t in terms),
+                order[c.document_id],
+                c.chunk.ordinal,
+            ),
+        )[:k]
+        return [self._scored(c, float(len(ranked) - i)) for i, c in enumerate(ranked)]
+
     async def recent_chunks(
         self, ws: WorkspaceId, principals: Principals, k: int, filters: SearchFilters
     ) -> list[ScoredChunk]:
@@ -261,6 +288,9 @@ class InMemoryIndex:
         for c in self._visible(ws, principals, filters):
             words = c.chunk.content.lower().split()
             score = float(sum(words.count(t) for t in terms))
+            # Title and metadata match too, weighted above the body (P1-3, migration 0012).
+            context = self.search_contexts.get(c.document_id, "").lower().split()
+            score += 10.0 * sum(context.count(t) for t in terms)
             if score > 0:
                 hits.append(self._scored(c, score))
         return sorted(hits, key=lambda h: (-h.score, h.chunk_id))[:k]
@@ -273,6 +303,16 @@ class InMemoryIndex:
             self._scored(c, 0.0)
             for c in self._visible(ws, principals, SearchFilters())
             if (c.document_id, c.chunk.ordinal) in wanted
+        ]
+
+    async def chunks_by_id(
+        self, ws: WorkspaceId, principals: Principals, chunk_ids: Sequence[ChunkId]
+    ) -> list[ScoredChunk]:
+        wanted = set(chunk_ids)
+        return [
+            self._scored(c, 0.0)
+            for c in self._visible(ws, principals, SearchFilters())
+            if c.id in wanted
         ]
 
     async def document_preview(

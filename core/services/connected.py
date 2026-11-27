@@ -20,9 +20,10 @@ only by them: nobody else can sync or disconnect them.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from uuid import UUID
 
@@ -32,11 +33,12 @@ from core.domain.auth import Identity, Role
 from core.domain.connected import (
     MAX_DOCUMENTS_PER_RUN,
     FetchedDocument,
+    cap_sections,
     checkpoint_json,
     document_checksum,
 )
 from core.domain.data_class import DataClass
-from core.domain.documents import DocumentUpsert
+from core.domain.documents import DocumentUpsert, Section
 from core.domain.errors import (
     AppError,
     BudgetExceeded,
@@ -46,6 +48,7 @@ from core.domain.errors import (
     RateLimited,
     ReconnectRequired,
     UpstreamUnavailable,
+    ValidationFailed,
 )
 from core.domain.ids import JobId, RunId, SourceId
 from core.domain.integrations import ConnectionStatus, ProviderSpec
@@ -57,7 +60,7 @@ from core.ports.integrations import Connection, ConnectionStore
 from core.ports.jobs import JobQueue
 from core.ports.rate_limit import Limit, RateLimiter
 from core.ports.sources import SourceRecord, SourceStore
-from core.ports.system import Clock
+from core.ports.system import Clock, Parser
 from core.services.ingest import IngestService, Stage
 from core.services.sync_run import RunBoundary
 
@@ -112,7 +115,11 @@ class ConnectedSources:
         *,
         connectors: Mapping[str, SourceConnector],
         specs: Mapping[str, ProviderSpec],
+        parser: Parser | None = None,
     ) -> None:
+        # Parses files a connector hands over as bytes (FetchedDocument.raw, P1-1). None:
+        # such files are counted as unsupported.
+        self._parser = parser
         self._sources = sources
         self._jobs = jobs
         self._ingest = ingest
@@ -270,11 +277,36 @@ class ConnectedSources:
             if page.done:
                 return
 
+    async def _parse(self, doc: FetchedDocument, state: _Run) -> FetchedDocument | None:
+        """A raw file's text, through the parser uploads use, or None (skip counted). Off
+        the event loop: parsing a PDF is CPU-bound, and inline syncs run in a request."""
+        assert doc.raw is not None
+        if self._parser is None or not self._parser.supports(doc.mime):
+            state.skips.add(SkipReason.UNSUPPORTED_TYPE, _kind(doc))
+            return None
+        try:
+            parsed = await asyncio.to_thread(self._parser.parse, doc.raw, doc.mime)
+        except ValidationFailed:
+            state.skips.add(SkipReason.UNREADABLE, _kind(doc))
+            return None
+        sections = cap_sections(
+            [
+                Section(f"{doc.title} > {s.heading_path}" if s.heading_path else doc.title, s.text)
+                for s in parsed.sections
+            ]
+        )
+        return replace(doc, sections=sections, raw=None)
+
     async def _index(self, doc: FetchedDocument, state: _Run) -> bool:
         """True when indexed, unchanged, or failed for good (recorded). False when it failed
         in a way worth retrying. BudgetExceeded propagates (the run stops, resumable)."""
         assert self._ingest is not None  # _job_source checks availability
         t = state.tally
+        if doc.raw is not None:
+            parsed = await self._parse(doc, state)
+            if parsed is None:
+                return True  # counted as skipped; retrying wouldn't change the file
+            doc = parsed
         if not doc.sections:
             # Counted, not silently dropped (P0-4); not "seen", as nothing was indexable.
             state.skips.add(SkipReason.EMPTY_TEXT, _kind(doc))

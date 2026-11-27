@@ -14,6 +14,7 @@ from core.domain.github import (
     UserAccess,
     doc_path_skip,
 )
+from core.domain.github_overview import Release, TreeOverview, is_manifest, tree_entry
 from core.domain.skips import SkipReason, Skips
 
 
@@ -24,6 +25,7 @@ class FakeRepo:
     files: dict[str, bytes] = field(default_factory=dict[str, bytes])
     issues: list[Issue] = field(default_factory=list[Issue])
     comments: dict[int, list[Comment]] = field(default_factory=dict[int, list[Comment]])
+    release: Release | None = None
 
 
 class FakeGitHub:
@@ -106,10 +108,20 @@ class FakeGitHub:
 
     async def doc_files(
         self, installation_id: int, full_name: str, ref: str
-    ) -> AsyncIterator[RepoFile | TreeSkips]:
+    ) -> AsyncIterator[RepoFile | TreeOverview | TreeSkips]:
         repo = self._get(installation_id, full_name)
         self.tarball_downloads += 1
         skips = Skips()
+        entries = {
+            e
+            for path in repo.files
+            for e in (
+                tree_entry(path.split("/")[0], is_dir="/" in path),
+                tree_entry(path, is_dir=False),
+            )
+            if e is not None
+        }
+        manifests = {p: d for p, d in repo.files.items() if is_manifest(p)}
         for path, data in sorted(repo.files.items()):
             if (reason := doc_path_skip(path)) is not None:
                 skips.add(reason, "code" if reason is SkipReason.UNSUPPORTED_TYPE else None)
@@ -117,7 +129,11 @@ class FakeGitHub:
             if self.crash_on_file == path:
                 raise KeyError("simulated bug")  # an unexpected crash mid-sync (P0-1)
             yield RepoFile(path, data)
+        yield TreeOverview(tuple(sorted(entries)), manifests)
         yield TreeSkips(skips.as_json())
+
+    async def latest_release(self, installation_id: int, full_name: str) -> Release | None:
+        return self._get(installation_id, full_name).release
 
     async def issues(
         self, installation_id: int, full_name: str, since: str | None, limit: int

@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from core.adapters.github.app import GitHubApp, app_jwt
 from core.domain.errors import NotFound, PermissionDenied, RateLimited
 from core.domain.github import RepoFile, TreeSkips
+from core.domain.github_overview import TreeOverview
 
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 PEM = KEY.private_bytes(
@@ -182,6 +183,38 @@ async def test_doc_files_keeps_docs_only_and_skips_links_and_huge_files() -> Non
     assert items[-1] == TreeSkips(  # what was left out, and why (P0-4); links aren't files
         {"excluded_path": 1, "too_large:file": 1, "unsupported_type:code": 1}
     )
+
+
+async def test_doc_files_also_yields_the_overview_tree_and_root_manifests() -> None:
+    """P1-2: the same tarball walk feeds the overview document, at no extra download."""
+    body = _tarball(
+        {
+            "README.md": b"# Hi",
+            "package.json": b'{"name": "wave"}',
+            "src/app.py": b"code",
+            "src/deep/inner.py": b"code",
+            "packages/ui/package.json": b"{}",
+            "node_modules/x/index.js": b"vendored",
+        }
+    )
+    app, _ = make(lambda r: httpx.Response(200, content=body))
+    items = [f async for f in app.doc_files(1, "o/r", "main")]
+    [tree] = [f for f in items if isinstance(f, TreeOverview)]
+    assert set(tree.entries) == {"README.md", "package.json", "src/app.py"}
+    assert tree.manifests == {"package.json": b'{"name": "wave"}'}  # root manifests only
+    assert isinstance(items[-1], TreeSkips)
+
+
+async def test_latest_release_is_read_and_none_when_there_is_none() -> None:
+    release = {"tag_name": "v1.0", "name": "First", "body": "Notes.",
+               "published_at": "2026-11-01T00:00:00Z"}  # fmt: skip
+    app, seen = make(lambda r: httpx.Response(200, json=release))
+    got = await app.latest_release(1, "o/r")
+    assert got is not None
+    assert (got.tag, got.name, got.body) == ("v1.0", "First", "Notes.")
+    assert seen[-1].url.path == "/repos/o/r/releases/latest"
+    app, _ = make(lambda r: httpx.Response(404))
+    assert await app.latest_release(1, "o/r") is None
 
 
 async def test_missing_repo_and_lost_access_are_typed() -> None:

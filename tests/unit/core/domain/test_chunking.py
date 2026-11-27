@@ -2,7 +2,13 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from core.domain.chunking import ChunkingConfig, chunk_sections, embedding_text
+from core.domain.chunking import (
+    MAX_SEARCH_CONTEXT_CHARS,
+    ChunkingConfig,
+    chunk_sections,
+    embedding_text,
+    search_context,
+)
 from core.domain.documents import NewChunk, Section
 
 
@@ -72,3 +78,10 @@ def test_invariants_no_text_lost_every_chunk_fits(paragraphs: list[str]) -> None
     # 3. Ordinals are 0..n-1 and every chunk keeps the section heading.
     assert [c.ordinal for c in chunks] == list(range(len(chunks)))
     assert all(c.heading_path == "H" for c in chunks)
+
+
+def test_search_context_holds_title_author_and_chosen_metadata_only() -> None:
+    meta = {"repo": "acme/wave", "state": "merged", "number": 7, "guild": "123", "path": " "}
+    assert search_context("PR #7 Faster", "ada", meta) == "PR #7 Faster ada acme/wave merged"
+    assert search_context(None, None, {}) == ""
+    assert len(search_context("t" * 2000, None, {})) == MAX_SEARCH_CONTEXT_CHARS

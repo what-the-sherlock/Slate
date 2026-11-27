@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { ArrowRight, Check, ChevronRight, MessageSquare, Plug, Plus, Search, Upload, type LucideIcon } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, CircleAlert, MessageSquare, Plug, Plus, Search, Upload, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { LogoTile } from "@/components/brand";
 import { PageHeader } from "@/components/page-header";
@@ -64,6 +64,7 @@ export function HomeView() {
         </p>
       ) : (
         <>
+          {s?.failed ? <AttentionBanner count={s.failed} /> : null}
           <PanelRow cols={4}>
             <Kpi label="Sources" value={s ? formatCount(s.count) : <Skeleton className="h-6 w-10" />} caption={s?.failed ? `${s.failed} need attention` : "Connected and searchable"} />
             <Kpi label="Documents" value={s ? formatCount(s.documents) : <Skeleton className="h-6 w-14" />} caption="Split, embedded and indexed" />
@@ -202,5 +203,21 @@ function LiveDot({ children }: { children: string }) {
       </span>
       {children}
     </span>
+  );
+}
+
+/** One banner when any source needs attention (P2-3, UI_DESIGN §3.6 warning banner). */
+function AttentionBanner({ count }: { count: number }) {
+  return (
+    <div role="status" className="flex h-10 items-center gap-2 border-b border-warning-border bg-warning-subtle px-4 text-body font-medium text-fg sm:px-8">
+      <CircleAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />
+      <span className="flex-1 truncate">
+        {count === 1 ? "1 source needs attention." : `${count} sources need attention.`} Searches may miss what it holds.
+      </span>
+      <Link href="/sources" className="inline-flex shrink-0 items-center gap-0.5 text-caption font-medium text-fg-muted hover:text-brand">
+        Review sources
+        <ChevronRight className="size-3.5" aria-hidden="true" />
+      </Link>
+    </div>
   );
 }

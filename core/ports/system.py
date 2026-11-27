@@ -30,7 +30,8 @@ class HealthProbe(Protocol):
 
 
 class Parser(Protocol):
-    """Sync on purpose: parsing is CPU-bound and runs only in the worker."""
+    """Sync on purpose: parsing is CPU-bound. The worker calls it directly; the connected
+    engine, which also runs inline in a request, calls it through asyncio.to_thread."""
 
     def supports(self, mime: str) -> bool: ...
 

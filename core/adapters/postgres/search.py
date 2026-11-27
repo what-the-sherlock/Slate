@@ -15,7 +15,9 @@ caller can't widen what a user sees.
   ANDing every word made "what does KF-5002 mean" miss because "mean" isn't in the
   passage (measured: keyword Recall@10 0.70 with AND; see docs/EVALS.md). A query that
   uses search syntax (quotes, ``-word``, ``or``) gets ``websearch_to_tsquery``'s strict
-  semantics instead. Neither form can raise a syntax error on user input.
+  semantics instead. Neither form can raise a syntax error on user input. Both
+  tsvectors include ``search_context`` (title, author, chosen metadata) at weight A
+  (migration 0012, P1-3), so a word that is only in the title still matches.
 """
 
 from __future__ import annotations
@@ -68,10 +70,10 @@ def _filters_sql(f: SearchFilters, params: dict[str, Any]) -> str:
         parts.append("src.connector = ANY(CAST(:conn AS text[]))")
         params["conn"] = list(f.connectors)
     if f.updated_after is not None:
-        parts.append("d.source_updated_at >= :after")
+        parts.append("COALESCE(d.source_updated_at, d.created_at) >= :after")
         params["after"] = f.updated_after
     if f.updated_before is not None:
-        parts.append("d.source_updated_at <= :before")
+        parts.append("COALESCE(d.source_updated_at, d.created_at) <= :before")
         params["before"] = f.updated_before
     if f.author:
         # A substring match; LIKE's wildcards in the user's text are escaped (bound value).
@@ -183,6 +185,47 @@ class PostgresSearchIndex:
             rows = (await s.execute(text(sql), params)).mappings().all()
         return [_scored(r, float(r["rank"])) for r in rows]
 
+    async def anchored_chunks(
+        self,
+        ws: WorkspaceId,
+        principals: Principals,
+        documents: Sequence[DocumentId],
+        query: str,
+        k: int,
+        filters: SearchFilters,
+    ) -> list[ScoredChunk]:
+        """The follow-up lane (P1-5): chunks of the previous answer's documents, ranked
+        by the new question. Every chunk is ranked, matching or not (a follow-up like "who
+        owns that?" shares no words with its answer), and the ACL rule is re-checked here:
+        access may have changed since the last turn."""
+        k = _check_k(k)
+        if not documents:
+            return []
+        if len(query) > MAX_QUERY_CHARS:
+            raise ValueError(f"query longer than {MAX_QUERY_CHARS} characters")
+        params: dict[str, Any] = {
+            "ws": ws,
+            "p": principals.as_list(),
+            "q": query,
+            "k": k,
+            "ids": [str(d) for d in documents],
+        }
+        sql = (
+            f"SELECT {_COLUMNS},"  # noqa: S608 (constant fragments only; values are bound)
+            " GREATEST(ts_rank_cd(c.tsv_en, qe.q), ts_rank_cd(c.tsv_simple, qs.q)) AS rank"
+            " FROM chunks c"
+            f" JOIN documents d ON d.id = c.document_id{_JOIN_SOURCE},"
+            f" {_tsquery_sql(query, 'english', 'qe')},"
+            f" {_tsquery_sql(query, 'simple', 'qs')}"
+            f" WHERE c.document_id = ANY(CAST(:ids AS uuid[])) AND {_VISIBLE}"
+            f"{_filters_sql(filters, params)}"
+            " ORDER BY rank DESC, c.document_id, c.ordinal LIMIT :k"
+        )
+        async with self._uow() as s:
+            rows = (await s.execute(text(sql), params)).mappings().all()
+        n = len(rows)
+        return [_scored(r, float(n - i)) for i, r in enumerate(rows)]  # rank order
+
     async def recent_chunks(
         self, ws: WorkspaceId, principals: Principals, k: int, filters: SearchFilters
     ) -> list[ScoredChunk]:
@@ -263,6 +306,27 @@ class PostgresSearchIndex:
         async with self._uow() as s:
             rows = (await s.execute(text(sql), params)).mappings().all()
         return [_scored(r, 0.0) for r in rows]
+
+    async def chunks_by_id(
+        self, ws: WorkspaceId, principals: Principals, chunk_ids: Sequence[ChunkId]
+    ) -> list[ScoredChunk]:
+        if not chunk_ids:
+            return []
+        if len(chunk_ids) > MAX_CITED:
+            raise ValueError(f"at most {MAX_CITED} chunks")
+        params: dict[str, Any] = {"ws": ws, "p": principals.as_list(), "ids": list(chunk_ids)}
+        sql = (
+            f"SELECT {_COLUMNS} FROM chunks c"  # noqa: S608 (constant fragments)
+            f" JOIN documents d ON d.id = c.document_id{_JOIN_SOURCE}"
+            f" WHERE c.id = ANY(CAST(:ids AS bigint[])) AND {_VISIBLE}"
+        )
+        async with self._uow() as s:
+            rows = (await s.execute(text(sql), params)).mappings().all()
+        return [_scored(r, 0.0) for r in rows]
+
+
+# A chat holds at most 200 messages; this caps one history read's lookup.
+MAX_CITED = 2000
 
 
 # Preview uses the SAME visibility rule as search (ARCHITECTURE §5), checked on the

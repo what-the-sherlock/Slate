@@ -304,10 +304,11 @@ async def test_drive_exports_google_docs_and_skips_other_types_and_big_files() -
          "modifiedTime": "2026-11-26T10:00:00Z"},
         {"id": "d2", "name": "notes.txt", "mimeType": "text/plain", "size": str(50 * 1024 * 1024),
          "modifiedTime": "2026-11-25T10:00:00Z"},
-        {"id": "p1", "name": "spec.pdf", "mimeType": "application/pdf",
+        {"id": "x1", "name": "model.xlsx",
+         "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
          "modifiedTime": "2026-11-24T10:00:00Z"},
-        {"id": "s1", "name": "Budget", "mimeType": "application/vnd.google-apps.spreadsheet",
-         "modifiedTime": "2026-11-24T10:00:00Z"},
+        {"id": "p2", "name": "huge.pdf", "mimeType": "application/pdf",
+         "size": str(9 * 1024 * 1024), "modifiedTime": "2026-11-24T09:00:00Z"},
         {"id": "e1", "name": "empty", "mimeType": "application/vnd.google-apps.document",
          "modifiedTime": "2026-11-23T10:00:00Z"},
     ]  # fmt: skip
@@ -324,16 +325,75 @@ async def test_drive_exports_google_docs_and_skips_other_types_and_big_files() -
     [doc] = page.documents
     assert doc.title == "Plan"
     assert doc.sections[0].text == "Launch in March."
-    # The big text file still exists; PDFs and Sheets are never indexed, so never pruned.
-    assert page.keep_only == ("gdrive:d1", "gdrive:d2", "gdrive:e1")
-    assert not any(x in r.url.path for r in seen for x in ("d2", "p1", "s1"))  # not downloaded
+    # Too-large files still exist; unsupported types are never indexed, so never pruned.
+    assert page.keep_only == ("gdrive:d1", "gdrive:d2", "gdrive:p2", "gdrive:e1")
+    assert not any(x in r.url.path for r in seen for x in ("d2", "x1", "p2"))  # not downloaded
     q = seen[0].url.params["q"]
     assert "modifiedTime > '2025-11-27T12:00:00+00:00'" in q
     assert "mimeType != 'application/vnd.google-apps.folder'" in q  # every file is listed
     assert page.skipped == {  # nothing vanishes without a reason (P0-4)
-        "empty_text:file": 1, "too_large:file": 1, "unsupported_type:pdf": 1,
+        "empty_text:file": 1, "too_large:file": 1, "too_large:pdf": 1,
         "unsupported_type:sheet": 1,
     }  # fmt: skip
+
+
+async def test_drive_reads_sheets_slides_pdfs_and_word_files() -> None:
+    """P1-1: each type is fetched the right way; binaries go to the engine as bytes."""
+    docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    files = [
+        {"id": "s1", "name": "Budget", "mimeType": "application/vnd.google-apps.spreadsheet",
+         "modifiedTime": "2026-11-26T10:00:00Z"},
+        {"id": "k1", "name": "Pitch", "mimeType": "application/vnd.google-apps.presentation",
+         "modifiedTime": "2026-11-26T09:00:00Z"},
+        {"id": "p1", "name": "spec.pdf", "mimeType": "application/pdf", "size": "9",
+         "modifiedTime": "2026-11-25T10:00:00Z"},
+        {"id": "w1", "name": "memo.docx", "mimeType": docx, "size": "4",
+         "modifiedTime": "2026-11-24T10:00:00Z"},
+    ]  # fmt: skip
+
+    def route(r: httpx.Request) -> httpx.Response:
+        path = r.url.path
+        if path.endswith("/s1/export"):
+            assert r.url.params["mimeType"] == "text/csv"
+            return httpx.Response(200, content=b"item,cost\nlaptops,9000\n")
+        if path.endswith("/k1/export"):
+            assert r.url.params["mimeType"] == "text/plain"
+            return httpx.Response(200, content=b"Why Kestrel\nWe ship faster.")
+        if path.endswith("/p1") or path.endswith("/w1"):
+            assert r.url.params["alt"] == "media"
+            return httpx.Response(200, content=b"%PDF-1.7" if "p1" in path else b"PK..")
+        return ok({"files": files})
+
+    client, _ = transport(route)
+    page = await DriveConnector(client, sleep=0).pull("tok", {}, now=NOW)
+    by_id = {d.external_id: d for d in page.documents}
+    sheet, slides = by_id["gdrive:s1"], by_id["gdrive:k1"]
+    assert (sheet.mime, sheet.raw, sheet.sections) == ("text/csv", b"item,cost\nlaptops,9000\n", ())
+    assert slides.raw is None
+    assert slides.sections[0].text == "Why Kestrel\nWe ship faster."
+    assert (by_id["gdrive:p1"].mime, by_id["gdrive:p1"].raw) == ("application/pdf", b"%PDF-1.7")
+    assert (by_id["gdrive:w1"].mime, by_id["gdrive:w1"].raw) == (docx, b"PK..")
+    assert page.skipped == {}
+
+
+async def test_drive_counts_an_export_bigger_than_the_cap_as_too_large(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.adapters.google.drive as drive
+
+    monkeypatch.setattr(drive, "MAX_FILE_BYTES", 10)  # exports carry no size in the listing
+    files = [{"id": "s1", "name": "Big", "mimeType": "application/vnd.google-apps.spreadsheet",
+              "modifiedTime": "2026-11-26T10:00:00Z"}]  # fmt: skip
+    client, _ = transport(
+        lambda r: (
+            httpx.Response(200, content=b"a,b\n" * 10)
+            if r.url.path.endswith("/export")
+            else ok({"files": files})
+        )
+    )
+    page = await DriveConnector(client, sleep=0).pull("tok", {}, now=NOW)
+    assert page.documents == ()
+    assert page.skipped == {"too_large:sheet": 1}
 
 
 async def test_drive_full_pass_stops_at_the_listing_cap_and_says_so(

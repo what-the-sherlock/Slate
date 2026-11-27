@@ -156,9 +156,32 @@
       },
       "AnswerSourceOut": {
         "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
           "chunk_id": {
             "title": "Chunk Id",
             "type": "integer"
+          },
+          "connector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "upload, github, imap, discord...",
+            "title": "Connector"
           },
           "document_id": {
             "format": "uuid",
@@ -192,6 +215,18 @@
           "title": {
             "title": "Title",
             "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
           }
         },
         "required": [
@@ -562,6 +597,17 @@
       },
       "CitationOut": {
         "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
           "chunk_id": {
             "anyOf": [
               {
@@ -572,6 +618,17 @@
               }
             ],
             "title": "Chunk Id"
+          },
+          "connector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector"
           },
           "document_id": {
             "anyOf": [
@@ -585,9 +642,55 @@
             ],
             "title": "Document Id"
           },
+          "heading_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading Path"
+          },
           "n": {
             "title": "N",
             "type": "integer"
+          },
+          "snippet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The cited passage, trimmed",
+            "title": "Snippet"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
           }
         },
         "required": [
@@ -1099,6 +1202,14 @@
               "$ref": "#/components/schemas/AnswerSourceOut"
             },
             "title": "Closest",
+            "type": "array"
+          },
+          "followups": {
+            "description": "Up to three suggested next questions (grounded answers only). Optional in v1: older servers omit it",
+            "items": {
+              "type": "string"
+            },
+            "title": "Followups",
             "type": "array"
           },
           "latency_ms": {
@@ -1920,6 +2031,14 @@
             "title": "Created At",
             "type": "string"
           },
+          "followups": {
+            "description": "Suggested next questions saved with the answer",
+            "items": {
+              "type": "string"
+            },
+            "title": "Followups",
+            "type": "array"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -2462,7 +2581,8 @@
               "enum": [
                 "vector",
                 "keyword",
-                "recent"
+                "recent",
+                "anchor"
               ],
               "type": "string"
             },
@@ -2511,7 +2631,8 @@
               "enum": [
                 "vector",
                 "keyword",
-                "recent"
+                "recent",
+                "anchor"
               ],
               "type": "string"
             },

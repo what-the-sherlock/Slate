@@ -5,12 +5,14 @@
 * Only a paragraph longer than ``target`` is split inside, by words, with ``overlap``
   tokens repeated between neighbours so a sentence cut in two stays findable.
 * The embedding text gets a "title > heading" prefix; the stored content stays clean.
+* ``search_context`` (P1-3) is what the keyword lane sees besides the content: the title,
+  author and a few metadata values, weighted above the body (migration 0012).
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
 from core.domain.documents import NewChunk, Section
@@ -46,6 +48,20 @@ def chunk_sections(
                 )
             )
     return chunks
+
+
+# Metadata values worth matching by keyword (string values only). Keep in step with the
+# backfill in migration 0012, which builds the same text for chunks written before it.
+SEARCH_CONTEXT_KEYS = ("repo", "path", "state", "identifier")
+MAX_SEARCH_CONTEXT_CHARS = 500
+
+
+def search_context(title: str | None, author: str | None, metadata: Mapping[str, object]) -> str:
+    """The title, author and selected metadata as one line, for keyword search (P1-3).
+    "the onboarding doc" or a repo name now matches a document whose body never says it."""
+    values = [title, author, *(metadata.get(k) for k in SEARCH_CONTEXT_KEYS)]
+    parts = [v.strip() for v in values if isinstance(v, str) and v.strip()]
+    return " ".join(parts)[:MAX_SEARCH_CONTEXT_CHARS]
 
 
 def embedding_text(title: str | None, chunk: NewChunk) -> str:

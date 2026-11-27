@@ -104,6 +104,9 @@ class Repo:
     default_branch: str
     html_url: str
     description: str | None = None
+    # For the overview document (P1-2): both come with the repo call already made.
+    language: str | None = None
+    topics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

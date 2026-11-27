@@ -72,6 +72,7 @@ from core.services.github import GitHubService, GitHubSync
 from core.services.ingest import IngestService
 from core.services.integrations import IntegrationService
 from core.services.mail import MailService, MailSync, MboxImport
+from core.services.rerank import LLMReranker
 from core.services.search import SearchService
 
 log = structlog.get_logger(__name__)
@@ -137,15 +138,17 @@ def answer_service(settings: Settings, uow: UnitOfWork) -> AnswerService | None:
     if not key:
         return None
     limiter = PostgresRateLimiter(uow)
+    chat = OpenAIChatModel(key, model=settings.openai_chat_model or DEFAULT_CHAT_MODEL)
     return AnswerService(
         search_service(settings, uow),
-        OpenAIChatModel(key, model=settings.openai_chat_model or DEFAULT_CHAT_MODEL),
+        chat,
         PostgresChatStore(uow),
         PostgresUsageLedger(uow, owner_email=settings.owner_email),
         limiter,
         TiktokenTokenizer(),
         limits=spend_limits(settings),
         min_similarity=settings.chat_min_similarity,
+        reranker=LLMReranker(chat) if settings.chat_rerank else None,
     )
 
 
@@ -455,6 +458,7 @@ def connected_sources(
             "slack": SlackConnector(),
         },
         specs={p.id: p for p in REGISTRY},
+        parser=FormatParser(),  # Drive PDFs, Word files and Sheets exports (P1-1)
     )
     for provider in engine.providers:
         integrations.on_connected(provider, engine.connected)

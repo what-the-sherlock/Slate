@@ -265,9 +265,15 @@ async def test_unconfigured_server_says_so(env: Env) -> None:
 async def test_first_sync_indexes_docs_issues_and_prs(env: Env) -> None:
     sid = await env.connect()
     await env.run(sid)
-    assert env.docs(sid) == {"file:README.md", "file:docs/faq.md", "issue:1", "pr:2"}
+    assert env.docs(sid) == {
+        "file:README.md",
+        "file:docs/faq.md",
+        "issue:1",
+        "pr:2",
+        "repo:overview",
+    }
     status, seen, changed, failed, _ = env.last_run()
-    assert (status, seen, changed, failed) == ("succeeded", 4, 4, 0)
+    assert (status, seen, changed, failed) == ("succeeded", 5, 5, 0)  # + the repo overview
     cp = env.sources.records[sid].checkpoint
     assert cp == {"commit": "c1", "issues_since": (T0 + timedelta(days=2)).isoformat()}
     assert sid in env.sources.synced
@@ -305,9 +311,15 @@ async def test_a_push_reindexes_only_changed_files_and_prunes_deleted_ones(env: 
         "docs/new.md": b"# New\n\nHello.",
     }
     await env.run(sid)
-    assert env.docs(sid) == {"file:README.md", "file:docs/new.md", "issue:1", "pr:2"}  # faq pruned
+    assert env.docs(sid) == {
+        "file:README.md",
+        "file:docs/new.md",
+        "issue:1",
+        "pr:2",
+        "repo:overview",
+    }
     _, seen, changed, _, _ = env.last_run()
-    assert (seen, changed) == (2, 2)
+    assert (seen, changed) == (3, 3)  # the overview's tree changed too
 
 
 async def test_only_issues_updated_since_the_checkpoint_are_fetched(env: Env) -> None:
@@ -331,7 +343,13 @@ async def test_a_deadline_stops_cleanly_and_queues_the_rest(env: Env) -> None:
     assert any(":cont:" in j.idempotency_key for j in env.jobs.jobs.values())
     assert sid not in env.sources.synced  # not a full pass
     await env.run(sid)  # the continuation finishes the job
-    assert env.docs(sid) == {"file:README.md", "file:docs/faq.md", "issue:1", "pr:2"}
+    assert env.docs(sid) == {
+        "file:README.md",
+        "file:docs/faq.md",
+        "issue:1",
+        "pr:2",
+        "repo:overview",
+    }
 
 
 async def test_a_repo_the_app_lost_access_to_fails_with_a_clear_reason(env: Env) -> None:
@@ -416,8 +434,9 @@ async def test_sync_with_the_real_github_app_indexes_docs_and_issues(env: Env) -
     env.sync = GitHubSync(real, env.sources, env.jobs, env.sync._ingest, FormatParser())
     await env.run(sid)
     status, seen, changed, failed, summary = env.last_run()
-    assert (status, seen, changed, failed, summary) == ("succeeded", 2, 2, 0, None)
-    assert env.docs(sid) == {"file:README.md", "issue:1"}  # code is never indexed (ADR-0023)
+    assert (status, seen, changed, failed, summary) == ("succeeded", 3, 3, 0, None)
+    # Code is never indexed (ADR-0023); the overview stands in for it (P1-2).
+    assert env.docs(sid) == {"file:README.md", "issue:1", "repo:overview"}
     assert checkpoint(env, sid)["commit"] == "sha1"
 
 
@@ -493,7 +512,8 @@ async def test_a_file_that_failed_is_retried_on_the_next_sync_without_a_push(env
     flaky.broken = False  # e.g. a parser fix shipped; no new push to the repo
     await env.run(sid)
     assert "file:docs/broken.md" in env.docs(sid)
-    assert env.last_run()[:3] == ("succeeded", 3, 1)  # only the failed file cost anything
+    # Only the failed file cost anything; the unchanged overview is skipped by checksum.
+    assert env.last_run()[:3] == ("succeeded", 4, 1)
     assert checkpoint(env, sid)["commit"] == "c1"
 
 

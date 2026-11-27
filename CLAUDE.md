@@ -74,7 +74,8 @@ uv run python -m worker run               drain runnable jobs locally, then exit
 uv run python -m worker backfill          build the BGE-M3 generation from public chunks (Workers AI)
 uv run python -m evals.load               index the synthetic eval corpus (idempotent; first run ~$0.0001)
 uv run python -m evals.run --embedder none|openai|bge-m3   retrieval evals (none = keyword only, $0)
-uv run python -m evals.answers [--limit N]   answer evals: abstention, citations, modes (PAID, ~$0.001/case)
+uv run python -m evals.answers [--limit N] [--judge]   answer evals: abstention, citations, modes,
+                                          cross-source; --judge adds faithfulness (PAID, ~$0.001/case)
 uv run python scripts/diagnose_sources.py [--connector github]   read-only: why a source has no documents
 uv run python scripts/eval_table.py [--write]   README eval table from evals/results ($0)
 pnpm -C web install | dev | lint | typecheck | test | gen:api

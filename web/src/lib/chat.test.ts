@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerWithFootnotes, citationMarkdown, newTurn, reduceTurn, safeUrl, SseParser, type SourceOut } from "./chat";
+import { answerWithFootnotes, citationMarkdown, newTurn, reduceTurn, safeUrl, SseParser, turnsFromHistory, type SourceOut } from "./chat";
 
 const SOURCE: SourceOut = {
   n: 1,
@@ -81,4 +81,29 @@ it("copies the answer with footnotes for cited sources only", () => {
 
 it("never lets the model mint its own citation links", () => {
   expect(citationMarkdown("See [this](cite:7) and [1].", [1])).toBe("See [this](#7) and [1](cite:1).");
+});
+
+it("a reopened chat keeps real source names and follow-ups, and drops revoked ones", () => {
+  const at = "2026-11-28T10:00:00Z";
+  const [turn] = turnsFromHistory([
+    { id: "u1", role: "user", content: "Leave?", created_at: at, model: null, latency_ms: null, abstained: false, mode: "grounded", citations: [], followups: [] },
+    {
+      id: "a1",
+      role: "assistant",
+      content: "25 days [1][2].",
+      created_at: at,
+      model: "m",
+      latency_ms: 10,
+      abstained: false,
+      mode: "grounded",
+      followups: ["Who approves leave?"],
+      citations: [
+        { n: 1, chunk_id: 7, document_id: "00000000-0000-0000-0000-000000000001", title: "Handbook", heading_path: "Leave", snippet: "25 days.", connector: "upload" },
+        { n: 2, chunk_id: 8, document_id: "00000000-0000-0000-0000-000000000002" },
+      ],
+    },
+  ]);
+  expect(turn!.sources.map((s) => s.title)).toEqual(["Handbook"]);
+  expect(turn!.sources[0]!.snippet).toBe("25 days.");
+  expect(turn!.done?.followups).toEqual(["Who approves leave?"]);
 });

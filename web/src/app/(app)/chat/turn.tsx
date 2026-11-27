@@ -4,9 +4,10 @@ import {
   Check,
   CircleAlert,
   CircleHelp,
+  ChevronDown,
   Copy,
+  CornerDownLeft,
   Globe,
-  Layers,
   Pencil,
   RotateCcw,
   Search,
@@ -17,6 +18,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { toast } from "sonner";
+import { ConnectorIcon } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -177,14 +179,13 @@ function AssistantMessage({
   const { onOpenSource } = actions;
   const onCite = useCallback((n: number) => onOpenSource(turn, n), [onOpenSource, turn]);
   const canRegenerate = isLast && !threadBusy;
+  const [sourcesOpen, setSourcesOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-3">
       <div aria-live="polite" className="sr-only">
         {turn.stage === "searching" ? "Thinking" : turn.stage === "reading" ? `Reading ${turn.sources.length} sources` : turn.stage === "done" ? "Answer ready" : ""}
       </div>
-
-      {showSources ? <SourceStrip turn={turn} onOpen={(n) => onOpenSource(turn, n)} /> : null}
 
       {(turn.stage === "searching" || turn.stage === "reading") && !turn.text ? <ThinkingStatus turn={turn} /> : null}
 
@@ -216,9 +217,50 @@ function AssistantMessage({
       {turn.stage === "error" ? <ErrorNotice turn={turn} canRetry={!threadBusy} onRetry={() => actions.onRegenerate(turn)} /> : null}
 
       {turn.stage === "done" && !abstained && turn.messageId ? (
-        <AnswerFooter turn={turn} canRegenerate={canRegenerate} onRegenerate={() => actions.onRegenerate(turn)} onOpenSources={() => onOpenSource(turn, null)} />
+        <AnswerFooter
+          turn={turn}
+          canRegenerate={canRegenerate}
+          onRegenerate={() => actions.onRegenerate(turn)}
+          sourcesOpen={sourcesOpen}
+          onToggleSources={showSources ? () => setSourcesOpen((o) => !o) : null}
+        />
+      ) : null}
+
+      {showSources && sourcesOpen && turn.stage === "done" ? (
+        <SourceCards turn={turn} onOpen={(n) => onOpenSource(turn, n)} />
+      ) : null}
+
+      {turn.stage === "done" && isLast && mode === "grounded" && !abstained ? (
+        <FollowUps questions={turn.done?.followups ?? []} onPick={actions.onRephrase} />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Suggested next questions under the latest grounded answer (P2-1). Like the starter
+ * cards, a click fills the composer and never sends, so nothing is spent by accident.
+ */
+function FollowUps({ questions, onPick }: { questions: string[]; onPick: (question: string) => void }) {
+  if (questions.length === 0) return null;
+  return (
+    <section className="flex flex-col animate-in fade-in duration-200 motion-reduce:animate-none">
+      <h3 className="mb-1 text-caption font-medium text-fg-subtle">Follow-ups</h3>
+      <ul className="divide-y divide-border" aria-label="Suggested follow-up questions">
+        {questions.slice(0, 3).map((q) => (
+          <li key={q}>
+            <button
+              type="button"
+              onClick={() => onPick(q)}
+              className="group flex w-full items-center gap-2.5 rounded-sm py-2 text-left text-ui text-fg-body transition-colors duration-200 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <CornerDownLeft className="size-3.5 shrink-0 text-fg-subtle transition-colors group-hover:text-brand" aria-hidden="true" />
+              <span>{q}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -235,27 +277,28 @@ export function stripSources(sources: SourceOut[], cited: number[]): { shown: So
   return { shown: ordered.slice(0, max), hidden: Math.max(0, ordered.length - max) };
 }
 
-function SourceStrip({ turn, onOpen }: { turn: Turn; onOpen: (n: number | null) => void }) {
+/**
+ * The answer's evidence, under the answer: cited sources first as cards (connector, title,
+ * heading, a two-line passage). The rest sit behind "Show all", which opens the full
+ * panel, so a long list never pushes the follow-ups off screen.
+ */
+function SourceCards({ turn, onOpen }: { turn: Turn; onOpen: (n: number | null) => void }) {
   const { shown, hidden } = stripSources(turn.sources, turn.cited);
   return (
-    <ul className="flex flex-wrap gap-1.5" aria-label="Sources">
-      {shown.map((s, i) => (
-        <li
-          key={s.n}
-          className="max-w-full min-w-0 animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-300 motion-reduce:animate-none"
-          style={{ animationDelay: `${i * 30}ms` }}
-        >
-          <SourceChip source={s} cited={turn.cited.includes(s.n)} onClick={() => onOpen(s.n)} />
+    <ul className="grid gap-2 animate-in fade-in slide-in-from-top-1 duration-200 motion-reduce:animate-none sm:grid-cols-2" aria-label="Sources">
+      {shown.map((s) => (
+        <li key={s.n} className="min-w-0">
+          <SourceCard source={s} cited={turn.cited.includes(s.n)} onClick={() => onOpen(s.n)} />
         </li>
       ))}
       {hidden ? (
-        <li className="animate-in fade-in fill-mode-both duration-300 motion-reduce:animate-none" style={{ animationDelay: `${shown.length * 30}ms` }}>
+        <li className="sm:col-span-2">
           <button
             type="button"
             onClick={() => onOpen(null)}
-            className="inline-flex h-7 items-center rounded-md border border-border px-2.5 text-[13px] font-medium text-fg-muted transition-colors duration-200 hover:border-border-strong hover:bg-subtle hover:text-fg"
+            className="inline-flex h-7 items-center rounded-md px-1 text-data font-medium text-fg-muted transition-colors hover:text-fg"
           >
-            +{hidden} more
+            Show all {turn.sources.length} sources
           </button>
         </li>
       ) : null}
@@ -263,30 +306,43 @@ function SourceStrip({ turn, onOpen }: { turn: Turn; onOpen: (n: number | null) 
   );
 }
 
-function SourceChip({ source, cited, onClick }: { source: SourceOut; cited: boolean; onClick: () => void }) {
+function SourceCard({ source, cited, onClick }: { source: SourceOut; cited: boolean; onClick: () => void }) {
   const title = source.title.trim() || "Untitled";
   return (
     <button
       type="button"
       onClick={onClick}
-      title={source.heading_path ? `${title} · ${source.heading_path}` : title}
-      className={cn(
-        "inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border py-[3px] pr-2.5 pl-[3px] text-[13px] font-medium transition-[background-color,border-color,color] duration-200 active:scale-[0.98]",
-        cited
-          ? "border-brand-border bg-brand-subtle text-brand-strong hover:border-brand"
-          : "border-border bg-bg text-fg-muted hover:border-border-strong hover:bg-subtle hover:text-fg",
-      )}
+      className="flex h-full w-full flex-col gap-1.5 rounded-lg border border-border bg-bg p-3 text-left transition-[border-color,box-shadow] duration-200 hover:border-border-strong hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <span
-        className={cn(
-          "inline-flex h-[20px] min-w-[20px] shrink-0 items-center justify-center rounded-[5px] px-1 text-[11px] font-semibold tabular-nums",
-          cited ? "bg-brand text-white" : "bg-muted text-fg-muted",
-        )}
-      >
-        {source.n}
+      <span className="flex min-w-0 items-center gap-2">
+        <span
+          className={cn(
+            "inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-[5px] px-1 text-[11px] font-semibold tabular-nums",
+            cited ? "bg-brand text-white" : "bg-muted text-fg-muted",
+          )}
+        >
+          {source.n}
+        </span>
+        <ConnectorIcon connector={source.connector ?? "upload"} className="size-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-caption font-medium text-fg">{title}</span>
       </span>
-      <span className="max-w-[200px] min-w-0 truncate">{title}</span>
+      {source.heading_path ? <span className="truncate text-data text-fg-subtle">{source.heading_path}</span> : null}
+      {source.snippet ? <span className="line-clamp-2 text-data text-fg-body">{source.snippet}</span> : null}
     </button>
+  );
+}
+
+/** Up to three distinct connector icons, overlapped, for the "N sources" pill. */
+function SourceIcons({ sources }: { sources: SourceOut[] }) {
+  const connectors = [...new Set(sources.map((s) => s.connector ?? "upload"))].slice(0, 3);
+  return (
+    <span className="flex -space-x-1.5" aria-hidden="true">
+      {connectors.map((c) => (
+        <span key={c} className="inline-flex size-[18px] items-center justify-center rounded-full border border-bg bg-subtle">
+          <ConnectorIcon connector={c} className="size-3" />
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -394,12 +450,14 @@ function AnswerFooter({
   turn,
   canRegenerate,
   onRegenerate,
-  onOpenSources,
+  sourcesOpen,
+  onToggleSources,
 }: {
   turn: Turn;
   canRegenerate: boolean;
   onRegenerate: () => void;
-  onOpenSources: () => void;
+  sourcesOpen: boolean;
+  onToggleSources: (() => void) | null;
 }) {
   const [rated, setRated] = useState<1 | -1 | null>(null);
   const mode = turn.done?.mode ?? "grounded";
@@ -413,13 +471,19 @@ function AnswerFooter({
         </IconAction>
       ) : null}
       <Feedback messageId={turn.messageId!} rated={rated} onRated={setRated} />
+      {mode === "grounded" && onToggleSources && turn.sources.length ? (
+        <button
+          type="button"
+          onClick={onToggleSources}
+          aria-expanded={sourcesOpen}
+          className="ml-1.5 inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-bg py-0.5 pr-2.5 pl-1 text-data font-medium text-fg-muted transition-colors duration-200 hover:border-border-strong hover:bg-subtle hover:text-fg"
+        >
+          <SourceIcons sources={turn.sources} />
+          {turn.sources.length} source{turn.sources.length === 1 ? "" : "s"}
+          <ChevronDown className={cn("size-3.5 transition-transform duration-200", sourcesOpen && "rotate-180")} aria-hidden="true" />
+        </button>
+      ) : null}
       <span className="ml-auto flex items-center gap-2 text-data text-fg-subtle tabular-nums">
-        {mode === "grounded" && turn.sources.length ? (
-          <button type="button" onClick={onOpenSources} className="inline-flex items-center gap-1 rounded-sm px-1 transition-colors hover:text-fg">
-            <Layers className="size-3" aria-hidden="true" />
-            {turn.sources.length} source{turn.sources.length === 1 ? "" : "s"}
-          </button>
-        ) : null}
         {seconds ? <span>{seconds} s</span> : null}
         {turn.done?.model ? <span className="max-sm:hidden">{turn.done.model}</span> : null}
       </span>

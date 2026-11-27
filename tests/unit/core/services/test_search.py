@@ -233,3 +233,25 @@ async def test_author_filter_is_length_checked() -> None:
     svc, _, _ = make()
     with pytest.raises(ValidationFailed):
         await svc.search(identity(OWNER), "leave", filters=SearchFilters(author="x" * 201))
+
+
+async def test_the_anchor_lane_ranks_cited_documents_and_keeps_the_acl() -> None:
+    """P1-5: hybrid_retrieve fuses the previous answer's documents as their own lane, and
+    the lane itself filters by access (an outsider's anchor finds nothing private)."""
+    from core.services.search import hybrid_retrieve
+
+    index, embedder = InMemoryIndex(), FakeEmbedder()
+    await seed(index, embedder)
+    docs = {ext: index._by_key[(SOURCE, ext)] for ext in ("handbook", "salaries", "team")}
+    anchor = tuple(docs.values())
+    owner = identity(OWNER).principals
+    res = await hybrid_retrieve(
+        index, WS, owner, "zzz", SearchFilters(), vector=None, anchor=anchor
+    )
+    assert Lane.ANCHOR in res.lanes
+    assert {h.chunk.document_id for h in res.hits} == set(anchor)  # through the anchor alone
+    guest = identity(GUEST, guest=True).principals
+    as_guest = await hybrid_retrieve(
+        index, WS, guest, "zzz", SearchFilters(), vector=None, anchor=anchor
+    )
+    assert {h.chunk.document_id for h in as_guest.hits} == {docs["handbook"]}  # public only

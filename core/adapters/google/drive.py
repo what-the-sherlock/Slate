@@ -1,10 +1,15 @@
 """Google Drive over the Drive API with an OAuth token (ADR-0033). Read-only
 (``drive.readonly``; see ADR-0033 for why not ``drive.file``).
 
-Indexed: Google Docs (exported as plain text) and plain-text or Markdown files, not in the
-trash, newest-modified first. Every other file is listed too, and counted on the run as
-skipped with its type (P0-4), so a Drive of PDFs explains itself. PDFs, Sheets and Slides
-come later (P1-1).
+Indexed (P1-1), not in the trash, newest-modified first:
+* Google Docs and Slides, exported by Google as plain text;
+* Google Sheets, exported as CSV (Drive exports the first sheet only), parsed into tables;
+* PDFs and Word files, downloaded as they are;
+* plain-text and Markdown files.
+
+Binary files are handed to the engine as bytes (``FetchedDocument.raw``) and parsed there
+by the same parser uploads use: a connector only fetches (CLAUDE.md rule 2). Every other
+file is listed too, and counted on the run as skipped with its type (P0-4).
 
 Passes:
 * **Incremental** (hourly): files modified after the last pass's high-water mark.
@@ -28,7 +33,18 @@ from core.domain.skips import SkipReason, Skips
 
 API = "https://www.googleapis.com/drive/v3/files"
 GOOGLE_DOC = "application/vnd.google-apps.document"
+GOOGLE_SHEET = "application/vnd.google-apps.spreadsheet"
+GOOGLE_SLIDES = "application/vnd.google-apps.presentation"
+PDF = "application/pdf"
+DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 TEXT_TYPES = ("text/plain", "text/markdown")
+# Google's own formats, exported as: (the export type, whether it's text Slate reads as is).
+EXPORTS: dict[str, tuple[str, bool]] = {
+    GOOGLE_DOC: ("text/plain", True),
+    GOOGLE_SLIDES: ("text/plain", True),
+    GOOGLE_SHEET: ("text/csv", False),
+}
+BINARY_TYPES = (PDF, DOCX)  # downloaded whole and parsed by the engine
 NOT_FILES = ("application/vnd.google-apps.folder", "application/vnd.google-apps.shortcut")
 _KINDS = {
     "application/pdf": "pdf",
@@ -91,12 +107,12 @@ class DriveConnector:
                 skips.add(*skip)
                 continue
             body = await self._content(token, f)
-            if body is None:
-                skips.add(SkipReason.UNREADABLE, "file")
+            if isinstance(body, SkipReason):
+                skips.add(body, _kind_of(str(f.get("mimeType") or "")))
                 continue
             doc = drive_document(f, body)
             if doc is None:
-                skips.add(SkipReason.EMPTY_TEXT, "file")
+                skips.add(SkipReason.EMPTY_TEXT, _kind_of(str(f.get("mimeType") or "")))
             else:
                 docs.append(doc)
         next_token = text(listing.get("nextPageToken"))
@@ -124,20 +140,36 @@ class DriveConnector:
             tuple(docs), checkpoint=done_cp, done=True, keep_only=keep, skipped=skips.as_json()
         )
 
-    async def _content(self, token: str, f: Mapping[str, Any]) -> str | None:
+    async def _content(self, token: str, f: Mapping[str, Any]) -> str | bytes | SkipReason:
+        """The file's text, or its bytes for the engine to parse, or why it can't be read."""
         file_id = safe_id(str(f.get("id") or ""))
         mime = str(f.get("mimeType") or "")
-        if mime == GOOGLE_DOC:
-            return await self._api.get_text(
-                token, f"{API}/{file_id}/export", params={"mimeType": "text/plain"},
-                max_bytes=MAX_FILE_BYTES, allow_404=True,
-            )  # fmt: skip
-        if mime in TEXT_TYPES and _size(f) <= MAX_FILE_BYTES:
-            return await self._api.get_text(
-                token, f"{API}/{file_id}", params={"alt": "media"}, max_bytes=MAX_FILE_BYTES,
+        if mime in EXPORTS:
+            export, is_text = EXPORTS[mime]
+            url, params = f"{API}/{file_id}/export", {"mimeType": export}
+            if is_text:
+                body = await self._api.get_text(
+                    token, url, params=params, max_bytes=MAX_FILE_BYTES, allow_404=True
+                )
+                return SkipReason.UNREADABLE if body is None else body
+            return _bounded(await self._api.get_bytes(token, url, params=params, allow_404=True))
+        params = {"alt": "media"}
+        if mime in TEXT_TYPES:
+            body = await self._api.get_text(
+                token, f"{API}/{file_id}", params=params, max_bytes=MAX_FILE_BYTES,
                 allow_404=True,
             )  # fmt: skip
-        return None
+            return SkipReason.UNREADABLE if body is None else body
+        return _bounded(
+            await self._api.get_bytes(token, f"{API}/{file_id}", params=params, allow_404=True)
+        )
+
+
+def _bounded(data: bytes | None) -> bytes | SkipReason:
+    """A listing's ``size`` is checked first, but exports have none: check the bytes too."""
+    if data is None:
+        return SkipReason.UNREADABLE
+    return SkipReason.TOO_LARGE if len(data) > MAX_FILE_BYTES else data
 
 
 def _count(value: object) -> int:
@@ -154,10 +186,10 @@ def _size(f: Mapping[str, Any]) -> int:
 def unreadable_reason(f: Mapping[str, Any]) -> tuple[SkipReason, str] | None:
     """Why a listed file won't be read (pure), or None when Slate reads it."""
     mime = str(f.get("mimeType") or "")
-    if mime == GOOGLE_DOC:
+    if mime in EXPORTS:
         return None
-    if mime in TEXT_TYPES:
-        return (SkipReason.TOO_LARGE, "file") if _size(f) > MAX_FILE_BYTES else None
+    if mime in TEXT_TYPES or mime in BINARY_TYPES:
+        return (SkipReason.TOO_LARGE, _kind_of(mime)) if _size(f) > MAX_FILE_BYTES else None
     return SkipReason.UNSUPPORTED_TYPE, _kind_of(mime)
 
 
@@ -175,21 +207,37 @@ def _rfc3339(moment: datetime) -> str:
     return moment.replace(microsecond=0).isoformat()
 
 
-def drive_document(f: Mapping[str, Any], body: str) -> FetchedDocument | None:
-    """A Drive file's text as a document (pure). None when it has no text."""
-    words = body.replace("\r\n", "\n").replace("﻿", "").strip()
-    if not words:
-        return None
+def raw_mime(drive_mime: str) -> str:
+    """The type of the bytes Slate gets for a Drive file (an export or the file itself)."""
+    if drive_mime in EXPORTS:
+        return EXPORTS[drive_mime][0]
+    return drive_mime
+
+
+def drive_document(f: Mapping[str, Any], body: str | bytes) -> FetchedDocument | None:
+    """A Drive file as a document (pure). Text becomes one section; bytes are left for the
+    engine's parser (``raw``). None when there is nothing in it."""
     title = clean_title(str(f.get("name") or ""), "Untitled")
     owner = (objs(f.get("owners")) or [{}])[0]
+    drive_mime = str(f.get("mimeType") or "")
+    common: dict[str, Any] = {
+        "external_id": f"gdrive:{f.get('id')}",
+        "title": title,
+        "uri": text(f.get("webViewLink")) or "https://drive.google.com",
+        "author": text(owner.get("displayName")) or text(owner.get("emailAddress")),
+        "created_at": when(f.get("createdTime")),
+        "updated_at": when(f.get("modifiedTime")),
+        "metadata": {"kind": "drive", "mime": drive_mime},
+    }
+    if isinstance(body, bytes):
+        if not body.strip():
+            return None
+        return FetchedDocument(sections=(), mime=raw_mime(drive_mime), raw=body, **common)
+    words = body.replace("\r\n", "\n").replace("\ufeff", "").strip()
+    if not words:
+        return None
     return FetchedDocument(
-        external_id=f"gdrive:{f.get('id')}",
-        title=title,
-        uri=text(f.get("webViewLink")) or "https://drive.google.com",
         sections=cap_sections([Section(f"Drive > {title}", words)]),
-        mime="text/markdown" if str(f.get("mimeType")) == "text/markdown" else "text/plain",
-        author=text(owner.get("displayName")) or text(owner.get("emailAddress")),
-        created_at=when(f.get("createdTime")),
-        updated_at=when(f.get("modifiedTime")),
-        metadata={"kind": "drive", "mime": str(f.get("mimeType") or "")},
+        mime="text/markdown" if drive_mime == "text/markdown" else "text/plain",
+        **common,
     )

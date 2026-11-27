@@ -215,8 +215,8 @@ export function answerWithFootnotes(turn: Turn): string {
 export type StoredMessage = components["schemas"]["MessageOut"];
 
 /**
- * Stored messages -> turns, for reopening a chat. Restored sources are placeholders (the
- * history endpoint returns citation ids, not titles). A question with no stored answer
+ * Stored messages -> turns, for reopening a chat. Sources and follow-ups come back from
+ * the history endpoint, re-checked against the user's current access. A question with no stored answer
  * (stopped, or the connection dropped) comes back as `stopped`, so it can be regenerated.
  */
 export function turnsFromHistory(messages: readonly StoredMessage[]): Turn[] {
@@ -228,9 +228,22 @@ export function turnsFromHistory(messages: readonly StoredMessage[]): Turn[] {
     }
     const last = turns[turns.length - 1];
     if (!last || last.done) continue;
+    // The server rebuilt each citation under the user's current access; one with no title
+    // was deleted or is no longer visible, so it is left out rather than shown as "Source n".
     const sources: SourceOut[] = m.citations
-      .filter((c) => c.document_id)
-      .map((c) => ({ n: c.n, chunk_id: c.chunk_id ?? 0, document_id: c.document_id!, ordinal: -1, title: `Source ${c.n}`, heading_path: null, snippet: "" }));
+      .filter((c) => c.document_id && c.title != null)
+      .map((c) => ({
+        n: c.n,
+        chunk_id: c.chunk_id ?? 0,
+        document_id: c.document_id!,
+        ordinal: -1,
+        title: c.title ?? "",
+        heading_path: c.heading_path ?? null,
+        snippet: c.snippet ?? "",
+        connector: c.connector ?? null,
+        updated_at: c.updated_at ?? null,
+        author: c.author ?? null,
+      }));
     Object.assign(last, {
       stage: "done",
       text: m.abstained ? "" : m.content,
@@ -247,6 +260,7 @@ export function turnsFromHistory(messages: readonly StoredMessage[]): Turn[] {
         closest: [],
         notices: [],
         mode: m.mode ?? "grounded",
+        followups: m.followups ?? [],
       },
     } satisfies Partial<Turn>);
   }

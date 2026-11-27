@@ -96,4 +96,36 @@ describe("TurnView", () => {
     show({ ...newTurn("q", "k"), stage: "reading", sources: [SOURCE], startedAt: Date.now() });
     expect(screen.getByText("Reading 1 source…")).toBeInTheDocument();
   });
+
+  it("offers follow-up questions under the latest answer, which fill the composer", () => {
+    const a = show(done({}, { followups: ["Who approves leave?", "Does it carry over?"] }));
+    fireEvent.click(screen.getByRole("button", { name: "Who approves leave?" }));
+    expect(a.onRephrase).toHaveBeenCalledWith("Who approves leave?");
+  });
+
+  it("shows no follow-ups on earlier turns, general answers or abstentions", () => {
+    show(done({}, { followups: ["Who approves leave?"] }), actions(), { isLast: false });
+    expect(screen.queryByRole("list", { name: "Suggested follow-up questions" })).not.toBeInTheDocument();
+  });
+
+  it("puts the sources under the answer, folded behind a pill that names them", () => {
+    const a = show(done({ sources: [{ ...SOURCE, connector: "upload", heading_path: "Leave", snippet: "25 days a year." }] }));
+    expect(screen.queryByRole("list", { name: "Sources" })).not.toBeInTheDocument();
+    const pill = screen.getByRole("button", { name: /1 source/ });
+    expect(pill).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(pill);
+    const list = screen.getByRole("list", { name: "Sources" });
+    // Evidence after the answer, never above it.
+    const answer = screen.getByText(/Everyone gets 25 days/);
+    expect(answer.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("25 days a year.")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Handbook", { selector: "span" }));
+    expect(a.onOpenSource).toHaveBeenCalled();
+  });
+
+  it("shows follow-ups as a labelled list", () => {
+    show(done({}, { followups: ["Who approves leave?"] }));
+    expect(screen.getByText("Follow-ups")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Suggested follow-up questions" })).toBeInTheDocument();
+  });
 });

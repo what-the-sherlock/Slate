@@ -1,7 +1,8 @@
 """Answer evals (a composition root): the real AnswerService over the eval cases.
 
     uv run python -m evals.answers --limit 10      # a sample first
-    uv run python -m evals.answers                 # all 51+ cases
+    uv run python -m evals.answers                 # all cases
+    uv run python -m evals.answers --judge         # + LLM-judged faithfulness (P1-8)
 
 PAID: each answer calls OpenAI's chat model (gpt-4o-mini by default) and embeds the query.
 About $0.001 per case, so the full set costs roughly $0.05-0.10. Refused if this month's
@@ -19,7 +20,7 @@ import argparse
 import asyncio
 import json
 from collections.abc import Sequence
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -46,7 +47,18 @@ from core.domain.planner import QueryPlan
 from core.domain.principals import Principals
 from core.ports.chat import ChatSessionInfo, Citation, NewMessage, StoredMessage
 from core.ports.rate_limit import Limit
-from core.services.answer import AnswerService, Cited, Done, Meta, SourcesFound, Token
+from core.ports.usage import UsageEntry
+from core.services.answer import (
+    CHAT_PRICES,
+    UNKNOWN_PRICE,
+    AnswerService,
+    Cited,
+    Done,
+    Meta,
+    SourcesFound,
+    Token,
+)
+from core.services.rerank import LLMReranker
 from core.services.search import SearchService
 from evals.answer_metrics import AnswerResult, points_found, summarise_answers
 from evals.cases import (
@@ -58,11 +70,14 @@ from evals.cases import (
     load_corpus,
 )
 from evals.harness import EVAL_OWNER
+from evals.judge import judge_answer
 from evals.load import EVAL_WORKSPACE_NAME, EVAL_WORKSPACE_SLUG
 from evals.run import RESULTS, git_sha
 
 # Plan + answer with up to 8k tokens of sources (ADR-0031): ~$0.002, rounded up to be safe.
 PER_CASE_ESTIMATE_USD = Decimal("0.003")
+# One judge call: ~2k tokens in, ~300 out with gpt-4o-mini, rounded up.
+JUDGE_ESTIMATE_USD = Decimal("0.001")
 
 
 class _Unlimited:
@@ -133,6 +148,62 @@ class _MemoryChats:
         return None
 
 
+@dataclass(frozen=True, slots=True)
+class _Asked:
+    session: ChatSessionId | None
+    text: str
+    cited: list[DocumentId]
+    done: Done | None
+    plan: dict[str, object] | None
+    seen: list[tuple[DocumentId, str]]  # (document, title) of every source shown
+    passages: dict[int, str]  # source number -> passage text, for the judge
+
+
+async def _ask(
+    answers: AnswerService, who: Identity, question: str, session: ChatSessionId | None
+) -> _Asked:
+    q, _ = await answers.prepare(who, question, session)
+    text, done, plan = "", None, None
+    cited: list[DocumentId] = []
+    seen: list[tuple[DocumentId, str]] = []
+    passages: dict[int, str] = {}
+    async for event in answers.answer(who, q, session, timezone=EVAL_TIMEZONE):
+        if isinstance(event, Meta):
+            session = event.session_id
+            if event.plan is not None:
+                plan = plan_summary(event.plan, event.query)
+        elif isinstance(event, SourcesFound):
+            for src in event.sources:
+                if src.passage.document_id not in {d for d, _ in seen}:
+                    seen.append((src.passage.document_id, src.passage.title))
+                passages[src.n] = src.passage.content
+        elif isinstance(event, Cited):
+            cited.append(event.document_id)
+        elif isinstance(event, Done):
+            done = event
+        elif isinstance(event, Token):
+            text += event.text
+    return _Asked(session, text, cited, done, plan, seen, passages)
+
+
+async def _record_judge(
+    ledger: PostgresUsageLedger, ws: WorkspaceId, model: str, tokens: tuple[int, int]
+) -> None:
+    price_in, price_out = CHAT_PRICES.get(model, UNKNOWN_PRICE)
+    await ledger.record(
+        UsageEntry(
+            workspace_id=ws,
+            provider="openai",
+            model=model,
+            kind="judge",
+            data_class="private",
+            tokens_in=tokens[0],
+            tokens_out=tokens[1],
+            cost_usd=(price_in * tokens[0] + price_out * tokens[1]) / Decimal(1_000_000),
+        )
+    )
+
+
 def plan_summary(plan: QueryPlan, lead: str) -> dict[str, object]:
     """The planner's decision as JSON, for diagnosing answers (synthetic questions only)."""
     return {
@@ -155,7 +226,7 @@ class _FixedClock:
         return EVAL_NOW
 
 
-async def run(limit: int | None, only: set[str] | None = None) -> int:
+async def run(limit: int | None, only: set[str] | None = None, *, judge: bool = False) -> int:
     settings = get_settings()
     key = settings.openai_api_key.get_secret_value().strip() if settings.openai_api_key else ""
     embedder = openai_embedder(settings)
@@ -188,7 +259,10 @@ async def run(limit: int | None, only: set[str] | None = None) -> int:
             monthly_all=Decimal(str(settings.monthly_llm_budget_usd)),
             daily_all=Decimal(str(settings.daily_llm_budget_usd)),
         )
-        estimate = PER_CASE_ESTIMATE_USD * len(cases)
+        # Each earlier turn of a multi-turn case is a full answer too; the judge adds one
+        # small call per case.
+        turns = sum(1 + len(c.history) for c in cases)
+        estimate = PER_CASE_ESTIMATE_USD * turns + (JUDGE_ESTIMATE_USD * len(cases) if judge else 0)
         if reason := limits.refusal(await ledger.spend(ws), estimate):
             raise SystemExit(f"not running ~${estimate} of answer evals: {reason}")
 
@@ -205,6 +279,8 @@ async def run(limit: int | None, only: set[str] | None = None) -> int:
             search, model, _MemoryChats(), ledger, _Unlimited(), TiktokenTokenizer(),
             limits=limits, min_similarity=settings.chat_min_similarity,
             clock=_FixedClock(),  # the eval world's today (ADR-0031)
+            # CHAT_RERANK=true measures the selection step (P1-4, ADR-0040).
+            reranker=LLMReranker(model) if settings.chat_rerank else None,
         )  # fmt: skip
         who = Identity(
             user_id=EVAL_OWNER,
@@ -218,44 +294,47 @@ async def run(limit: int | None, only: set[str] | None = None) -> int:
             email_verified=True,
         )
 
+        kind_of = {d.path: d.kind for d in corpus}
         results: list[AnswerResult] = []
         for case in cases:
             before = (await ledger.spend(ws)).month_workspace
-            question, _ = await answers.prepare(who, case.question, None)
-            cited: list[DocumentId] = []
-            text, done = "", None
-            plan: dict[str, object] | None = None
-            seen: list[str] = []
-            async for event in answers.answer(who, question, None, timezone=EVAL_TIMEZONE):
-                if isinstance(event, Meta) and event.plan is not None:
-                    plan = plan_summary(event.plan, event.query)
-                elif isinstance(event, SourcesFound):
-                    seen = [
-                        path_of.get(s.passage.document_id, s.passage.title) for s in event.sources
-                    ]
-                elif isinstance(event, Cited):
-                    cited.append(event.document_id)
-                elif isinstance(event, Done):
-                    done = event
-                elif isinstance(event, Token):
-                    text += event.text
+            # Multi-turn cases (P1-8): earlier turns are really asked, in one chat, so the
+            # follow-up meets the history and the planner rewrite production would.
+            session: ChatSessionId | None = None
+            for turn in case.history:
+                session = (await _ask(answers, who, turn.question, session)).session
+            got = await _ask(answers, who, case.question, session)
+            cited = [path_of.get(d, str(d)) for d in got.cited]
+            verdict: dict[str, float | None] | None = None
+            if judge and got.text and not (got.done and got.done.abstained):
+                scores = await judge_answer(model, got.text, got.passages)
+                if scores is not None:
+                    verdict = {
+                        "faithfulness": scores.faithfulness,
+                        "citation_completeness": scores.citation_completeness,
+                    }
+                    await _record_judge(ledger, ws, model.model, scores.cost_tokens)
             spent = (await ledger.spend(ws)).month_workspace - before
+            done = got.done
             results.append(
                 AnswerResult(
                     id=case.id,
                     answerable=case.answerable,
                     abstained=bool(done and done.abstained),
-                    cited_documents=[path_of.get(d, str(d)) for d in cited],
+                    cited_documents=cited,
                     expected_documents=list(case.expected_documents),
                     points_expected=list(case.expected_answer_points),
-                    points_found=points_found(text, case.expected_answer_points),
+                    points_found=points_found(got.text, case.expected_answer_points),
                     cost_usd=float(spent),
                     latency_ms=done.latency_ms if done else 0,
-                    text=text,
+                    text=got.text,
                     expect_mode=case.expect_mode,
                     mode=done.mode if done else "grounded",
-                    plan=plan,
-                    sources=list(dict.fromkeys(seen)),
+                    plan=got.plan,
+                    sources=[path_of.get(d, t) for d, t in got.seen],
+                    cited_kinds=sorted({kind_of[c] for c in cited if c in kind_of}),
+                    min_cited_kinds=case.min_cited_kinds,
+                    judge=verdict,
                 )
             )
             print(f"  {case.id:<12} {'ABSTAINED' if results[-1].abstained else 'answered'}")
@@ -284,6 +363,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=None, help="run only the first N cases")
     p.add_argument("--ids", default=None, help="comma-separated case ids to run (cheap re-checks)")
     p.add_argument(
+        "--judge",
+        action="store_true",
+        help="also score faithfulness and citation completeness with an LLM judge (PAID)",
+    )
+    p.add_argument(
         "--rescore", type=Path, default=None, help="re-score a saved results file ($0, no calls)"
     )
     args = p.parse_args(argv)
@@ -291,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
         return rescore(args.rescore)
     use_selector_loop_on_windows()
     ids = {i.strip() for i in args.ids.split(",")} if args.ids else None
-    return asyncio.run(run(args.limit, ids))
+    return asyncio.run(run(args.limit, ids, judge=args.judge))
 
 
 def rescore(path: Path) -> int:

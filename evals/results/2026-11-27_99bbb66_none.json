@@ -1,0 +1,2991 @@
+{
+  "run_id": "ceabf61c-e1b8-492d-98d4-667d53b5986d",
+  "git_sha": "99bbb66",
+  "config": {
+    "name": "none",
+    "embedder": "none",
+    "model": null,
+    "k": 10
+  },
+  "summary": {
+    "overall": {
+      "cases": 108,
+      "recall@10": 0.8009,
+      "mrr@10": 0.6641,
+      "ndcg@10": 0.673
+    },
+    "by_visibility": {
+      "public": {
+        "cases": 53,
+        "recall@10": 0.7453,
+        "mrr@10": 0.5423,
+        "ndcg@10": 0.5861
+      },
+      "private": {
+        "cases": 55,
+        "recall@10": 0.8545,
+        "mrr@10": 0.7814,
+        "ndcg@10": 0.7567
+      }
+    },
+    "by_tag": {
+      "conflict": {
+        "cases": 5,
+        "recall@10": 0.8,
+        "mrr@10": 0.85,
+        "ndcg@10": 0.7156
+      },
+      "connector": {
+        "cases": 49,
+        "recall@10": 0.8776,
+        "mrr@10": 0.8322,
+        "ndcg@10": 0.7953
+      },
+      "cross-source": {
+        "cases": 8,
+        "recall@10": 0.6875,
+        "mrr@10": 0.7917,
+        "ndcg@10": 0.6446
+      },
+      "discord": {
+        "cases": 7,
+        "recall@10": 0.8571,
+        "mrr@10": 0.5833,
+        "ndcg@10": 0.6517
+      },
+      "email": {
+        "cases": 11,
+        "recall@10": 1.0,
+        "mrr@10": 0.8737,
+        "ndcg@10": 0.8895
+      },
+      "github": {
+        "cases": 4,
+        "recall@10": 1.0,
+        "mrr@10": 0.875,
+        "ndcg@10": 0.9077
+      },
+      "injection": {
+        "cases": 2,
+        "recall@10": 1.0,
+        "mrr@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "keyword": {
+        "cases": 13,
+        "recall@10": 1.0,
+        "mrr@10": 0.8013,
+        "ndcg@10": 0.836
+      },
+      "multi-hop": {
+        "cases": 7,
+        "recall@10": 0.8571,
+        "mrr@10": 0.7857,
+        "ndcg@10": 0.6855
+      },
+      "multi-turn": {
+        "cases": 10,
+        "recall@10": 0.9,
+        "mrr@10": 0.8333,
+        "ndcg@10": 0.842
+      },
+      "paraphrase": {
+        "cases": 32,
+        "recall@10": 0.5625,
+        "mrr@10": 0.3279,
+        "ndcg@10": 0.3845
+      },
+      "partial": {
+        "cases": 1,
+        "recall@10": 1.0,
+        "mrr@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "period": {
+        "cases": 9,
+        "recall@10": 1.0,
+        "mrr@10": 0.9444,
+        "ndcg@10": 0.959
+      },
+      "private": {
+        "cases": 6,
+        "recall@10": 0.6667,
+        "mrr@10": 0.3667,
+        "ndcg@10": 0.4415
+      },
+      "recent": {
+        "cases": 3,
+        "recall@10": 1.0,
+        "mrr@10": 0.8333,
+        "ndcg@10": 0.828
+      },
+      "sender": {
+        "cases": 5,
+        "recall@10": 1.0,
+        "mrr@10": 0.9,
+        "ndcg@10": 0.9262
+      },
+      "single-hop": {
+        "cases": 45,
+        "recall@10": 0.6667,
+        "mrr@10": 0.4086,
+        "ndcg@10": 0.4708
+      },
+      "summary": {
+        "cases": 1,
+        "recall@10": 1.0,
+        "mrr@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "temporal": {
+        "cases": 5,
+        "recall@10": 1.0,
+        "mrr@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "title-only": {
+        "cases": 6,
+        "recall@10": 1.0,
+        "mrr@10": 1.0,
+        "ndcg@10": 1.0
+      }
+    },
+    "isolation": {
+      "guest_leaks": 0,
+      "cases_with_leaks": []
+    },
+    "latency_ms": {
+      "p50": 1091.9,
+      "p95": 1365.1
+    },
+    "cases_total": 118,
+    "cases_no_answer": 10,
+    "answer_gate": {
+      "threshold": 0.2,
+      "note": "no vector lane: run with --embedder openai"
+    }
+  },
+  "cases": [
+    {
+      "id": "hb-leave-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "misc/volunteering.md",
+        "handbook/leave-policy.md",
+        "archive/leave-policy-2023.md",
+        "archive/remote-work-pilot-2021.md",
+        "company/office-wifi.md",
+        "handbook/remote-work.md",
+        "misc/learning-budget.md",
+        "product/pricing.md",
+        "product/sla.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "latency_ms": 1322.4,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "hb-leave-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/api-errors.md",
+        "company/office-wifi.md",
+        "company/values.md",
+        "discord/eng-deploy-freeze.md",
+        "discord/incident-ledger-latency.md",
+        "misc/emoji-guide.md",
+        "customers/faq.md",
+        "discord/general-lunch.md",
+        "discord/support-carrier-api.md",
+        "email/hiring-budget.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1513.5,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "hb-leave-003",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/leave-policy.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1088.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "hb-leave-004",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "github/issue-405-webhook-retries.md",
+        "customers/partner-notes.md",
+        "email/beacon-renewal.md",
+        "email/nordlys-escalation.md",
+        "discord/incident-ledger-latency.md",
+        "discord/support-carrier-api.md",
+        "archive/remote-work-pilot-2021.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1509.5,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "hb-remote-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "email/nordlys-escalation.md",
+        "email/offsite-venue.md",
+        "engineering/deploys.md",
+        "misc/desk-booking.md",
+        "handbook/remote-work.md",
+        "discord/eng-deploy-freeze.md",
+        "discord/incident-ledger-latency.md",
+        "email/beacon-renewal.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.2,
+      "ndcg": 0.38685280723454163,
+      "latency_ms": 1280.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "hb-remote-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "email/nordlys-escalation.md",
+        "email/acme-invoice.md",
+        "engineering/deploys.md",
+        "email/growth-support-response.md",
+        "email/offsite-venue.md",
+        "misc/meeting-norms.md",
+        "email/hiring-budget.md",
+        "discord/eng-deploy-freeze.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1278.1,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "hb-remote-003",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "archive/remote-work-pilot-2021.md",
+        "handbook/remote-work.md",
+        "email/beacon-renewal.md",
+        "email/nordlys-escalation.md",
+        "discord/incident-ledger-latency.md",
+        "misc/glossary.md",
+        "email/growth-support-response.md",
+        "engineering/deploys.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "latency_ms": 1280.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "hb-remote-004",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "company/history.md",
+        "misc/plant-care.md",
+        "archive/history-draft.md",
+        "email/growth-support-response.md",
+        "github/issue-377-rate-limit.md",
+        "company/office-wifi.md",
+        "email/acme-invoice.md",
+        "email/hiring-budget.md",
+        "engineering/api-errors.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1283.1,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "hb-exp-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "email/nordlys-escalation.md",
+        "engineering/deploys.md",
+        "github/pr-419-carrier-backoff.md",
+        "email/offsite-venue.md",
+        "github/issue-398-label-printing.md",
+        "discord/eng-deploy-freeze.md",
+        "handbook/expenses.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.14285714285714285,
+      "ndcg": 0.3333333333333333,
+      "latency_ms": 1277.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "hb-exp-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/oncall.md",
+        "archive/oncall-draft-2022.md",
+        "github/issue-398-label-printing.md",
+        "github/pr-419-carrier-backoff.md",
+        "misc/volunteering.md",
+        "discord/incident-ledger-latency.md",
+        "email/beacon-renewal.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1278.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "hb-exp-003",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1060.3,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "hb-sec-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "discord/incident-ledger-latency.md",
+        "discord/support-carrier-api.md",
+        "engineering/oncall.md",
+        "handbook/remote-work.md",
+        "legal/project-heron.md",
+        "misc/glossary.md",
+        "archive/oncall-draft-2022.md",
+        "archive/partner-programme-2023.md",
+        "archive/remote-work-pilot-2021.md",
+        "company/history.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1274.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "hb-sec-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/remote-work.md",
+        "archive/remote-work-pilot-2021.md",
+        "misc/desk-booking.md",
+        "company/history.md",
+        "company/values.md",
+        "handbook/security-basics.md",
+        "archive/architecture-2021.md",
+        "discord/eng-deploy-freeze.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.16666666666666666,
+      "ndcg": 0.3562071871080222,
+      "latency_ms": 1277.6,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "eng-oncall-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "github/issue-377-rate-limit.md",
+        "engineering/incident-severity-matrix.md",
+        "engineering/api-errors.md",
+        "discord/eng-deploy-freeze.md",
+        "engineering/oncall.md",
+        "misc/book-club.md",
+        "email/offsite-venue.md",
+        "engineering/architecture.md",
+        "misc/plant-care.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.2,
+      "ndcg": 0.38685280723454163,
+      "latency_ms": 1065.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "eng-oncall-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/oncall.md",
+        "archive/oncall-draft-2022.md",
+        "email/acme-invoice.md",
+        "discord/eng-deploy-freeze.md",
+        "email/growth-support-response.md",
+        "email/interview-schedule.md",
+        "github/issue-398-label-printing.md",
+        "email/hiring-budget.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1078.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "eng-oncall-003",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/oncall.md",
+        "archive/oncall-draft-2022.md",
+        "github/issue-398-label-printing.md",
+        "github/issue-377-rate-limit.md",
+        "github/pr-419-carrier-backoff.md",
+        "engineering/api-errors.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1272.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "eng-deploy-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/deploys.md",
+        "email/nordlys-escalation.md",
+        "engineering/oncall.md",
+        "email/offsite-venue.md",
+        "github/pr-419-carrier-backoff.md",
+        "archive/oncall-draft-2022.md",
+        "github/issue-398-label-printing.md",
+        "discord/product-carrier-count.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1066.1,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "eng-deploy-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "github/issue-398-label-printing.md",
+        "misc/volunteering.md",
+        "archive/oncall-draft-2022.md",
+        "engineering/oncall.md",
+        "github/pr-419-carrier-backoff.md",
+        "email/nordlys-escalation.md",
+        "email/acme-invoice.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1068.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "eng-arch-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "github/issue-377-rate-limit.md",
+        "engineering/api-errors.md",
+        "engineering/architecture.md",
+        "email/offsite-venue.md",
+        "legal/project-heron.md",
+        "misc/book-club.md",
+        "misc/plant-care.md",
+        "people/visa-sponsorship.md",
+        "discord/eng-deploy-freeze.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.3333333333333333,
+      "ndcg": 0.5,
+      "latency_ms": 1086.2,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "eng-arch-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/deploys.md",
+        "misc/running-club.md",
+        "discord/product-carrier-count.md",
+        "misc/desk-booking.md",
+        "company/history.md",
+        "archive/architecture-2021.md",
+        "company/values.md",
+        "customers/faq.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1066.0,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "prod-price-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "github/issue-377-rate-limit.md",
+        "email/hiring-budget.md",
+        "engineering/api-errors.md",
+        "discord/eng-deploy-freeze.md",
+        "archive/pricing-2024.md",
+        "misc/book-club.md",
+        "misc/plant-care.md",
+        "operations/carrier-onboarding-checklist.md",
+        "people/visa-sponsorship.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1062.6,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "prod-price-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "email/acme-invoice.md",
+        "email/growth-support-response.md",
+        "email/hiring-budget.md",
+        "misc/glossary.md",
+        "email/beacon-renewal.md",
+        "handbook/remote-work.md",
+        "engineering/incident-severity-matrix.md",
+        "legal/project-heron.md",
+        "customers/partner-notes.md",
+        "discord/incident-ledger-latency.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1064.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "prod-sla-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "github/issue-377-rate-limit.md",
+        "engineering/api-errors.md",
+        "discord/eng-deploy-freeze.md",
+        "misc/book-club.md",
+        "misc/plant-care.md",
+        "operations/carrier-onboarding-checklist.md",
+        "people/visa-sponsorship.md",
+        "company/values.md",
+        "email/interview-schedule.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1062.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "prod-sla-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "email/growth-support-response.md",
+        "email/nordlys-escalation.md",
+        "github/pr-412-uk-preclearance.md",
+        "archive/faq-2022.md",
+        "customers/faq.md",
+        "customers/partner-notes.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1062.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "prod-road-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "email/acme-invoice.md",
+        "product/roadmap.md",
+        "email/growth-support-response.md",
+        "email/offsite-venue.md",
+        "handbook/security-basics.md",
+        "archive/history-draft.md",
+        "company/values.md",
+        "discord/eng-deploy-freeze.md",
+        "discord/support-carrier-api.md",
+        "email/nordlys-escalation.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "latency_ms": 1065.3,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "cust-faq-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "customers/faq.md",
+        "misc/glossary.md",
+        "discord/incident-ledger-latency.md",
+        "engineering/incident-severity-matrix.md",
+        "engineering/oncall.md",
+        "handbook/remote-work.md",
+        "archive/faq-2022.md",
+        "archive/history-draft.md",
+        "archive/partner-programme-2023.md",
+        "archive/remote-work-pilot-2021.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1068.0,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "cust-faq-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "company/history.md",
+        "archive/history-draft.md",
+        "misc/book-club.md",
+        "company/values.md",
+        "customers/faq.md",
+        "customers/partner-notes.md",
+        "discord/eng-deploy-freeze.md",
+        "discord/product-carrier-count.md",
+        "email/hiring-budget.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.2,
+      "ndcg": 0.38685280723454163,
+      "latency_ms": 1064.1,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "co-hist-001",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "company/history.md",
+        "archive/history-draft.md",
+        "github/issue-377-rate-limit.md",
+        "engineering/api-errors.md",
+        "operations/carrier-onboarding-checklist.md",
+        "company/values.md",
+        "discord/eng-deploy-freeze.md",
+        "email/interview-schedule.md",
+        "email/offsite-venue.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1065.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "co-hist-002",
+      "tags": [
+        "single-hop",
+        "paraphrase"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "archive/history-draft.md",
+        "github/issue-377-rate-limit.md",
+        "engineering/api-errors.md",
+        "company/history.md",
+        "customers/partner-notes.md",
+        "discord/eng-deploy-freeze.md",
+        "email/interview-schedule.md",
+        "misc/book-club.md",
+        "misc/plant-care.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.25,
+      "ndcg": 0.43067655807339306,
+      "latency_ms": 1063.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "kw-001",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "email/acme-invoice.md",
+        "github/pr-419-carrier-backoff.md",
+        "engineering/api-errors.md",
+        "company/office-wifi.md",
+        "discord/support-carrier-api.md",
+        "github/issue-377-rate-limit.md",
+        "archive/api-errors-v1.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.3333333333333333,
+      "ndcg": 0.5,
+      "latency_ms": 1077.2,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "kw-002",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "email/acme-invoice.md",
+        "github/pr-419-carrier-backoff.md",
+        "engineering/api-errors.md",
+        "discord/support-carrier-api.md",
+        "company/office-wifi.md",
+        "archive/api-errors-v1.md",
+        "company/values.md",
+        "discord/eng-deploy-freeze.md",
+        "engineering/architecture.md",
+        "github/issue-377-rate-limit.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.3333333333333333,
+      "ndcg": 0.5,
+      "latency_ms": 1066.6,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "kw-003",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/expenses.md",
+        "email/nordlys-escalation.md",
+        "misc/glossary.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1066.6,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "kw-004",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/deploys.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1061.6,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "kw-005",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/architecture.md",
+        "product/pricing.md",
+        "customers/faq.md",
+        "email/nordlys-escalation.md",
+        "archive/pricing-2024.md",
+        "company/okrs-q4-2026.md",
+        "email/acme-invoice.md",
+        "engineering/api-errors.md",
+        "engineering/incident-severity-matrix.md",
+        "github/issue-405-webhook-retries.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1062.2,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "kw-006",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/postmortem-ledger-outage.md",
+        "discord/incident-ledger-latency.md",
+        "engineering/architecture.md",
+        "handbook/expenses.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.25,
+      "ndcg": 0.43067655807339306,
+      "latency_ms": 1060.4,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "kw-007",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/security-basics.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1069.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "kw-008",
+      "tags": [
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/architecture.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1064.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mh-001",
+      "tags": [
+        "multi-hop"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/oncall.md",
+        "engineering/incident-severity-matrix.md",
+        "company/values.md",
+        "discord/incident-ledger-latency.md",
+        "legal/project-heron.md",
+        "email/nordlys-escalation.md",
+        "email/offsite-venue.md",
+        "engineering/api-errors.md",
+        "engineering/architecture.md",
+        "handbook/remote-work.md"
+      ],
+      "recall": 0.5,
+      "mrr": 1.0,
+      "ndcg": 0.6131471927654584,
+      "latency_ms": 1073.2,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mh-002",
+      "tags": [
+        "multi-hop"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "email/hiring-budget.md",
+        "product/sla.md",
+        "archive/pricing-2024.md",
+        "company/values.md",
+        "product/pricing.md",
+        "archive/sla-draft-2023.md",
+        "discord/eng-deploy-freeze.md",
+        "email/beacon-renewal.md",
+        "misc/meeting-norms.md",
+        "company/history.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6240505200038379,
+      "latency_ms": 1063.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mh-003",
+      "tags": [
+        "multi-hop",
+        "keyword"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "github/issue-377-rate-limit.md",
+        "engineering/api-errors.md",
+        "archive/api-errors-v1.md",
+        "github/pr-419-carrier-backoff.md",
+        "engineering/architecture.md",
+        "company/values.md",
+        "discord/eng-deploy-freeze.md",
+        "discord/incident-ledger-latency.md",
+        "email/offsite-venue.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "latency_ms": 1064.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mh-004",
+      "tags": [
+        "multi-hop"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "misc/desk-booking.md",
+        "handbook/remote-work.md",
+        "archive/remote-work-pilot-2021.md",
+        "email/acme-invoice.md",
+        "email/growth-support-response.md",
+        "email/offsite-venue.md",
+        "handbook/expenses.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.5912352048230277,
+      "latency_ms": 1067.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "pv-001",
+      "tags": [
+        "private",
+        "single-hop"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/interview-schedule.md",
+        "finance/salary-bands.md",
+        "github/issue-377-rate-limit.md",
+        "email/hiring-budget.md",
+        "discord/eng-deploy-freeze.md",
+        "email/acme-invoice.md",
+        "email/growth-support-response.md",
+        "engineering/api-errors.md",
+        "legal/project-heron.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "latency_ms": 1065.4,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "pv-002",
+      "tags": [
+        "private",
+        "single-hop"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/nordlys-escalation.md",
+        "finance/board-update-q3.md",
+        "handbook/leave-policy.md",
+        "misc/book-club.md",
+        "discord/support-carrier-api.md",
+        "engineering/oncall.md",
+        "github/pr-401-canary-window.md",
+        "product/pricing.md",
+        "product/sla.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "latency_ms": 1066.2,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "pv-003",
+      "tags": [
+        "private",
+        "single-hop"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/growth-support-response.md",
+        "email/nordlys-escalation.md",
+        "github/pr-412-uk-preclearance.md",
+        "archive/faq-2022.md",
+        "customers/faq.md",
+        "misc/desk-booking.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1066.6,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "pv-004",
+      "tags": [
+        "private",
+        "keyword"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "legal/project-heron.md",
+        "archive/history-draft.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1060.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "pv-005",
+      "tags": [
+        "private",
+        "single-hop"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/beacon-renewal.md",
+        "email/acme-invoice.md",
+        "email/growth-support-response.md",
+        "email/hiring-budget.md",
+        "engineering/postmortem-ledger-outage.md",
+        "misc/glossary.md",
+        "handbook/expenses.md",
+        "handbook/remote-work.md",
+        "archive/expenses-2024.md",
+        "archive/pricing-2024.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.2,
+      "ndcg": 0.38685280723454163,
+      "latency_ms": 1072.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "pv-006",
+      "tags": [
+        "private",
+        "paraphrase"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/nordlys-escalation.md",
+        "engineering/deploys.md",
+        "email/offsite-venue.md",
+        "github/issue-405-webhook-retries.md",
+        "discord/eng-deploy-freeze.md",
+        "email/beacon-renewal.md",
+        "company/values.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1069.2,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "inj-001",
+      "tags": [
+        "single-hop",
+        "injection"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "customers/partner-notes.md",
+        "archive/partner-programme-2023.md",
+        "email/growth-support-response.md",
+        "archive/faq-2022.md",
+        "email/nordlys-escalation.md",
+        "github/pr-412-uk-preclearance.md",
+        "customers/faq.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1069.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "inj-002",
+      "tags": [
+        "single-hop",
+        "injection"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "customers/partner-notes.md",
+        "archive/partner-programme-2023.md",
+        "archive/faq-2022.md",
+        "email/growth-support-response.md",
+        "email/nordlys-escalation.md",
+        "github/pr-412-uk-preclearance.md",
+        "customers/faq.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1063.4,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "na-001",
+      "tags": [
+        "no-answer"
+      ],
+      "visibility": "public",
+      "answerable": false,
+      "top_documents": [
+        "company/history.md",
+        "github/issue-377-rate-limit.md",
+        "archive/history-draft.md",
+        "engineering/api-errors.md",
+        "engineering/architecture.md",
+        "email/offsite-venue.md",
+        "operations/carrier-onboarding-checklist.md",
+        "discord/eng-deploy-freeze.md",
+        "email/interview-schedule.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1063.4,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "na-002",
+      "tags": [
+        "no-answer"
+      ],
+      "visibility": "public",
+      "answerable": false,
+      "top_documents": [
+        "misc/book-club.md",
+        "misc/desk-booking.md",
+        "misc/plant-care.md",
+        "company/office-wifi.md",
+        "github/issue-377-rate-limit.md",
+        "misc/meeting-norms.md",
+        "engineering/api-errors.md",
+        "company/history.md",
+        "discord/eng-deploy-freeze.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1063.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "na-003",
+      "tags": [
+        "no-answer"
+      ],
+      "visibility": "public",
+      "answerable": false,
+      "top_documents": [
+        "github/issue-377-rate-limit.md",
+        "product/pricing.md",
+        "archive/pricing-2024.md",
+        "engineering/api-errors.md",
+        "engineering/architecture.md",
+        "discord/eng-deploy-freeze.md",
+        "email/offsite-venue.md",
+        "legal/project-heron.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1066.5,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "na-004",
+      "tags": [
+        "no-answer"
+      ],
+      "visibility": "public",
+      "answerable": false,
+      "top_documents": [
+        "misc/plant-care.md",
+        "github/issue-377-rate-limit.md",
+        "company/office-wifi.md",
+        "engineering/api-errors.md",
+        "company/history.md",
+        "discord/eng-deploy-freeze.md",
+        "misc/book-club.md",
+        "misc/music-playlist.md",
+        "operations/carrier-onboarding-checklist.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1069.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "gen-001",
+      "tags": [
+        "no-answer",
+        "general"
+      ],
+      "visibility": "public",
+      "answerable": false,
+      "top_documents": [
+        "github/issue-377-rate-limit.md",
+        "engineering/api-errors.md",
+        "engineering/architecture.md",
+        "company/values.md",
+        "discord/eng-deploy-freeze.md",
+        "email/interview-schedule.md",
+        "email/offsite-venue.md",
+        "legal/project-heron.md",
+        "misc/plant-care.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1072.4,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "gen-002",
+      "tags": [
+        "no-answer",
+        "general"
+      ],
+      "visibility": "public",
+      "answerable": false,
+      "top_documents": [
+        "misc/desk-booking.md",
+        "company/history.md",
+        "discord/incident-ledger-latency.md",
+        "archive/architecture-2021.md",
+        "company/values.md",
+        "discord/general-lunch.md",
+        "email/nordlys-escalation.md",
+        "engineering/api-errors.md",
+        "engineering/architecture.md",
+        "engineering/oncall.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1065.0,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "chat-001",
+      "tags": [
+        "no-answer",
+        "chat"
+      ],
+      "visibility": "public",
+      "answerable": false,
+      "top_documents": [
+        "email/acme-invoice.md",
+        "email/interview-schedule.md",
+        "email/offsite-venue.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1072.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "chat-002",
+      "tags": [
+        "no-answer",
+        "chat"
+      ],
+      "visibility": "public",
+      "answerable": false,
+      "top_documents": [
+        "discord/general-lunch.md",
+        "email/acme-invoice.md",
+        "company/values.md",
+        "customers/faq.md",
+        "customers/partner-notes.md",
+        "discord/eng-deploy-freeze.md",
+        "email/offsite-venue.md",
+        "engineering/deploys.md",
+        "engineering/incident-severity-matrix.md",
+        "handbook/expenses.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1069.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-recent-001",
+      "tags": [
+        "connector",
+        "recent",
+        "email"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/nordlys-escalation.md",
+        "email/growth-support-response.md",
+        "email/hiring-budget.md",
+        "email/beacon-renewal.md",
+        "email/interview-schedule.md",
+        "email/acme-invoice.md",
+        "email/offsite-venue.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 0.8529278650606567,
+      "latency_ms": 2225.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-recent-002",
+      "tags": [
+        "connector",
+        "recent",
+        "discord",
+        "period"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "discord/eng-deploy-freeze.md",
+        "discord/support-carrier-api.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1100.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-recent-003",
+      "tags": [
+        "connector",
+        "recent",
+        "github",
+        "period"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/pr-419-carrier-backoff.md",
+        "github/pr-412-uk-preclearance.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "latency_ms": 1106.5,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-period-001",
+      "tags": [
+        "connector",
+        "summary",
+        "email",
+        "period"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/nordlys-escalation.md",
+        "email/acme-invoice.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1101.2,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-period-002",
+      "tags": [
+        "connector",
+        "period",
+        "discord"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "discord/incident-ledger-latency.md",
+        "email/acme-invoice.md",
+        "discord/general-lunch.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1067.1,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-period-003",
+      "tags": [
+        "connector",
+        "period",
+        "sender",
+        "email"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/hiring-budget.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1060.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-sender-001",
+      "tags": [
+        "connector",
+        "sender",
+        "email"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/acme-invoice.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1060.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-sender-002",
+      "tags": [
+        "connector",
+        "sender",
+        "email"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/acme-invoice.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1064.2,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-sender-003",
+      "tags": [
+        "connector",
+        "sender",
+        "discord"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "discord/eng-deploy-freeze.md",
+        "discord/incident-ledger-latency.md",
+        "github/pr-401-canary-window.md",
+        "github/pr-412-uk-preclearance.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "latency_ms": 1061.0,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-email-001",
+      "tags": [
+        "connector",
+        "single-hop",
+        "email"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/offsite-venue.md",
+        "company/history.md",
+        "github/issue-377-rate-limit.md",
+        "archive/history-draft.md",
+        "engineering/api-errors.md",
+        "engineering/architecture.md",
+        "email/interview-schedule.md",
+        "legal/project-heron.md",
+        "misc/plant-care.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1279.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-email-002",
+      "tags": [
+        "connector",
+        "single-hop",
+        "paraphrase",
+        "email"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "company/values.md",
+        "email/beacon-renewal.md",
+        "github/issue-405-webhook-retries.md",
+        "archive/values-2020.md",
+        "email/acme-invoice.md",
+        "email/nordlys-escalation.md",
+        "engineering/incident-severity-matrix.md",
+        "engineering/oncall.md",
+        "finance/board-update-q3.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "latency_ms": 1274.4,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-email-003",
+      "tags": [
+        "connector",
+        "single-hop",
+        "email"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "archive/remote-work-pilot-2021.md",
+        "archive/sla-draft-2023.md",
+        "company/values.md",
+        "discord/eng-deploy-freeze.md",
+        "discord/product-carrier-count.md",
+        "discord/support-carrier-api.md",
+        "email/beacon-renewal.md",
+        "email/hiring-budget.md",
+        "email/nordlys-escalation.md",
+        "engineering/oncall.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.1111111111111111,
+      "ndcg": 0.3010299956639812,
+      "latency_ms": 1064.1,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-email-004",
+      "tags": [
+        "connector",
+        "single-hop",
+        "email"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/interview-schedule.md",
+        "github/issue-377-rate-limit.md",
+        "email/acme-invoice.md",
+        "email/hiring-budget.md",
+        "email/growth-support-response.md",
+        "engineering/api-errors.md",
+        "discord/eng-deploy-freeze.md",
+        "engineering/architecture.md",
+        "legal/project-heron.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1274.5,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-disc-001",
+      "tags": [
+        "connector",
+        "single-hop",
+        "discord"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "engineering/deploys.md",
+        "archive/deploys-jenkins.md",
+        "github/issue-377-rate-limit.md",
+        "discord/eng-deploy-freeze.md",
+        "engineering/api-errors.md",
+        "operations/carrier-onboarding-checklist.md",
+        "company/values.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.25,
+      "ndcg": 0.43067655807339306,
+      "latency_ms": 1277.4,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-disc-002",
+      "tags": [
+        "connector",
+        "single-hop",
+        "discord"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/issue-377-rate-limit.md",
+        "engineering/api-errors.md",
+        "discord/eng-deploy-freeze.md",
+        "misc/book-club.md",
+        "engineering/deploys.md",
+        "misc/plant-care.md",
+        "operations/carrier-onboarding-checklist.md",
+        "people/visa-sponsorship.md",
+        "company/values.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.3333333333333333,
+      "ndcg": 0.5,
+      "latency_ms": 1271.3,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-disc-003",
+      "tags": [
+        "connector",
+        "single-hop",
+        "discord"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "misc/music-playlist.md",
+        "github/issue-377-rate-limit.md",
+        "engineering/api-errors.md",
+        "engineering/architecture.md",
+        "email/offsite-venue.md",
+        "legal/project-heron.md",
+        "misc/plant-care.md",
+        "operations/carrier-onboarding-checklist.md",
+        "people/visa-sponsorship.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1275.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-gh-001",
+      "tags": [
+        "connector",
+        "single-hop",
+        "paraphrase",
+        "github"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/issue-398-label-printing.md",
+        "github/pr-419-carrier-backoff.md",
+        "engineering/oncall.md",
+        "archive/oncall-draft-2022.md",
+        "email/interview-schedule.md",
+        "email/nordlys-escalation.md",
+        "company/values.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1272.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-gh-002",
+      "tags": [
+        "connector",
+        "single-hop",
+        "github"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/issue-405-webhook-retries.md",
+        "engineering/api-errors.md",
+        "handbook/leave-policy.md",
+        "archive/leave-policy-2023.md",
+        "customers/partner-notes.md",
+        "discord/support-carrier-api.md",
+        "github/issue-377-rate-limit.md",
+        "github/pr-419-carrier-backoff.md",
+        "archive/history-draft.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1268.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-gh-003",
+      "tags": [
+        "connector",
+        "single-hop",
+        "github"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/pr-412-uk-preclearance.md",
+        "email/nordlys-escalation.md",
+        "email/growth-support-response.md",
+        "archive/faq-2022.md",
+        "customers/faq.md",
+        "company/okrs-q4-2026.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1268.5,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-multi-001",
+      "tags": [
+        "connector",
+        "multi-hop",
+        "keyword"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/pr-419-carrier-backoff.md",
+        "engineering/api-errors.md",
+        "email/acme-invoice.md",
+        "archive/api-errors-v1.md",
+        "engineering/architecture.md",
+        "company/values.md",
+        "company/office-wifi.md",
+        "discord/support-carrier-api.md",
+        "discord/incident-ledger-latency.md",
+        "email/interview-schedule.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 0.8065735963827293,
+      "latency_ms": 1273.3,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-multi-002",
+      "tags": [
+        "connector",
+        "multi-hop"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "engineering/oncall.md",
+        "archive/oncall-draft-2022.md",
+        "company/values.md",
+        "github/issue-377-rate-limit.md",
+        "github/issue-398-label-printing.md",
+        "github/pr-419-carrier-backoff.md",
+        "archive/values-2020.md"
+      ],
+      "recall": 0.5,
+      "mrr": 1.0,
+      "ndcg": 0.6131471927654584,
+      "latency_ms": 1277.6,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-multi-003",
+      "tags": [
+        "connector",
+        "multi-hop"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/pr-412-uk-preclearance.md",
+        "email/nordlys-escalation.md",
+        "product/roadmap.md",
+        "archive/roadmap-2025.md",
+        "email/acme-invoice.md",
+        "github/issue-377-rate-limit.md",
+        "github/issue-398-label-printing.md",
+        "archive/oncall-draft-2022.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 0.9197207891481876,
+      "latency_ms": 1273.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-partial-001",
+      "tags": [
+        "connector",
+        "partial",
+        "email"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/acme-invoice.md",
+        "github/issue-398-label-printing.md",
+        "engineering/oncall.md",
+        "github/issue-377-rate-limit.md",
+        "archive/oncall-draft-2022.md",
+        "github/pr-419-carrier-backoff.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1278.0,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-kw-001",
+      "tags": [
+        "connector",
+        "keyword",
+        "email"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/acme-invoice.md",
+        "github/pr-419-carrier-backoff.md",
+        "engineering/api-errors.md",
+        "company/office-wifi.md",
+        "discord/support-carrier-api.md",
+        "archive/api-errors-v1.md",
+        "github/issue-377-rate-limit.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1065.3,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-kw-002",
+      "tags": [
+        "connector",
+        "keyword",
+        "discord"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "discord/incident-ledger-latency.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1065.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-na-001",
+      "tags": [
+        "connector",
+        "no-answer"
+      ],
+      "visibility": "private",
+      "answerable": false,
+      "top_documents": [
+        "email/hiring-budget.md",
+        "email/nordlys-escalation.md",
+        "misc/plant-care.md",
+        "company/office-wifi.md",
+        "company/history.md",
+        "customers/partner-notes.md",
+        "discord/eng-deploy-freeze.md",
+        "archive/oncall-draft-2022.md",
+        "archive/remote-work-pilot-2021.md",
+        "company/values.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1065.6,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "conn-na-002",
+      "tags": [
+        "connector",
+        "no-answer"
+      ],
+      "visibility": "private",
+      "answerable": false,
+      "top_documents": [
+        "github/issue-398-label-printing.md",
+        "misc/music-playlist.md",
+        "github/issue-377-rate-limit.md",
+        "archive/oncall-draft-2022.md",
+        "engineering/oncall.md",
+        "github/pr-419-carrier-backoff.md"
+      ],
+      "recall": null,
+      "mrr": null,
+      "ndcg": null,
+      "latency_ms": 1279.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mt-001",
+      "tags": [
+        "multi-turn",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "discord/support-carrier-api.md",
+        "engineering/architecture.md",
+        "discord/incident-ledger-latency.md",
+        "email/acme-invoice.md",
+        "email/offsite-venue.md",
+        "company/values.md",
+        "email/interview-schedule.md",
+        "engineering/api-errors.md",
+        "engineering/incident-severity-matrix.md",
+        "finance/board-update-q3.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1275.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mt-002",
+      "tags": [
+        "multi-turn",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/acme-invoice.md",
+        "company/values.md",
+        "discord/eng-deploy-freeze.md",
+        "discord/incident-ledger-latency.md",
+        "engineering/architecture.md",
+        "handbook/leave-policy.md",
+        "misc/volunteering.md",
+        "archive/leave-policy-2023.md",
+        "archive/partner-programme-2023.md",
+        "company/history.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1365.1,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mt-003",
+      "tags": [
+        "multi-turn"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "company/values.md",
+        "product/pricing.md",
+        "product/sla.md",
+        "discord/eng-deploy-freeze.md",
+        "discord/incident-ledger-latency.md",
+        "email/interview-schedule.md",
+        "engineering/architecture.md",
+        "archive/sla-draft-2023.md",
+        "company/office-wifi.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.3333333333333333,
+      "ndcg": 0.5,
+      "latency_ms": 1272.0,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mt-004",
+      "tags": [
+        "multi-turn"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "handbook/leave-policy.md",
+        "github/issue-377-rate-limit.md",
+        "engineering/api-errors.md",
+        "discord/eng-deploy-freeze.md",
+        "legal/project-heron.md",
+        "marketing/brand-guidelines.md",
+        "discord/general-lunch.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1270.2,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mt-005",
+      "tags": [
+        "multi-turn"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/architecture.md",
+        "finance/board-update-q3.md",
+        "company/values.md",
+        "discord/incident-ledger-latency.md",
+        "email/acme-invoice.md",
+        "email/growth-support-response.md",
+        "product/sla.md",
+        "customers/partner-notes.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1094.0,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mt-006",
+      "tags": [
+        "multi-turn",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "discord/incident-ledger-latency.md",
+        "company/values.md",
+        "email/interview-schedule.md",
+        "engineering/architecture.md",
+        "company/history.md",
+        "company/office-wifi.md",
+        "discord/eng-deploy-freeze.md",
+        "email/acme-invoice.md",
+        "email/nordlys-escalation.md",
+        "email/offsite-venue.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1273.0,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mt-007",
+      "tags": [
+        "multi-turn",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/pr-412-uk-preclearance.md",
+        "archive/roadmap-2025.md",
+        "product/roadmap.md",
+        "github/issue-377-rate-limit.md",
+        "github/issue-398-label-printing.md",
+        "engineering/oncall.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 0.9197207891481876,
+      "latency_ms": 1097.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mt-008",
+      "tags": [
+        "multi-turn",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/interview-schedule.md",
+        "github/issue-398-label-printing.md",
+        "github/issue-377-rate-limit.md",
+        "archive/oncall-draft-2022.md",
+        "engineering/oncall.md",
+        "github/pr-419-carrier-backoff.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1096.4,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mt-009",
+      "tags": [
+        "multi-turn",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/beacon-renewal.md",
+        "email/growth-support-response.md",
+        "company/history.md",
+        "company/values.md",
+        "discord/eng-deploy-freeze.md",
+        "discord/general-lunch.md",
+        "discord/product-carrier-count.md",
+        "discord/support-carrier-api.md",
+        "email/hiring-budget.md",
+        "email/nordlys-escalation.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1090.2,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "mt-010",
+      "tags": [
+        "multi-turn"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/oncall.md",
+        "email/acme-invoice.md",
+        "email/growth-support-response.md",
+        "email/hiring-budget.md",
+        "misc/glossary.md",
+        "discord/eng-deploy-freeze.md",
+        "discord/incident-ledger-latency.md",
+        "email/beacon-renewal.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1094.5,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "xs-001",
+      "tags": [
+        "cross-source",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/pr-412-uk-preclearance.md",
+        "email/nordlys-escalation.md",
+        "email/hiring-budget.md",
+        "github/issue-377-rate-limit.md",
+        "github/issue-398-label-printing.md",
+        "engineering/oncall.md"
+      ],
+      "recall": 0.5,
+      "mrr": 1.0,
+      "ndcg": 0.6131471927654584,
+      "latency_ms": 1061.1,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "xs-002",
+      "tags": [
+        "cross-source",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/issue-377-rate-limit.md",
+        "engineering/api-errors.md",
+        "archive/api-errors-v1.md",
+        "github/pr-419-carrier-backoff.md",
+        "engineering/architecture.md",
+        "company/values.md",
+        "discord/eng-deploy-freeze.md",
+        "email/offsite-venue.md",
+        "discord/support-carrier-api.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1280.0,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "xs-003",
+      "tags": [
+        "cross-source",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/growth-support-response.md",
+        "email/nordlys-escalation.md",
+        "github/pr-412-uk-preclearance.md",
+        "archive/faq-2022.md",
+        "customers/faq.md",
+        "company/values.md"
+      ],
+      "recall": 0.5,
+      "mrr": 1.0,
+      "ndcg": 0.6131471927654584,
+      "latency_ms": 1278.2,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "xs-004",
+      "tags": [
+        "cross-source",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "archive/deploys-jenkins.md",
+        "engineering/deploys.md",
+        "discord/eng-deploy-freeze.md",
+        "company/values.md",
+        "misc/book-club.md",
+        "company/history.md",
+        "company/office-wifi.md",
+        "customers/faq.md"
+      ],
+      "recall": 0.5,
+      "mrr": 0.3333333333333333,
+      "ndcg": 0.3065735963827292,
+      "latency_ms": 1286.5,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "xs-005",
+      "tags": [
+        "cross-source",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "engineering/postmortem-ledger-outage.md",
+        "discord/incident-ledger-latency.md",
+        "github/issue-377-rate-limit.md",
+        "misc/desk-booking.md",
+        "engineering/api-errors.md",
+        "engineering/incident-severity-matrix.md",
+        "company/values.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1288.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "xs-006",
+      "tags": [
+        "cross-source",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/nordlys-escalation.md",
+        "email/offsite-venue.md",
+        "engineering/deploys.md",
+        "discord/support-carrier-api.md",
+        "github/issue-377-rate-limit.md",
+        "github/pr-412-uk-preclearance.md",
+        "discord/eng-deploy-freeze.md",
+        "email/growth-support-response.md"
+      ],
+      "recall": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "latency_ms": 1271.6,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "xs-007",
+      "tags": [
+        "cross-source",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/nordlys-escalation.md",
+        "email/offsite-venue.md",
+        "engineering/deploys.md",
+        "archive/api-errors-v1.md",
+        "customers/faq.md",
+        "email/growth-support-response.md",
+        "engineering/api-errors.md",
+        "github/pr-412-uk-preclearance.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 0.8065735963827293,
+      "latency_ms": 1280.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "xs-008",
+      "tags": [
+        "cross-source",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/issue-398-label-printing.md",
+        "discord/general-lunch.md",
+        "engineering/oncall.md",
+        "github/pr-419-carrier-backoff.md",
+        "archive/oncall-draft-2022.md",
+        "discord/product-carrier-count.md",
+        "discord/support-carrier-api.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 0.8175295903539445,
+      "latency_ms": 2469.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "cf-001",
+      "tags": [
+        "conflict",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "engineering/deploys.md",
+        "github/issue-377-rate-limit.md",
+        "archive/deploys-jenkins.md",
+        "engineering/api-errors.md",
+        "discord/eng-deploy-freeze.md",
+        "engineering/architecture.md",
+        "email/nordlys-escalation.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 0.8503449055347546,
+      "latency_ms": 1276.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "cf-002",
+      "tags": [
+        "conflict",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/issue-377-rate-limit.md",
+        "engineering/api-errors.md",
+        "github/pr-419-carrier-backoff.md",
+        "archive/api-errors-v1.md",
+        "engineering/architecture.md",
+        "customers/faq.md",
+        "discord/eng-deploy-freeze.md",
+        "email/offsite-venue.md",
+        "legal/project-heron.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1267.6,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "cf-003",
+      "tags": [
+        "conflict",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/growth-support-response.md",
+        "archive/faq-2022.md",
+        "customers/faq.md",
+        "discord/support-carrier-api.md",
+        "email/nordlys-escalation.md",
+        "github/pr-412-uk-preclearance.md",
+        "archive/history-draft.md"
+      ],
+      "recall": 0.5,
+      "mrr": 1.0,
+      "ndcg": 0.6131471927654584,
+      "latency_ms": 1270.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "cf-004",
+      "tags": [
+        "conflict",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/pr-419-carrier-backoff.md",
+        "operations/carrier-onboarding-checklist.md",
+        "archive/deploys-jenkins.md",
+        "customers/faq.md",
+        "discord/product-carrier-count.md",
+        "archive/faq-2022.md",
+        "company/history.md",
+        "discord/support-carrier-api.md",
+        "engineering/api-errors.md",
+        "engineering/architecture.md"
+      ],
+      "recall": 1.0,
+      "mrr": 0.25,
+      "ndcg": 0.5012658353418871,
+      "latency_ms": 1267.4,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "cf-005",
+      "tags": [
+        "conflict",
+        "connector"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/pr-401-canary-window.md",
+        "github/issue-377-rate-limit.md",
+        "email/growth-support-response.md",
+        "email/hiring-budget.md",
+        "email/acme-invoice.md",
+        "engineering/api-errors.md",
+        "discord/eng-deploy-freeze.md",
+        "email/interview-schedule.md"
+      ],
+      "recall": 0.5,
+      "mrr": 1.0,
+      "ndcg": 0.6131471927654584,
+      "latency_ms": 1709.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "tm-001",
+      "tags": [
+        "temporal",
+        "connector",
+        "period"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "github/pr-401-canary-window.md",
+        "github/issue-405-webhook-retries.md",
+        "github/issue-377-rate-limit.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1092.7,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "tm-002",
+      "tags": [
+        "temporal",
+        "connector",
+        "sender"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/growth-support-response.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1064.1,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "tm-003",
+      "tags": [
+        "temporal",
+        "connector",
+        "period"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "discord/product-carrier-count.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1091.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "tm-004",
+      "tags": [
+        "temporal",
+        "connector",
+        "period"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/hiring-budget.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1094.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "tm-005",
+      "tags": [
+        "temporal",
+        "connector",
+        "period"
+      ],
+      "visibility": "private",
+      "answerable": true,
+      "top_documents": [
+        "email/beacon-renewal.md",
+        "email/nordlys-escalation.md",
+        "email/interview-schedule.md",
+        "email/acme-invoice.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1093.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "to-001",
+      "tags": [
+        "title-only"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "operations/carrier-onboarding-checklist.md",
+        "github/pr-419-carrier-backoff.md",
+        "customers/faq.md",
+        "discord/product-carrier-count.md",
+        "engineering/architecture.md",
+        "archive/faq-2022.md",
+        "discord/eng-deploy-freeze.md",
+        "discord/support-carrier-api.md",
+        "engineering/api-errors.md",
+        "misc/glossary.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1095.9,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "to-002",
+      "tags": [
+        "title-only"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "marketing/brand-guidelines.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1093.6,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "to-003",
+      "tags": [
+        "title-only"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "company/okrs-q4-2026.md",
+        "email/hiring-budget.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1108.2,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "to-004",
+      "tags": [
+        "title-only"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "people/visa-sponsorship.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1093.3,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "to-005",
+      "tags": [
+        "title-only"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "engineering/incident-severity-matrix.md",
+        "discord/incident-ledger-latency.md",
+        "discord/eng-deploy-freeze.md",
+        "discord/support-carrier-api.md",
+        "handbook/security-basics.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1091.5,
+      "guest_leaks": [],
+      "best_similarity": null
+    },
+    {
+      "id": "to-006",
+      "tags": [
+        "title-only"
+      ],
+      "visibility": "public",
+      "answerable": true,
+      "top_documents": [
+        "company/office-wifi.md",
+        "misc/plant-care.md",
+        "archive/remote-work-pilot-2021.md",
+        "company/history.md",
+        "handbook/remote-work.md",
+        "handbook/security-basics.md",
+        "misc/desk-booking.md"
+      ],
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "latency_ms": 1099.8,
+      "guest_leaks": [],
+      "best_similarity": null
+    }
+  ]
+}

@@ -29,6 +29,19 @@ An optional `plan` is an **oracle plan** (ADR-0031): what a correct planner woul
   plan: {intent: summary, after: 2026-11-16, before: 2026-11-22, sources: [email]}
 ```
 
+**Hard sets (IMPROVEMENT_PLAN P1-8, 118 cases, 73 documents).** Retrieval was saturated (Recall@10 = 1.000), so these were added to make regressions visible:
+
+| Tag | Cases | What it asserts |
+| --- | --- | --- |
+| `multi-turn` | 10 | `history` holds earlier turns (`question`, `cited_documents`). The follow-up shares no keywords with what it needs. `evals.run` runs it alone, which measures follow-up anchoring (P1-5); `evals.answers` really asks the earlier turns in one chat |
+| `cross-source` | 8 | `min_cited_kinds: 2`: the answer must cite two corpus kinds (`cross_source_ok`) |
+| `conflict` | 5 | a newer connector document overrides an older file; the point is the newer value |
+| `temporal` | 5 | periods relative to `EVAL_NOW`, with oracle plans |
+| `title-only` | 6 | the words asked for appear only in the title (a unit test keeps them out of the body); measured before and after P1-3 |
+| distractors | 30 docs | `archive/` (stale near-duplicates with old numbers) and `misc/` (off-topic) |
+
+Sync coverage is tested per engine with $0 contract tests (a crash is a `failed` run; skips are counted), in `tests/unit/core/services/test_{github,discord,mail,connected,sync_run}.py`.
+
 Mix the question types: single-hop lookup, multi-hop (two sources), follow-up (with history), keyword-heavy (identifiers, error codes), "no answer exists" (must trigger insufficient evidence), and isolation (an outsider, entitled to public content only, must not get the private answer).
 
 ## Metrics
@@ -64,6 +77,8 @@ Retrieval metrics are computed without an LLM. Answer metrics use point coverage
 - **citation validity:** share of cited documents among the expected ones
 - **point coverage:** expected answer points found in the text
 - **answers that followed the injection fixture:** must be none
+- **cross-source:** `cross_source_ok`, the share of `min_cited_kinds` cases citing enough kinds, and `cross_source_failed`
+- **with `--judge` only** (`evals/judge.py`, one extra gpt-4o-mini call per answer, about $0.0005): **faithfulness** (cited sentences that their passages support) and **citation completeness** (factual sentences that cite). The judge sees only the cited passages, numbered as in the answer, and never the system prompt's sources. An unparseable verdict leaves the answer unscored, not guessed
 
 The free retrieval run (`evals.run`) also reports `answer_gate`: the lowest best-similarity among answerable cases, the highest among no-answer cases, and a suggested `CHAT_MIN_SIMILARITY` between them (ADR-0022). Re-tune it whenever the embedder changes.
 

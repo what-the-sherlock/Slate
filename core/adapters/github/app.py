@@ -48,6 +48,14 @@ from core.domain.github import (
     doc_path_skip,
     is_valid_repo_name,
 )
+from core.domain.github_overview import (
+    MAX_MANIFEST_BYTES,
+    MAX_TREE_ENTRIES,
+    Release,
+    TreeOverview,
+    is_manifest,
+    tree_entry,
+)
 from core.domain.skips import SkipReason, Skips
 
 log = structlog.get_logger(__name__)
@@ -125,7 +133,15 @@ def _repo(r: Any) -> Repo:
         default_branch=str(r.get("default_branch") or "main"),
         html_url=str(r["html_url"]),
         description=r.get("description"),
+        language=r.get("language") if isinstance(r.get("language"), str) else None,
+        topics=_topics(r),
     )
+
+
+def _topics(r: Any) -> tuple[str, ...]:  # reason: JSON values are Any
+    raw = _field(r, "topics")
+    items = cast(list[Any], raw) if isinstance(raw, list) else []
+    return tuple(str(t) for t in items if isinstance(t, str))[:20]
 
 
 class GitHubApp:
@@ -397,7 +413,7 @@ class GitHubApp:
 
     async def doc_files(
         self, installation_id: int, full_name: str, ref: str
-    ) -> AsyncIterator[RepoFile | TreeSkips]:
+    ) -> AsyncIterator[RepoFile | TreeOverview | TreeSkips]:
         _check_name(full_name)
         token = await self._installation_token(installation_id)
         buf = io.BytesIO()
@@ -421,6 +437,8 @@ class GitHubApp:
         count = 0
         walked = unpacked = 0
         skips = Skips()
+        entries: list[str] = []  # the overview's tree (P1-2)
+        manifests: dict[str, bytes] = {}
         # Streaming mode ("r|gz") keeps no member list in memory; the caps bound a gzip
         # bomb of millions of entries or gigabytes of padding (security review).
         with tarfile.open(fileobj=buf, mode="r|gz") as tar:
@@ -431,11 +449,19 @@ class GitHubApp:
                     log.info("github.tarball_capped", members=walked)
                     skips.add(SkipReason.CAP_REACHED)
                     break
+                path = member.name.split("/", 1)[1] if "/" in member.name else ""
+                if path and (member.isdir() or member.isfile()):
+                    entry = tree_entry(path.rstrip("/"), is_dir=member.isdir())
+                    if entry is not None and len(entries) < MAX_TREE_ENTRIES * 2:
+                        entries.append(entry)
                 if not member.isfile():  # no symlinks, hard links or devices
                     continue
-                path = member.name.split("/", 1)[1] if "/" in member.name else ""
                 if not path:
                     continue
+                if is_manifest(path) and member.size <= MAX_MANIFEST_BYTES:
+                    handle = tar.extractfile(member)
+                    if handle is not None:
+                        manifests[path] = handle.read(MAX_MANIFEST_BYTES)
                 if (reason := doc_path_skip(path)) is not None:
                     kind = "code" if reason is SkipReason.UNSUPPORTED_TYPE else None
                     skips.add(reason, kind)
@@ -456,7 +482,28 @@ class GitHubApp:
                 count += 1
         if count >= MAX_DOC_FILES:
             log.info("github.doc_files_capped", files=count)
+        yield TreeOverview(tuple(entries), manifests)
         yield TreeSkips(skips.as_json())
+
+    async def latest_release(self, installation_id: int, full_name: str) -> Release | None:
+        _check_name(full_name)
+        try:
+            r = await self._get(installation_id, f"{API}/repos/{full_name}/releases/latest")
+        except NotFound:
+            return None  # no release yet (GitHub answers 404)
+        body: Any = r.json()  # reason: JSON values are Any
+        if not isinstance(body, dict):
+            return None
+        d = cast(dict[str, Any], body)
+        if not d.get("tag_name"):
+            return None
+        published = d.get("published_at")
+        return Release(
+            tag=str(d["tag_name"]),
+            name=str(d["name"]) if d.get("name") else None,
+            body=str(d.get("body") or ""),
+            published_at=_time(published) if isinstance(published, str) else None,
+        )
 
     async def issues(
         self, installation_id: int, full_name: str, since: str | None, limit: int

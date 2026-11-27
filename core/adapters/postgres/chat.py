@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import text
 
@@ -52,6 +52,12 @@ _MESSAGES = (
 
 def _mode(raw: object) -> AnswerMode:
     return raw if raw in ("general", "chat") else "grounded"
+
+
+def _followups(raw: object) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        return ()
+    return tuple(q for q in cast("list[object]", raw) if isinstance(q, str))[:3]
 
 
 def _info(r: Any) -> ChatSessionInfo:  # reason: RowMapping values are Any
@@ -146,6 +152,7 @@ class PostgresChatStore:
                     latency_ms=r["latency_ms"],
                     abstained=bool(usage.get("abstained")),
                     mode=_mode(usage.get("mode")),
+                    followups=_followups(usage.get("followups")),
                     citations=tuple(
                         Citation(
                             n=int(c["n"]),

@@ -444,9 +444,9 @@ Loop rules (`lib/motion.ts`): the whole card pauses while hovered or focused, wh
 │▤ │ Today         │        (column max 760, scrolls)    │  demand) │
 │⌕ │ ▌Leave pol… ● │                    ╭─────────────╮  │          │
 │⚡│  Deploy st…   │                    │ user bubble │  │          │
-│  │ Yesterday     │  [1 Handbook] [2 FAQ]  source strip │          │
-│  │  …            │  Answer prose with [1] badges…      │          │
-│  │               │  ⧉ ↻ 👍 👎              2 sources · 2.1 s │    │
+│  │ Yesterday     │  Answer prose with [1] badges…      │          │
+│  │  …            │  ⧉ ↻ 👍 👎 (◉◉ 2 sources ▾)   2.1 s │          │
+│  │               │  Follow-ups  ↵ …  ↵ …               │          │
 │  │               │  ╭──────────── composer ──────────╮ │          │
 │  │               │  │ Ask anything…                  │ │          │
 │  │               │  │ [All sources ▾]   ↵ send  [↑] │ │          │
@@ -503,17 +503,20 @@ Loop rules (`lib/motion.ts`): the whole card pauses while hovered or focused, wh
   - **Edit** turns the bubble into an accent-ringed box with Cancel and Send. Enter sends and Escape cancels. When later turns exist it warns "The answers below will be replaced."
   - Sending replaces this turn and everything after it (`replace_from`, ADR-0024).
 - **Answer:** left-aligned, no bubble, `prose-answer` (15/28), in this order:
-  1. The source strip (grounded answers only).
-  2. The thinking row while working.
-  3. The "General answer · not from your sources" chip (mode `general`), with a tooltip explaining it.
-  4. The text, or the abstention card.
-  5. The footer.
-- **Source strip:** chips stagger in (30 ms apart, capped at 8). Cited sources use the accent tint. Uncited ones are neutral.
+  1. The thinking row while working.
+  2. The "General answer · not from your sources" chip (mode `general`), with a tooltip explaining it.
+  3. The text, or the abstention card.
+  4. The footer, with the sources pill.
+  5. The source cards, when the pill is open.
+  6. The follow-ups (latest answer only).
+- **Sources pill and cards** (grounded answers only): evidence comes *after* the answer. The footer pill shows up to three overlapped connector icons and "N sources ▾". It opens a two-column grid of cards (one column on phones): number badge (accent when cited), connector icon, title, heading path, and a two-line passage. Cited sources come first, at most four cards, then "Show all N sources", which opens the side panel. A card click opens that source in the panel.
+- **Reopened chats** show the same names, passages, hover cards and follow-ups. The history endpoint rebuilds each citation under the user's *current* access (ADR-0041). A citation that is gone or no longer visible is left out: no badge card and no "Source n" placeholder.
 - **Footer** (fades in at `done`):
   - Copy, which copies with footnotes and morphs to a check.
   - **Regenerate**, on the last turn only and not while streaming.
   - 👍 and 👎. 👎 opens a popover: reason chips, an optional comment, then Send feedback, which toasts "Thanks, feedback saved".
-  - On the right: "N sources · 2.1 s · model".
+  - The sources pill (above), then on the right: "2.1 s · model".
+- **Follow-up suggestions** (P2-1): under the **latest** grounded answer only, a "Follow-ups" caption over up to three full-width rows separated by hairlines (14 px text, a leading `corner-down-left` icon in `--fg-subtle` that turns accent on hover). They fade in after the footer and are saved with the answer, so a reopened chat still shows them. Clicking one fills the composer, like the starter cards, and never sends.
 - **Code blocks:** a 36 px header with the language and a Copy button (which morphs to "Copied"), mono 13/20, scrolling at 400 px. Tables scroll inside a hairline frame.
 - **Scrolling** (`useStickToBottom`):
   - The view follows the stream only while the reader is at the bottom. Any upward wheel, key or touch stops it, and coming back to the bottom resumes it.

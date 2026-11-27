@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { citationMarkdown, safeUrl, type SourceOut } from "@/lib/chat";
 import { repairMarkdown, splitBlocks } from "@/lib/markdown-stream";
 import { cn } from "@/lib/utils";
+import { CitationCard } from "./citation-card";
 
 /**
  * Answer Markdown (UI_DESIGN §3.11), safe for untrusted model output:
@@ -36,11 +37,11 @@ export function AnswerMarkdown({
   const shown = streaming ? repairMarkdown(text) : text;
   const pending = useMemo(() => (streaming ? sources.map((s) => s.n) : []), [streaming, sources]);
   const blocks = useMemo(() => splitBlocks(citationMarkdown(shown, cited, pending)), [shown, cited, pending]);
-  const titles = useMemo(() => new Map(sources.map((s) => [s.n, s.title])), [sources]);
+  const byN = useMemo(() => new Map(sources.map((s) => [s.n, s])), [sources]);
   return (
     <>
       {blocks.map((block, i) => (
-        <Block key={i} markdown={block} titles={titles} onCite={onCite} />
+        <Block key={i} markdown={block} sources={byN} onCite={onCite} />
       ))}
     </>
   );
@@ -48,14 +49,14 @@ export function AnswerMarkdown({
 
 const Block = memo(function Block({
   markdown,
-  titles,
+  sources,
   onCite,
 }: {
   markdown: string;
-  titles: Map<number, string>;
+  sources: Map<number, SourceOut>;
   onCite: (n: number) => void;
 }) {
-  const components = useMemo(() => buildComponents(titles, onCite), [titles, onCite]);
+  const components = useMemo(() => buildComponents(sources, onCite), [sources, onCite]);
   return (
     <Markdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={safeUrl} components={components}>
       {markdown}
@@ -63,7 +64,7 @@ const Block = memo(function Block({
   );
 });
 
-function buildComponents(titles: Map<number, string>, onCite: (n: number) => void): Components {
+function buildComponents(sources: Map<number, SourceOut>, onCite: (n: number) => void): Components {
   return {
     a({ href, children }) {
       const cite = href?.match(/^cite(-pending)?:(\d+)$/);
@@ -79,16 +80,19 @@ function buildComponents(titles: Map<number, string>, onCite: (n: number) => voi
             </span>
           );
         }
-        return (
+        const source = sources.get(n);
+        const badge = (
           <button
             type="button"
             onClick={() => onCite(n)}
-            aria-label={`Source ${n}: ${titles.get(n) ?? "document"}`}
+            aria-label={`Source ${n}: ${source?.title ?? "document"}`}
             className="sl-pop relative -top-px mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-xs bg-brand px-1 align-middle text-[11px] font-semibold text-white tabular-nums transition-colors hover:bg-brand-strong motion-reduce:animate-none"
           >
             {n}
           </button>
         );
+        // No card only when the passage was deleted or is no longer visible to this user.
+        return source ? <CitationCard source={source}>{badge}</CitationCard> : badge;
       }
       if (!href) return <span>{children}</span>;
       let host = "";

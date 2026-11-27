@@ -78,7 +78,9 @@ class Script:
 
 
 class Env:
-    def __init__(self, connector: Script, *, spent: Decimal = Decimal(0)) -> None:
+    def __init__(
+        self, connector: Script, *, spent: Decimal = Decimal(0), parser: FormatParser | None = None
+    ) -> None:
         self.clock = FakeClock(NOW)
         self.index = InMemoryIndex()
         self.sources = InMemorySources(self.index)
@@ -101,6 +103,7 @@ class Env:
         self.engine = ConnectedSources(
             self.sources, self.jobs, ingest, self.store, self.integrations, self.limiter,
             self.clock, connectors={"notion": connector}, specs={p.id: p for p in REG},
+            parser=parser,
         )  # fmt: skip
         for p in self.engine.providers:
             self.integrations.on_connected(p, self.engine.connected)
@@ -366,3 +369,42 @@ async def test_empty_documents_and_page_skips_are_counted() -> None:
     assert (status, seen) == ("succeeded", 1)  # the empty one isn't "seen"
     [skipped] = list(env.sources.skipped.values())
     assert skipped == {"empty_text:notion": 1, "unsupported_type:pdf": 2}
+
+
+def raw(n: int, data: bytes, mime: str) -> FetchedDocument:
+    return FetchedDocument(
+        external_id=f"notion:{n}",
+        title=f"File {n}",
+        uri=f"https://x/{n}",
+        sections=(),
+        mime=mime,
+        raw=data,
+        metadata={"kind": "drive"},
+    )
+
+
+async def test_raw_files_are_parsed_by_the_engine_and_bad_ones_counted() -> None:
+    """P1-1: a connector hands over bytes; the engine parses them with the uploads' parser.
+    A file the parser can't read, or a type it doesn't know, is a counted skip, not a crash."""
+    csv = raw(1, b"item,cost\nlaptops,9000\n", "text/csv")
+    broken = raw(2, b"%PDF-1.7 not really", "application/pdf")
+    odd = raw(3, b"\x00\x01", "application/x-unknown")
+    env = Env(Script(Page((csv, broken, odd))), parser=FormatParser())
+    await env.connect()
+    await env.run()
+    status, seen, *_ = env.last_run()
+    assert (status, seen) == ("succeeded", 1)
+    [skipped] = list(env.sources.skipped.values())
+    assert skipped == {"unreadable:drive": 1, "unsupported_type:drive": 1}
+    [chunk] = [c.chunk for c in env.index._chunks]
+    assert "laptops" in chunk.content
+    assert "9000" in chunk.content
+    assert (chunk.heading_path or "").startswith("File 1")
+
+
+async def test_without_a_parser_raw_files_are_unsupported_not_dropped() -> None:
+    env = Env(Script(Page((raw(1, b"a,b\n1,2\n", "text/csv"),))))
+    await env.connect()
+    await env.run()
+    [skipped] = list(env.sources.skipped.values())
+    assert skipped == {"unsupported_type:drive": 1}

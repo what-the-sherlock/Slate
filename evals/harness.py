@@ -113,19 +113,28 @@ async def run_cases(
         plan = case.plan.as_plan(case.question) if case.plan else None
         filters = merge_filters(SearchFilters(), plan, UTC) if plan else SearchFilters()
         recent = bool(plan and plan.wants_recent)
+        # A follow-up is anchored on what the previous turn cited (P1-5), as in chat.
+        anchor = (
+            tuple(doc_ids[p] for p in case.history[-1].cited_documents if p in doc_ids)
+            if case.history
+            else ()
+        )
         started = time.perf_counter()
         res = await hybrid_retrieve(
-            index, ws, owner, case.question, filters, vector=vector, limit=k, recent=recent
-        )
+            index, ws, owner, case.question, filters, vector=vector, limit=k, recent=recent,
+            anchor=anchor,
+        )  # fmt: skip
         latency = (time.perf_counter() - started) * 1000
         if vector is not None and Lane.VECTOR not in res.lanes:
             raise DegradedRun(f"{case.id}: vector lane didn't run ({'; '.join(res.notices)})")
         ranked = unique_in_order([path_of.get(h.document_id, str(h.document_id)) for h in res.hits])
         expected = set(case.expected_documents)
 
+        # The guest gets the same anchor: the lane must re-check access itself.
         as_guest = await hybrid_retrieve(
-            index, ws, guest, case.question, filters, vector=vector, limit=k, recent=recent
-        )
+            index, ws, guest, case.question, filters, vector=vector, limit=k, recent=recent,
+            anchor=anchor,
+        )  # fmt: skip
         leaks = sorted(
             {path_of.get(h.document_id, "?") for h in as_guest.hits if h.document_id in private_ids}
         )

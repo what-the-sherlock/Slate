@@ -31,6 +31,8 @@ class Lane(StrEnum):
     VECTOR = "vector"
     KEYWORD = "keyword"
     RECENT = "recent"  # newest documents first (ADR-0031)
+    # The previous answer's cited documents, ranked by the follow-up (P1-5, ADR-0038).
+    ANCHOR = "anchor"
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,3 +110,43 @@ def cap_per_document(
             counts[h.document_id] = n + 1
             out.append(h)
     return out
+
+
+# Source diversity (P1-7, ADR-0039): a cross-source question needs more than the single
+# connector that happens to rank highest.
+DIVERSITY_POOL = 50  # fused hits considered
+DIVERSITY_MIN_RATIO = 0.5  # of the top hit's fused score
+DIVERSITY_SLOT = 3  # extras go right after this many top hits
+
+
+def diversify(
+    hits: Sequence[FusedHit],
+    limit: int,
+    *,
+    min_ratio: float = DIVERSITY_MIN_RATIO,
+    slot: int = DIVERSITY_SLOT,
+) -> list[FusedHit]:
+    """The top ``limit`` hits, plus the best hit of every connector that found something
+    in the pool but not in the top, when it scores at least ``min_ratio`` of the best.
+    A light form of MMR (maximal marginal relevance): relevance first, then coverage.
+
+    Extras replace the lowest-ranked hits and are placed after the first ``slot`` hits,
+    not at the end, because the token budget cuts from the end."""
+    if not hits or limit < 1:
+        return []
+    top = list(hits[:limit])
+    seen = {h.chunk.connector for h in top}
+    bar = hits[0].score * min_ratio
+    extras: list[FusedHit] = []
+    for h in hits[limit:]:
+        connector = h.chunk.connector
+        if connector is None or connector in seen:
+            continue
+        seen.add(connector)  # only a connector's best hit is considered
+        if h.score >= bar:
+            extras.append(h)
+    extras = extras[: max(0, limit - slot)]
+    if not extras:
+        return top
+    keep = top[: limit - len(extras)]
+    return keep[:slot] + extras + keep[slot:]

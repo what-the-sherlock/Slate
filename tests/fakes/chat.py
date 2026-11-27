@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
+from typing import Any
 
 from core.domain.errors import NotFound
 from core.domain.ids import ChatSessionId, MessageId, UserId, WorkspaceId
@@ -90,6 +91,7 @@ class InMemoryChatStore:
         mid = MessageId(self._ids.new_uuid())
         abstained = bool((message.usage or {}).get("abstained"))
         mode = (message.usage or {}).get("mode", "grounded")
+        followups: Any = (message.usage or {}).get("followups") or ()
         s.messages.append(
             StoredMessage(
                 mid,
@@ -100,6 +102,7 @@ class InMemoryChatStore:
                 message.latency_ms,
                 abstained=abstained,
                 mode=mode,  # type: ignore[arg-type]
+                followups=tuple(followups),
             )
         )
         self.usage[mid] = message.usage

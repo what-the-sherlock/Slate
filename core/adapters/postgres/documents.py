@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.adapters.postgres.uow import UnitOfWork
+from core.domain.chunking import search_context
 from core.domain.documents import ChunkToEmbed, Document, DocumentUpsert, NewChunk, Vector
 from core.domain.errors import NotFound
 from core.domain.ids import ChunkId, DocumentId, GenerationId, SourceId, WorkspaceId
@@ -51,8 +52,8 @@ class PostgresDocumentStore:
                 await s.execute(
                     text(
                         "INSERT INTO chunks (document_id, workspace_id, ordinal, heading_path,"
-                        " content, token_count, acl, data_class)"
-                        " SELECT :d, :ws, o, h, c, t, '{}', :dc"
+                        " content, token_count, acl, data_class, search_context)"
+                        " SELECT :d, :ws, o, h, c, t, '{}', :dc, :sc"
                         " FROM unnest(CAST(:o AS int[]), CAST(:h AS text[]),"
                         "   CAST(:c AS text[]), CAST(:t AS int[])) AS x(o, h, c, t)"
                         " RETURNING id, ordinal"
@@ -61,6 +62,8 @@ class PostgresDocumentStore:
                         "d": doc_id,
                         "ws": ws,
                         "dc": data_class,
+                        # Keyword-searchable title and metadata (P1-3, migration 0012).
+                        "sc": search_context(doc.title, doc.author, doc.metadata),
                         "o": [c.ordinal for c in chunks],
                         "h": [c.heading_path for c in chunks],
                         "c": [c.content for c in chunks],

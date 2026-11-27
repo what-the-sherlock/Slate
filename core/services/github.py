@@ -57,6 +57,11 @@ from core.domain.github import (
     issue_markdown,
     mime_for,
 )
+from core.domain.github_overview import (
+    OVERVIEW_EXTERNAL_ID,
+    TreeOverview,
+    overview_markdown,
+)
 from core.domain.ids import JobId, RunId, SourceId
 from core.domain.jobs import Job, JobStatus
 from core.domain.principals import user_principal
@@ -469,9 +474,13 @@ class GitHubSync:
         present: set[str] = set()
         failed_before = tally.failed
         run = boundary.run
+        tree: TreeOverview | None = None
         async for f in self._gh.doc_files(installation, repo.full_name, head):
             if isinstance(f, TreeSkips):
                 boundary.skips.merge(f.counts)
+                continue
+            if isinstance(f, TreeOverview):
+                tree = f
                 continue
             if out_of_time():
                 return cp, False
@@ -491,11 +500,36 @@ class GitHubSync:
             )  # fmt: skip
         gone = [e for e in existing if e not in present]
         tally.pruned = await self._sources.delete_documents(source.id, gone)
+        await self._overview(source, run, repo, installation, tree, tally)
         if tally.failed > failed_before:
             # Keep the old commit so the next sync reads the tree again and retries the
             # files that failed; the ones that worked are skipped by checksum, at no cost.
             return cp, True
         return replace(cp, commit=head), True
+
+    async def _overview(
+        self,
+        source: SourceRecord,
+        run: RunId,
+        repo: Repo,
+        installation: int,
+        tree: TreeOverview | None,
+        tally: _Tally,
+    ) -> None:
+        """One synthetic document per repo, so "what does this repo do?" works on a repo
+        that is mostly code (P1-2, ADR-0023 amendment). Rebuilt when the head changes."""
+        release = await self._gh.latest_release(installation, repo.full_name)
+        text = overview_markdown(repo, tree, release)
+        digest = checksum(text)
+        tally.seen += 1
+        existing = await self._sources.document_checksums(source.id, OVERVIEW_EXTERNAL_ID)
+        if existing.get(OVERVIEW_EXTERNAL_ID) == digest:
+            return
+        await self._index(
+            source, run, tally, OVERVIEW_EXTERNAL_ID, text.encode(), "text/markdown",
+            title=f"{repo.full_name}: repository overview", uri=repo.html_url,
+            checksum_=digest, metadata={"repo": repo.full_name, "kind": "overview"},
+        )  # fmt: skip
 
     async def _issues(
         self,

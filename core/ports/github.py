@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from typing import Protocol
 
 from core.domain.github import Comment, Issue, Recheck, Repo, RepoFile, TreeSkips, UserAccess
+from core.domain.github_overview import Release, TreeOverview
 
 
 class GitHubApi(Protocol):
@@ -55,9 +56,15 @@ class GitHubApi(Protocol):
 
     def doc_files(
         self, installation_id: int, full_name: str, ref: str
-    ) -> AsyncIterator[RepoFile | TreeSkips]:
+    ) -> AsyncIterator[RepoFile | TreeOverview | TreeSkips]:
         """Documentation files at ``ref`` (one tarball download; caps in core.domain.github),
-        then one ``TreeSkips``: what else the tree held and why it isn't indexed."""
+        then one ``TreeOverview`` (top two levels and root manifests, for the overview
+        document, P1-2), then one ``TreeSkips``: what else the tree held and why it isn't
+        indexed."""
+        ...
+
+    async def latest_release(self, installation_id: int, full_name: str) -> Release | None:
+        """The latest published release, or None when there is none."""
         ...
 
     def issues(

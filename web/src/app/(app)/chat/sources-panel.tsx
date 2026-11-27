@@ -3,6 +3,7 @@
 import { ArrowLeft, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { PanelLabel } from "@/components/panel";
+import { ConnectorIcon } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiProblem } from "@/lib/api/client";
@@ -64,7 +65,10 @@ export function SourcesPanel({
                     {s.n}
                   </span>
                   <span className="min-w-0">
-                    <span className="line-clamp-2 text-caption font-medium text-fg">{s.title}</span>
+                    <span className="flex items-start gap-1.5">
+                      <ConnectorIcon connector={s.connector ?? "upload"} className="mt-0.5 size-3.5 shrink-0" />
+                      <span className="line-clamp-2 text-caption font-medium text-fg">{s.title || "Untitled"}</span>
+                    </span>
                     {s.heading_path ? <span className="block truncate text-data text-fg-subtle">{s.heading_path}</span> : null}
                     {s.snippet ? <span className="mt-1 line-clamp-3 text-data text-fg-body">{s.snippet}</span> : null}
                   </span>

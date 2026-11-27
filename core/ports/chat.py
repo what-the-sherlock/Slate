@@ -43,6 +43,7 @@ class StoredMessage:
     citations: tuple[Citation, ...] = field(default=())
     abstained: bool = False
     mode: AnswerMode = "grounded"  # usage.mode (ADR-0025); older answers are grounded
+    followups: tuple[str, ...] = ()  # usage.followups; older answers have none
 
 
 @dataclass(frozen=True, slots=True)

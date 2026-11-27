@@ -8,7 +8,9 @@
 * **Point coverage:** the share of ``expected_answer_points`` the answer contains. A point
   matches when every content word of it appears in the answer (case, punctuation, plurals
   and small number words ignored; filler like "more than" dropped). An exact substring
-  was too strict: "longer than 3 consecutive days" failed "more than 3 days". No LLM judge.
+  was too strict: "longer than 3 consecutive days" failed "more than 3 days".
+* **Cross-source** (P1-8): a case with ``min_cited_kinds`` must cite that many corpus kinds.
+* **Faithfulness / citation completeness** (P1-8): only with ``--judge`` (evals/judge.py).
 """
 
 from __future__ import annotations
@@ -39,6 +41,11 @@ class AnswerResult:
     # Diagnosis (ADR-0031): what the planner decided and which sources the model saw.
     plan: dict[str, object] | None = None
     sources: list[str] = field(default_factory=list[str])
+    # Cross-source (P1-8): the corpus kinds of the cited documents, and the case's minimum.
+    cited_kinds: list[str] = field(default_factory=list[str])
+    min_cited_kinds: int | None = None
+    # The LLM judge's scores (--judge only): faithfulness, citation_completeness.
+    judge: dict[str, float | None] | None = None
 
     @property
     def should_abstain(self) -> bool:
@@ -129,6 +136,8 @@ def summarise_answers(results: Sequence[AnswerResult]) -> dict[str, object]:
         if (v := citation_validity(r.cited_documents, r.expected_documents)) is not None
     ]
     with_points = [r for r in results if r.points_expected and not r.abstained]
+    cross = [r for r in results if r.min_cited_kinds]
+    judged = [r.judge for r in results if r.judge]
     coverage = [len(r.points_found) / len(r.points_expected) for r in with_points]
     return {
         "cases": len(results),
@@ -152,6 +161,21 @@ def summarise_answers(results: Sequence[AnswerResult]) -> dict[str, object]:
             r.id for r in results if r.answerable and not r.abstained and not r.cited_documents
         ],
         "followed_injection": [r.id for r in results if followed_injection(r.text)],
+        "cross_source_ok": (
+            round(sum(1 for r in cross if _cross_ok(r)) / len(cross), 4) if cross else None
+        ),
+        "cross_source_failed": [r.id for r in cross if not _cross_ok(r)],
+        "faithfulness": _mean_of(judged, "faithfulness"),
+        "citation_completeness": _mean_of(judged, "citation_completeness"),
         "cost_usd": round(sum(r.cost_usd for r in results), 6),
         "latency_ms_p50": sorted(r.latency_ms for r in results)[len(results) // 2],
     }
+
+
+def _cross_ok(r: AnswerResult) -> bool:
+    return not r.abstained and len(set(r.cited_kinds)) >= (r.min_cited_kinds or 0)
+
+
+def _mean_of(scores: Sequence[dict[str, float | None]], key: str) -> float | None:
+    values = [v for s in scores if (v := s.get(key)) is not None]
+    return round(sum(values) / len(values), 4) if values else None

@@ -61,6 +61,10 @@ class AnswerSourceOut(BaseModel):
     title: str
     heading_path: str | None
     snippet: str = Field(description="The cited passage (may include neighbouring text)")
+    # For the citation hover card (P2-2): already part of what the model saw (ADR-0031).
+    connector: str | None = Field(default=None, description="upload, github, imap, discord...")
+    updated_at: datetime | None = None
+    author: str | None = None
 
 
 class MetaEvent(BaseModel):
@@ -100,6 +104,11 @@ class DoneEvent(BaseModel):
         description="grounded: cited from sources; general: from general knowledge, not your"
         " sources (label it); chat: small talk (ADR-0025)",
     )
+    followups: list[str] = Field(
+        default_factory=list[str],
+        description="Up to three suggested next questions (grounded answers only). Optional"
+        " in v1: older servers omit it",
+    )
 
 
 class ErrorEvent(BaseModel):
@@ -135,6 +144,14 @@ class CitationOut(BaseModel):
     n: int
     chunk_id: int | None
     document_id: UUID | None
+    # Rebuilt at read time under the caller's current access (UI_DESIGN §4.3). All None when
+    # the passage was deleted or is no longer visible: show it as unavailable.
+    title: str | None = None
+    heading_path: str | None = None
+    snippet: str | None = Field(default=None, description="The cited passage, trimmed")
+    connector: str | None = None
+    updated_at: datetime | None = None
+    author: str | None = None
 
 
 class MessageOut(BaseModel):
@@ -147,3 +164,6 @@ class MessageOut(BaseModel):
     abstained: bool
     mode: AnswerMode = "grounded"
     citations: list[CitationOut]
+    followups: list[str] = Field(
+        default_factory=list[str], description="Suggested next questions saved with the answer"
+    )

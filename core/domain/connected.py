@@ -43,6 +43,10 @@ class FetchedDocument:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     metadata: Mapping[str, object] = field(default_factory=dict[str, object])
+    # A file the engine must parse (a PDF, a CSV export; P1-1), of type ``mime``. The
+    # connector only fetches (CLAUDE.md rule 2): with ``raw`` set, ``sections`` is empty and
+    # the engine fills it with the same parser uploads use.
+    raw: bytes | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)

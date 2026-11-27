@@ -21,7 +21,7 @@ from core.domain.auth import Identity, Role
 from core.domain.budget import SpendLimits
 from core.domain.documents import DocumentPreview, ScoredChunk, SearchFilters
 from core.domain.errors import RateLimited, UpstreamUnavailable, ValidationFailed
-from core.domain.ids import DocumentId, GenerationId, WorkspaceId
+from core.domain.ids import ChunkId, DocumentId, GenerationId, WorkspaceId
 from core.domain.principals import Principals
 from core.domain.search import (
     MAX_CHUNKS_PER_DOCUMENT,
@@ -45,6 +45,11 @@ CANDIDATES_PER_LANE = 50
 # so a recent document that also matches the question wins.
 RECENT_DOCUMENTS = 20
 RECENT_WEIGHT = 1.5
+# The follow-up lane (P1-5, ADR-0038): the previous answer's cited documents, at the
+# weight of an ordinary lane, so fresh evidence for the follow-up can still outrank them.
+MAX_ANCHOR_DOCUMENTS = 8
+ANCHOR_CANDIDATES = 20
+ANCHOR_WEIGHT = 1.0
 MAX_LIMIT = 50
 MAX_AUTHOR_CHARS = 200
 MAX_SOURCE_FILTERS = 20
@@ -87,10 +92,13 @@ async def hybrid_retrieve(
     max_per_document: int = MAX_CHUNKS_PER_DOCUMENT,
     limit: int = 10,
     recent: bool = False,
+    anchor: Sequence[DocumentId] = (),
 ) -> SearchResults:
     """The retrieval core shared by SearchService, chat and the eval harness, so evals
     measure exactly what users get: for each query, keyword || (embed -> vector); plus the
-    recent lane when ``recent``; then weighted RRF and the per-document cap (ADR-0031).
+    recent lane when ``recent``; plus, for a follow-up, the anchor lane over ``anchor``
+    (the previous answer's cited documents, P1-5); then weighted RRF and the
+    per-document cap (ADR-0031).
 
     An embedder outage degrades to keyword-only with a notice instead of failing.
     """
@@ -123,11 +131,27 @@ async def hybrid_retrieve(
             if recent
             else None
         )
+        anchored = (
+            tg.create_task(
+                index.anchored_chunks(
+                    ws,
+                    principals,
+                    tuple(anchor)[:MAX_ANCHOR_DOCUMENTS],
+                    queries[0],
+                    ANCHOR_CANDIDATES,
+                    filters,
+                )
+            )
+            if anchor
+            else None
+        )
     lists = [RankedList(Lane.KEYWORD, t.result()) for t in keyword]
     vector_lists = [hits for hits, _ in (t.result() for t in vec) if hits is not None]
     lists += [RankedList(Lane.VECTOR, hits) for hits in vector_lists]
     if newest is not None:
         lists.append(RankedList(Lane.RECENT, newest.result(), RECENT_WEIGHT))
+    if anchored is not None:
+        lists.append(RankedList(Lane.ANCHOR, anchored.result(), ANCHOR_WEIGHT))
     notices = tuple(dict.fromkeys(n for _, n in (t.result() for t in vec) if n))
     fused = rrf_fuse_lists(lists)
     hits = cap_per_document(fused, max_per_document=max_per_document)[:limit]
@@ -206,6 +230,7 @@ class SearchService:
         *,
         limit: int,
         recent: bool = False,
+        anchor: Sequence[DocumentId] = (),
     ) -> SearchResults:
         """Validated query (or a plan's queries) -> hybrid retrieval, with spend checked and
         recorded. Shared by search and chat (no rate limit here: each caller applies its
@@ -226,6 +251,7 @@ class SearchService:
             max_per_document=self._per_doc,
             limit=limit,
             recent=recent,
+            anchor=anchor,
         )
         if plan is not None and Lane.VECTOR in res.lanes:
             for query in queries:
@@ -272,6 +298,15 @@ class SearchService:
         ):
             return None, f"Meaning-based search is paused. {reason}"
         return VectorLane(self._embedder, gen.id), None
+
+    async def cited_chunks(
+        self, identity: Identity, chunk_ids: Sequence[ChunkId]
+    ) -> dict[ChunkId, ScoredChunk]:
+        """The cited chunks this identity may still see, by id (reopened chats)."""
+        found = await self._index.chunks_by_id(
+            identity.workspace_id, identity.principals, list(dict.fromkeys(chunk_ids))
+        )
+        return {c.chunk_id: c for c in found}
 
     async def preview(self, identity: Identity, doc_id: DocumentId) -> DocumentPreview:
         """The document and its chunks, if this identity may see it. NotFound otherwise."""

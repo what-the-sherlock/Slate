@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     # Answer gate (ADR-0022): below this best vector similarity, abstain without a model
     # call. Tuned on the eval set's no-answer cases.
     chat_min_similarity: float = Field(default=0.20, ge=-1, le=1)
+    # The LLM selection step before answering (P1-4, ADR-0040): one extra small call per
+    # question (~$0.0004). Off until the answer evals show it helps.
+    chat_rerank: bool = False
     openai_embed_model: str = "text-embedding-3-small"
     embed_dims: int = Field(default=1024, gt=0)
     cf_account_id: str | None = None

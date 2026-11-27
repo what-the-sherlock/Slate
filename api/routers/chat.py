@@ -39,6 +39,7 @@ from core.domain.answer import Source
 from core.domain.documents import SearchFilters
 from core.domain.errors import AppError, UpstreamUnavailable
 from core.domain.ids import ChatSessionId, MessageId, SourceId
+from core.ports.chat import Citation
 from core.services.answer import AnswerEvent, AnswerService, Cited, Done, Meta, SourcesFound, Token
 
 router = APIRouter(tags=["chat"])
@@ -65,6 +66,9 @@ def _source(s: Source) -> AnswerSourceOut:
         title=p.title,
         heading_path=p.heading_path,
         snippet=p.content[:SNIPPET_CHARS],
+        connector=p.connector,
+        updated_at=p.updated_at,
+        author=p.author,
     )
 
 
@@ -94,6 +98,7 @@ def _sse(event: AnswerEvent) -> dict[str, str]:
                 closest=[_source(s) for s in event.closest],
                 notices=list(event.notices),
                 mode=event.mode,
+                followups=list(event.followups),
             )
             name = "done"
     return {"event": name, "data": body.model_dump_json()}
@@ -198,6 +203,31 @@ async def messages(
     stored = await container.chats.messages(
         identity.workspace_id, identity.user_id, ChatSessionId(session_id), limit=200
     )
+    # One batched, ACL-filtered lookup rebuilds every citation's title and passage (rule 1:
+    # visibility is checked in SQL, so revoked access shows as "unavailable").
+    wanted = [c.chunk_id for m in stored for c in m.citations if c.chunk_id is not None]
+    cited = (
+        await container.search.cited_chunks(identity, wanted)
+        if wanted and container.search is not None
+        else {}
+    )
+
+    def citation(c: Citation) -> CitationOut:
+        hit = cited.get(c.chunk_id) if c.chunk_id is not None else None
+        if hit is None:
+            return CitationOut(n=c.n, chunk_id=c.chunk_id, document_id=c.document_id)
+        return CitationOut(
+            n=c.n,
+            chunk_id=c.chunk_id,
+            document_id=c.document_id,
+            title=hit.title,
+            heading_path=hit.heading_path,
+            snippet=hit.content[:SNIPPET_CHARS],
+            connector=hit.connector,
+            updated_at=hit.updated_at,
+            author=hit.author,
+        )
+
     return [
         MessageOut(
             id=m.id,
@@ -208,10 +238,8 @@ async def messages(
             latency_ms=m.latency_ms,
             abstained=m.abstained,
             mode=m.mode,
-            citations=[
-                CitationOut(n=c.n, chunk_id=c.chunk_id, document_id=c.document_id)
-                for c in m.citations
-            ],
+            citations=[citation(c) for c in m.citations],
+            followups=list(m.followups),
         )
         for m in stored
         if m.role.value in {"user", "assistant"}

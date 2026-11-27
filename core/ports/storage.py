@@ -105,6 +105,20 @@ class SearchIndex(Protocol):
         which similarity can't rank (ADR-0031)."""
         ...
 
+    async def anchored_chunks(
+        self,
+        ws: WorkspaceId,
+        principals: Principals,
+        documents: Sequence[DocumentId],
+        query: str,
+        k: int,
+        filters: SearchFilters,
+    ) -> list[ScoredChunk]:
+        """Chunks of these documents the caller may still see, best match for ``query``
+        first (then document order). The follow-up lane (P1-5): "who owns that?" stays on
+        what the last answer cited. Same visibility rule as every lane, in the query."""
+        ...
+
     async def document_preview(
         self, ws: WorkspaceId, principals: Principals, doc_id: DocumentId, max_chunks: int
     ) -> DocumentPreview:
@@ -116,6 +130,13 @@ class SearchIndex(Protocol):
     ) -> list[ScoredChunk]:
         """The chunks at ordinal +-1 of each (document, ordinal), under the same visibility
         rule as search (answers widen passages with them; ARCHITECTURE §8 step 6)."""
+        ...
+
+    async def chunks_by_id(
+        self, ws: WorkspaceId, principals: Principals, chunk_ids: Sequence[ChunkId]
+    ) -> list[ScoredChunk]:
+        """These chunks, if the caller may still see them (missing and forbidden ones are
+        left out, no probing). Rebuilds a reopened chat's citations (UI_DESIGN §4.3)."""
         ...
 
 

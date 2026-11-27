@@ -81,6 +81,17 @@ class ProviderApi:
         self._raise(r, url)
         return r.content[:max_bytes].decode("utf-8", errors="replace")
 
+    async def get_bytes(
+        self, token: str, url: str, *, params: Any = None, allow_404: bool = False
+    ) -> bytes | None:
+        """A binary body (a PDF, an export), whole: truncating a binary corrupts it, so the
+        caller checks the size. None for 404 when allowed."""
+        r = await self._send("GET", token, url, params=params, headers={"Accept": "*/*"})
+        if r.status_code == 404 and allow_404:
+            return None
+        self._raise(r, url)
+        return r.content
+
     def _result(self, r: httpx.Response, url: str, allow_404: bool) -> Any:
         if r.status_code == 404 and allow_404:
             return None

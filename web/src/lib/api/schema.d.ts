@@ -927,8 +927,15 @@ export interface components {
         };
         /** AnswerSourceOut */
         AnswerSourceOut: {
+            /** Author */
+            author?: string | null;
             /** Chunk Id */
             chunk_id: number;
+            /**
+             * Connector
+             * @description upload, github, imap, discord...
+             */
+            connector?: string | null;
             /**
              * Document Id
              * Format: uuid
@@ -947,6 +954,8 @@ export interface components {
             snippet: string;
             /** Title */
             title: string;
+            /** Updated At */
+            updated_at?: string | null;
         };
         /** AuthConfig */
         AuthConfig: {
@@ -1096,12 +1105,27 @@ export interface components {
         };
         /** CitationOut */
         CitationOut: {
+            /** Author */
+            author?: string | null;
             /** Chunk Id */
             chunk_id: number | null;
+            /** Connector */
+            connector?: string | null;
             /** Document Id */
             document_id: string | null;
+            /** Heading Path */
+            heading_path?: string | null;
             /** N */
             n: number;
+            /**
+             * Snippet
+             * @description The cited passage, trimmed
+             */
+            snippet?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
         };
         /** CompleteUploadBody */
         CompleteUploadBody: {
@@ -1312,6 +1336,11 @@ export interface components {
              * @description Closest matches, when abstaining
              */
             closest: components["schemas"]["AnswerSourceOut"][];
+            /**
+             * Followups
+             * @description Up to three suggested next questions (grounded answers only). Optional in v1: older servers omit it
+             */
+            followups?: string[];
             /** Latency Ms */
             latency_ms: number;
             /**
@@ -1690,6 +1719,11 @@ export interface components {
              */
             created_at: string;
             /**
+             * Followups
+             * @description Suggested next questions saved with the answer
+             */
+            followups?: string[];
+            /**
              * Id
              * Format: uuid
              */
@@ -1901,7 +1935,7 @@ export interface components {
              * Matched By
              * @description Which retrieval lanes found this passage
              */
-            matched_by: ("vector" | "keyword" | "recent")[];
+            matched_by: ("vector" | "keyword" | "recent" | "anchor")[];
             /** Ordinal */
             ordinal: number;
             /**
@@ -1920,7 +1954,7 @@ export interface components {
              * Lanes
              * @description Lanes that actually ran
              */
-            lanes: ("vector" | "keyword" | "recent")[];
+            lanes: ("vector" | "keyword" | "recent" | "anchor")[];
             /**
              * Notices
              * @description Honest degradations to show the user

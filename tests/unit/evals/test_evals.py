@@ -58,9 +58,37 @@ def test_real_question_set_and_corpus_are_valid() -> None:
     assert {"keyword", "multi-hop", "no-answer", "private"} <= {t for c in cases for t in c.tags}
 
 
+def test_the_hard_case_sets_exist_and_are_well_formed() -> None:
+    """IMPROVEMENT_PLAN P1-8: the sets meant to fail are present at their planned sizes."""
+    cases = load_cases()
+    by_tag = {t: [c for c in cases if t in c.tags] for t in {t for c in cases for t in c.tags}}
+    assert len(by_tag["multi-turn"]) >= 10
+    assert all(c.history for c in by_tag["multi-turn"])
+    assert len(by_tag["cross-source"]) >= 8
+    assert all(c.min_cited_kinds == 2 for c in by_tag["cross-source"])
+    assert len(by_tag["conflict"]) >= 5
+    assert len(by_tag["temporal"]) >= 5
+    assert all(c.plan for c in by_tag["temporal"])
+    assert len(by_tag["title-only"]) >= 6
+    assert len(load_corpus()) >= 70  # +30 distractors and the documents above
+
+
+def test_title_only_documents_keep_the_asked_words_out_of_their_bodies() -> None:
+    """The point of a title-only case: its words are in the title and nowhere else, so only
+    a title-aware keyword lane (P1-3) can find it. A body edit must not quietly break that."""
+    docs = {d.path: d for d in load_corpus()}
+    for c in (c for c in load_cases() if "title-only" in c.tags):
+        body = docs[c.expected_documents[0]].body.decode().lower()
+        for word in c.question.lower().split():
+            assert word not in body, (c.id, word)
+
+
 def test_unknown_references_and_bad_cases_are_rejected() -> None:
     with pytest.raises(ValueError, match="unknown corpus files"):
         check_references([Case(id="x", question="q", expected_documents=("nope.md",))], [])
+    turn = {"question": "q", "cited_documents": ("gone.md",)}
+    with pytest.raises(ValueError, match="unknown corpus files"):
+        check_references([Case.model_validate({"id": "y", "question": "q", "history": [turn]})], [])
     with pytest.raises(ValueError, match="pattern"):
         Case(id="Bad Id", question="q")
 
@@ -203,3 +231,12 @@ async def test_an_oracle_sender_filter_keeps_only_that_persons_documents() -> No
     case = next(c for c in load_cases() if c.id == "conn-sender-001")
     report = await run_cases(index, WS, [case], ids, private, vector=None)
     assert report.cases[0].top_documents == ["email/acme-invoice.md"]
+
+
+async def test_title_only_cases_are_found_once_titles_are_keyword_searchable() -> None:
+    """P1-3: the in-memory index mirrors migration 0012 (title and metadata in the
+    keyword lane), so the title-only set is found by the keyword lane alone."""
+    index, ids, private = await corpus_index()
+    cases = [c for c in load_cases() if "title-only" in c.tags]
+    report = await run_cases(index, WS, cases, ids, private, vector=None)
+    assert {c.id: c.recall for c in report.cases} == {c.id: 1.0 for c in cases}

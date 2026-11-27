@@ -60,6 +60,16 @@ class OraclePlan(BaseModel):
         )
 
 
+class Turn(BaseModel):
+    """An earlier turn of a multi-turn case (IMPROVEMENT_PLAN P1-8): the question asked and
+    the documents its answer cited. The follow-up is scored; earlier turns set context."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    question: str = Field(min_length=1, max_length=500)
+    cited_documents: tuple[str, ...] = ()
+
+
 class Case(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -73,6 +83,11 @@ class Case(BaseModel):
     # (general knowledge, labelled) or "chat" (small talk). None: no-answer cases abstain.
     expect_mode: Literal["general", "chat"] | None = None
     plan: OraclePlan | None = None
+    # Earlier turns, oldest first. Empty: a one-shot question.
+    history: tuple[Turn, ...] = ()
+    # Cross-source cases: the answer must cite documents from at least this many corpus
+    # kinds (file, email, github, discord). Scored by the answer eval only.
+    min_cited_kinds: int | None = Field(default=None, ge=2, le=4)
 
     @property
     def answerable(self) -> bool:
@@ -160,7 +175,10 @@ def _when(raw: str | None, rel: str) -> datetime | None:
 def check_references(cases: list[Case], corpus: list[CorpusDoc]) -> None:
     """Every expected document must exist, so a typo can't masquerade as a miss."""
     known = {d.path for d in corpus}
-    missing = {p for c in cases for p in c.expected_documents if p not in known}
+    referenced = {p for c in cases for p in c.expected_documents} | {
+        p for c in cases for t in c.history for p in t.cited_documents
+    }
+    missing = {p for p in referenced if p not in known}
     if missing:
         raise ValueError(f"questions.yaml refers to unknown corpus files: {sorted(missing)}")
 

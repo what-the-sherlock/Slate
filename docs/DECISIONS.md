@@ -245,6 +245,14 @@ Format: number, title, status, context, decision, consequences. Add new ADRs at 
 
 **Accepted:** the inline runner's 120 s timeout stays the hard outer bound, inside Vercel's 300 s; a GitHub rate-limit wait can still use part of it.
 
+**Amendment (2026-11-27, IMPROVEMENT_PLAN P1-2): one repository overview document per repo.** Code-heavy repos gave "what does this repo do?" nothing to find. Each repo now gets one synthetic `repo:overview` document (`core/domain/github_overview.py`, pure) with:
+- description, language and topics (from the repo call already made);
+- the top two levels of the tree, at most 200 entries, without vendored or hidden folders;
+- summaries of the root `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod` and `Dockerfile` (named fields and key lists only, never whole files; each manifest at most 64 KB, each field clipped);
+- the latest release's notes, clipped to 4,000 characters.
+
+The tree and manifests come from the same tarball walk (`TreeOverview`, yielded before `TreeSkips`), so the only new call is `GET /releases/latest` (404 means no release). The overview is rebuilt only when the head changes, and is skipped by checksum when unchanged. Code itself is still not indexed, for the original cost reason: the overview costs one small document per repo per push.
+
 ## ADR-0024: Regenerate and edit supersede messages; they are never deleted
 **Status:** Accepted (2026-11-26, chat redesign).
 **Context:** Retry re-asked the question as a new turn, so a stored chat showed the question twice, and there was no way to regenerate an answer or edit a question. Owner decision (2026-11-26): do it properly, with backend support.
@@ -490,3 +498,64 @@ A sync that the inline time limit cut off now reports `partial` ("Synced N item(
 **Consequences:** Work handed to the worker starts in about 20–60 s (Actions start-up) instead of hours. Each extra worker run keeps Neon awake for a few minutes, bounded by the throttle and real usage. Setup: create the token, then set `GITHUB_DISPATCH_TOKEN` and `GITHUB_REPO` on the Vercel API project.
 
 **ADR-0021 amendment (2026-11-27, owner): generous limits during development.** The daily, per-workspace and new-account caps default to $5, so only the $5 monthly hard stop binds. The owner's first-week cap of $0.01/day stopped their own Gmail backfill at 306 conversations. Also, the worker never received `OWNER_EMAIL`, so its budget check treated the owner as a new stranger; `sync.yml` now passes it. **Before a public launch,** set the launch values (`DAILY_LLM_BUDGET_USD=0.50`, `WORKSPACE_MONTHLY_BUDGET_USD=0.25`, `WORKSPACE_DAILY_BUDGET_USD=0.05`, `NEW_ACCOUNT_DAILY_BUDGET_USD=0.01`) on Vercel and in `sync.yml`, or restore them as defaults.
+
+## ADR-0036: Connectors hand over file bytes; the connected engine parses them
+**Status:** Accepted (2026-11-27, docs/IMPROVEMENT_PLAN.md P1-1).
+**Context:** Drive indexed only Google Docs and text files, so a Drive full of PDFs, Sheets and Slides synced to 0 documents. Slate already parses PDFs (pypdfium2), Word files and CSV for uploads, but rule 2 says a connector only fetches: it must not parse.
+**Decision:**
+1. `FetchedDocument.raw` (bytes, of type `mime`) carries a file that still needs parsing, with `sections` left empty. `ConnectedSources` parses it with the `Parser` port (`FormatParser`, the same one uploads use), wired in `connected_sources`. Parsing runs in `asyncio.to_thread`, because the engine also runs inline in an API request.
+2. **Drive:** Google Docs and Slides are exported as `text/plain`. Sheets are exported as `text/csv`; Google exports only the first sheet, and CSV becomes Markdown tables. PDFs and `.docx` are downloaded whole (`ProviderApi.get_bytes`, never truncated, because a cut binary is corrupt). The 2 MB cap is checked against the listing's `size` before download, and against the bytes for exports, which have no size.
+3. Unreadable files (the parser raises `ValidationFailed`) and types the parser doesn't support are counted skips (`unreadable`, `unsupported_type`), never crashes. Without a parser, raw files are `unsupported_type`.
+**Alternatives:** Parsing inside the Drive adapter (breaks rule 2, and each connector would need its own parser wiring). Exporting Slides as PPTX and parsing that (needs a new dependency; Google's text export is enough for search). Using Drive's `fullText` search instead of indexing (no chunks, no ACL in SQL).
+**Consequences:** More Drive content gets embedded, still within the 500-file full-pass cap and the budget guard. `.xlsx` and `.pptx` stay `unsupported_type`. Other connectors (Notion file blocks, Gmail attachments) can reuse `raw` later.
+
+## ADR-0037: Titles and metadata in the keyword lane (`chunks.search_context`)
+**Status:** Accepted (2026-11-27, docs/IMPROVEMENT_PLAN.md P1-3; migration 0012).
+**Context:** `tsv_en` covered only `heading_path + content`, and `tsv_simple` only `content`. A word that appears only in a document's title ("the onboarding checklist", "brand guidelines"), or a repo name or sender, was invisible to the keyword lane. Only the vector lane saw the title, through the embedding prefix. The P1-8 `title-only` eval set measures this.
+**Decision:**
+1. `chunks.search_context text NOT NULL DEFAULT ''`, written with every chunk from `core.domain.chunking.search_context(title, author, metadata)`. It holds the title, the author, and the metadata values `repo`, `path`, `state` and `identifier` (string values only), at most 500 characters. The Postgres adapter computes it from the `DocumentUpsert` it already receives, so no port changes. The in-memory fake mirrors it.
+2. Both generated tsvectors become `setweight(to_tsvector(cfg, search_context), 'A') || <the old expression>`. The body keeps the default weight D, so for `ts_rank_cd` a title match counts 10 times a body mention. Generated expressions can't be altered before PostgreSQL 17, so the columns are dropped and re-added and their GIN indexes recreated. The backfill runs between the two steps, so each row is rewritten only once.
+3. **The embedding prefix is unchanged** (a deliberate deviation from the plan). Adding author and metadata there would give one embedding generation two prefix styles, and would break the backfill's "exactly the text ingestion embeds" rule, unless every chunk were re-embedded. The vector lane already sees the title.
+**Alternatives:** Separate `title` and `metadata` columns with weights A and B (more columns for no measured gain yet). Putting the title into `content` (it would show in previews and citations). A join to `documents` at query time (the GIN index can't cover it, and it adds a join to the hottest query).
+**Consequences:** **Deploy order:** run `alembic upgrade head` (0012) before deploying the API and the worker, because `write_document` writes the new column. The migration rewrites `chunks` under an ACCESS EXCLUSIVE lock: seconds at this size, but run it at a quiet time. Re-embedding is not needed. Keyword ranking changes, so record a keyword eval before and after (EVALS.md).
+
+## ADR-0038: Follow-ups are anchored on the previous answer's citations (the anchor lane)
+**Status:** Accepted (2026-11-27, docs/IMPROVEMENT_PLAN.md P1-5).
+**Context:** A follow-up like "who decides that?" or "has it been paid yet?" shares no words with the passage it needs. The planner rewrites follow-ups into standalone queries using history, but when it guesses badly or falls back (no key, a timeout), retrieval starts from nothing. The P1-8 `multi-turn` set measures this, and the free retrieval eval runs without a planner.
+**Decision:**
+1. A fourth lane, `Lane.ANCHOR`: `SearchIndex.anchored_chunks(ws, principals, documents, query, k, filters)` returns chunks of the documents the latest answer cited (at most 8 documents, 20 chunks), ranked by `ts_rank_cd` against the new question, then by document and ordinal. Chunks that don't match are still returned, because that is the point.
+2. Access is re-checked in the same SQL (`_VISIBLE` plus the filters), never assumed from the earlier turn: a document shared away since then disappears from the follow-up (rule 1).
+3. It is fused by RRF at weight 1.0, like keyword and vector, so fresh evidence for the follow-up can still outrank it. `AnswerService._history` returns the last assistant message's cited document ids (ids only) with the history. The eval harness passes `history[-1].cited_documents`, and the guest run gets the same anchor to prove the lane filters.
+**Alternatives:** Re-sending the previous passages to the model as-is (they would bypass ranking and the ACL re-check). Embedding the previous answer as an extra query (one more paid embedding per turn, and it drifts towards the old topic). Boosting cited documents in Python after fusion (post-filtering, which rule 1 forbids).
+**Consequences:** One more cheap SQL query on follow-up turns only. The search API never sends an anchor, but its `lanes` and `matched_by` literal now includes `anchor` (openapi regenerated).
+
+## ADR-0039: Source diversity in answer context, and cross-source and conflict prompting
+**Status:** Accepted (2026-11-27, docs/IMPROVEMENT_PLAN.md P1-7). The prompt change needs an answer eval run (owner, paid).
+**Context:** The model saw the top 16 fused passages. When one connector dominated (many uploads mention "leave"), a strong email or issue on the same question never reached it, so cross-source answers cited one kind. Conflicting facts (an old doc and a newer email) were not handled explicitly.
+**Decision:**
+1. Chat retrieves a pool of 50 fused hits (`DIVERSITY_POOL`). `core.domain.search.diversify` (pure) keeps 16: the top hits, plus the best hit of every connector found in the pool but missing from the top, if it scores at least half the top hit's fused score. Extras replace the lowest-ranked hits and go **after the first three**, because `_fit_hits` cuts from the end when the token budget runs out. This is a light form of MMR.
+2. It applies only when nothing narrows the source: no planned `kinds`, and no user connector or source filter.
+3. Prompt rule 9: connect evidence across kinds; when sources disagree, say so, give both with dates, and prefer the newer.
+**Alternatives:** Full MMR with embedding similarity between passages (needs every passage's vector in the answer path). A per-connector quota (it would push weak passages in). An LLM selection step (P1-4, paid, optional).
+**Consequences:** Searching the pool costs nothing extra: the lanes already fetch 50 candidates each. Measured by `cross_source_ok`, and by `conflict` point coverage, in `evals.answers`.
+
+## ADR-0040: An optional LLM selection step behind a `Reranker` port (off by default)
+**Status:** Accepted, **disabled** (2026-11-27, docs/IMPROVEMENT_PLAN.md P1-4; migration 0013). Turn it on only if answer evals improve.
+**Context:** The model reads up to 16 passages in fused-rank order. On noisy, cross-source pools, weak passages dilute the answer and invite wrong citations. Onyx has an LLM pick which sections to read, one small decision per question. Free hosted rerankers are out, because ADR-0012 limits free providers to public data.
+**Decision:**
+1. A `Reranker` port (`core/ports/reranker.py`). `LLMReranker` (`core/services/rerank.py`) implements it over the existing `ChatModel` port (gpt-4o-mini), so there is no new vendor code. The prompt and the validation are pure (`core/domain/rerank.py`).
+2. Only **summaries** go out: the top 30 fused hits as title, kind, date and the first 300 characters, numbered, as data in the user message. The reply must be `{"keep": [n...]}`; only offered numbers count, each once, at most 10.
+3. `AnswerService` uses it for `lookup` intents only (recent and summary are about dates), when the pool has more than 10 hits. The kept hits, in the reranker's order, then go through the usual neighbour expansion.
+4. It never fails an answer. A budget refusal, a provider error, a rate limit or an unusable reply all fall back to the `diversify` order. The call is budget-checked first and recorded as `rerank` in the usage ledger (migration 0013 extends the kind CHECK), with data class private.
+5. `CHAT_RERANK=false` by default. `answer_service` wires `LLMReranker` only when it's on.
+**Alternatives:** A cross-encoder or a hosted reranker (Cohere, Jina): no local models, and free tiers can't take private data. Scoring each passage in its own call (30 calls). Letting the answer model choose (a 16k-token prompt does that badly, which is the problem).
+**Consequences:** About $0.0004 and one round trip (about 0.5–1 s) more per lookup question when enabled. **Before enabling:** apply 0013 and run `evals.answers` with and without it (`CHAT_RERANK=true uv run python -m evals.answers`), and compare citation validity, point coverage and `cross_source_ok`.
+
+## ADR-0041: Reopened chats rebuild citations at read time, under current access
+**Status:** Accepted (2026-11-28).
+**Context:** `message_citations` stores only `(n, chunk_id, document_id)`. A reopened chat therefore showed "Source 1, Source 2…" with no passages and no hover cards. Follow-up suggestions were not stored at all.
+**Decision:**
+1. `GET /chat/sessions/{id}/messages` makes one batched lookup, `SearchIndex.chunks_by_id`, in `core/adapters/postgres/search.py`, through `SearchService.cited_chunks`. It uses the same `workspace_id` + `acl && :principals` rule as search, in SQL (rule 1). `CitationOut` gains optional title, heading path, snippet, connector, date and author. All of them are null when the chunk is gone or no longer visible, and the UI leaves that citation out.
+2. Follow-ups are saved in the assistant message's `usage` JSON (`usage.followups`) next to `mode`. That needs no migration, and older answers simply have none.
+**Alternatives:** Snapshot titles and passages into `message_citations` when the answer is saved. That is cheaper to read, but it keeps showing content after access is revoked or the document is deleted, which breaks "previews and citation links re-check access". A separate `followups` column: a migration for display-only data.
+**Consequences:** One extra indexed query per history read (`chunks.id = ANY(...)`, at most 2,000 ids). A chat whose sources were revoked still shows its answer text, which the user already saw, but no longer shows the passages.

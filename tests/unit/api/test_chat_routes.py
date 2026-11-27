@@ -84,7 +84,26 @@ async def test_history_lists_the_chat_and_its_cited_messages(
     assert chats[0]["title"] == "How much paid leave?"
     msgs = client.get(f"/api/v1/chat/sessions/{session}/messages").json()
     assert [m["role"] for m in msgs] == ["user", "assistant"]
-    assert msgs[1]["citations"][0]["n"] == 1
+    cite = msgs[1]["citations"][0]
+    assert cite["n"] == 1
+    # A reopened chat shows real names and passages, not "Source 1" (UI_DESIGN §4.3).
+    assert cite["title"] == "Handbook"
+    assert cite["snippet"]
+    assert isinstance(msgs[1]["followups"], list)
+
+
+async def test_history_hides_passages_the_user_can_no_longer_see(
+    client: TestClient, mailer: FakeMailer, index: InMemoryIndex
+) -> None:
+    headers = sign_up(client, mailer)
+    await seed(client, index)
+    session = ask(client, headers, "How much paid leave?")[0][1]["session_id"]
+    for c in index._chunks:  # revoke access
+        c.acl = ("user:someone-else",)
+    cite = client.get(f"/api/v1/chat/sessions/{session}/messages").json()[1]["citations"][0]
+    assert cite["n"] == 1
+    assert cite["title"] is None
+    assert cite["snippet"] is None
 
 
 async def test_abstention_arrives_as_done_without_tokens(
@@ -171,3 +190,21 @@ def test_a_malformed_time_zone_is_refused_before_streaming(
     for tz in ("../../etc/passwd", "x" * 65, "Europe/London; DROP"):
         body = {"question": "hi", "timezone": tz}
         assert client.post("/api/v1/chat", json=body, headers=headers).status_code == 422
+
+
+def test_sources_carry_what_the_citation_card_shows() -> None:
+    """P2-2: kind, date and author travel with each source (already ACL-checked)."""
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from api.routers.chat import _source
+    from core.domain.answer import Passage, Source
+    from core.domain.ids import ChunkId, DocumentId
+
+    when = datetime(2026, 11, 20, tzinfo=UTC)
+    passage = Passage(
+        ChunkId(1), DocumentId(uuid4()), "Issue #7", None, "text", "private",
+        connector="github", updated_at=when, author="mei-chen",
+    )  # fmt: skip
+    out = _source(Source(1, passage))
+    assert (out.connector, out.updated_at, out.author) == ("github", when, "mei-chen")
