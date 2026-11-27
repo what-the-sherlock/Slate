@@ -2,6 +2,7 @@
 
 import { CircleAlert, Plus, Search, ShieldCheck, TriangleAlert } from "lucide-react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { LogoTile } from "@/components/brand";
@@ -38,6 +39,10 @@ export function IntegrationsView({ go = (url: string) => window.location.assign(
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [confirming, setConfirming] = useState<Integration | null>(null);
+  // "Add a source" links here with ?connect=<id> (ADR-0033): ask to confirm that provider.
+  const params = useSearchParams();
+  const router = useRouter();
+  const [deepDone, setDeepDone] = useState(false);
   const [managing, setManaging] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const canConnect = !!me.data && me.data.role !== "viewer";
@@ -60,6 +65,18 @@ export function IntegrationsView({ go = (url: string) => window.location.assign(
   const list = integrations.data ?? [];
   const counts = tabCounts(list);
   const shown = filterIntegrations(list, tab, query);
+  const deepId = deepDone ? null : params.get("connect");
+  const deep = list.find(
+    (i) => i.id === deepId && i.auth === "oauth2" && i.state !== "coming_soon" && i.state !== "not_set_up",
+  );
+  const asking = confirming ?? (canConnect ? deep : undefined) ?? null;
+  const closeAsk = () => {
+    setConfirming(null);
+    if (deepId) {
+      setDeepDone(true);
+      router.replace("/integrations", { scroll: false });
+    }
+  };
 
   return (
     <>
@@ -132,23 +149,25 @@ export function IntegrationsView({ go = (url: string) => window.location.assign(
         )}
       </div>
 
-      <Dialog open={confirming !== null} onOpenChange={(open) => !open && setConfirming(null)}>
+      <Dialog open={asking !== null} onOpenChange={(open) => !open && closeAsk()}>
         <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
-            <DialogTitle className="text-dialog font-semibold tracking-[-0.015em]">Connect {confirming?.name}</DialogTitle>
-            <DialogDescription className="text-body text-fg-muted">{confirming?.notice}</DialogDescription>
+            <DialogTitle className="text-dialog font-semibold tracking-[-0.015em]">Connect {asking?.name}</DialogTitle>
+            <DialogDescription className="text-body text-fg-muted">
+              {asking?.notice ?? `You'll sign in to ${asking?.name ?? "the provider"} and choose what Slate may read. Slate only reads, never writes.`}
+            </DialogDescription>
           </DialogHeader>
           <p className="flex items-center gap-2 text-caption text-fg-muted">
             <ShieldCheck className="size-4 text-success" aria-hidden="true" /> Read-only. Only you can search what you connect.
           </p>
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setConfirming(null)}>
+            <Button variant="secondary" onClick={closeAsk}>
               Cancel
             </Button>
             <Button
               variant="primary"
-              loading={busy === confirming?.id}
-              onClick={() => confirming && void start(confirming)}
+              loading={busy === asking?.id}
+              onClick={() => asking && void start(asking)}
             >
               Continue to sign in
             </Button>

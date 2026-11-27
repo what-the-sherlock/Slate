@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { LogoTile, type ConnectorKey } from "@/components/brand";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useDiscordStatus, useGitHubStatus } from "@/lib/api/hooks";
+import { useDiscordStatus, useGitHubStatus, useIntegrations } from "@/lib/api/hooks";
+import { brandKey } from "@/lib/integrations";
 import { DiscordPanel } from "./discord-panel";
 import { EmailPanel } from "./email-panel";
 import { GitHubPanel } from "./github-panel";
@@ -22,10 +24,9 @@ const TITLES = {
   discord: "Connect Discord",
   email: "Connect email",
 } as const;
-const LATER: { key: ConnectorKey; name: string; description: string }[] = [
-  { key: "slack", name: "Slack", description: "Channels and threads" },
-  { key: "notion", name: "Notion", description: "Pages and databases" },
-  { key: "googledrive", name: "Google Drive", description: "Docs, Sheets and PDFs" },
+// Not built yet. OAuth providers come from the server's registry (useIntegrations), so
+// this dialog and the Integrations page can't disagree.
+const LATER_STATIC: { key: ConnectorKey; name: string; description: string }[] = [
   { key: "confluence", name: "Confluence", description: "Spaces and pages" },
 ];
 
@@ -50,6 +51,14 @@ export function AddSourceDialog({
 }) {
   const [view, setView] = useState<View>(initialView ?? "pick");
   const github = useGitHubStatus(open);
+  const integrations = useIntegrations();
+  const oauth = (integrations.data ?? []).filter((i) => i.auth === "oauth2" && i.state !== "coming_soon");
+  const later = [
+    ...(integrations.data ?? [])
+      .filter((i) => i.state === "coming_soon")
+      .map((i) => ({ key: brandKey(i.id) as ConnectorKey, name: i.name, description: i.tagline })),
+    ...LATER_STATIC,
+  ];
   const discord = useDiscordStatus(open);
   // A connector backed by a server-side integration is live only when that's configured.
   const status = { github, discord } as const;
@@ -121,12 +130,48 @@ export function AddSourceDialog({
                 </li>
               ))}
             </ul>
+            <section aria-labelledby="accounts">
+              <h3 id="accounts" className="mb-2 text-data font-medium text-fg-subtle">
+                Sign in with your account
+              </h3>
+              <ul className="grid gap-3 sm:grid-cols-2">
+                {oauth.map((i) => {
+                  const ready = i.state !== "not_set_up";
+                  const body = (
+                    <>
+                      <LogoTile connector={brandKey(i.id)} size={32} />
+                      <span className="min-w-0">
+                        <span className="block text-body font-medium text-fg">{i.name}</span>
+                        <span className="block truncate text-data text-fg-subtle">
+                          {ready ? (i.state === "connected" ? "Connected" : i.tagline) : "Not set up on this server yet"}
+                        </span>
+                      </span>
+                    </>
+                  );
+                  const tile = "flex items-center gap-3 rounded-lg border border-border p-3";
+                  return (
+                    <li key={i.id}>
+                      {ready ? (
+                        <Link
+                          href={`/integrations?connect=${i.id}`}
+                          className={`${tile} bg-bg transition-colors hover:border-border-strong hover:bg-subtle`}
+                        >
+                          {body}
+                        </Link>
+                      ) : (
+                        <span className={`${tile} bg-subtle opacity-70`}>{body}</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
             <section aria-labelledby="later">
               <h3 id="later" className="mb-2 text-data font-medium text-fg-subtle">
                 Coming later
               </h3>
               <ul className="grid gap-3 sm:grid-cols-2">
-                {LATER.map((c) => (
+                {later.map((c) => (
                   <li key={c.key} aria-label={`${c.name}, planned for a later release`} className="relative flex items-center gap-3 rounded-lg border border-border bg-subtle p-3">
                     <LogoTile connector={c.key} size={32} />
                     <span className="min-w-0">

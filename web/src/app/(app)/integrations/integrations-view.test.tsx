@@ -5,9 +5,10 @@ import { makeQueryClient } from "@/app/providers";
 import type { Integration } from "@/lib/integrations";
 import { IntegrationsView } from "./integrations-view";
 
+let search = "";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(search),
   usePathname: () => "/integrations",
 }));
 
@@ -65,6 +66,7 @@ function renderPage(go = vi.fn()) {
 }
 
 beforeEach(() => {
+  search = "";
   role = "member";
   sessionStorage.clear();
 });
@@ -173,5 +175,25 @@ describe("ManageDialog edge cases", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Add another account/ }));
     await vi.waitFor(() => expect(go).toHaveBeenCalled());
     expect(calls.some((c) => c.path === "/api/v1/integrations/notion/authorize")).toBe(true);
+  });
+});
+
+describe("deep link from Add a source", () => {
+  it("asks to connect the provider named in ?connect=, then signs in", async () => {
+    search = "connect=linear";
+    mockApi();
+    const go = renderPage();
+    expect(await screen.findByText("Connect Linear")).toBeInTheDocument();
+    expect(screen.getByText(/choose what Slate may read/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Continue to sign in" }));
+    await vi.waitFor(() => expect(go).toHaveBeenCalledWith("https://linear.app/oauth/authorize?state=s"));
+  });
+
+  it("ignores providers that can't be connected here", async () => {
+    search = "connect=slack"; // coming soon in this fixture
+    mockApi();
+    renderPage();
+    await screen.findByText("Linear");
+    expect(screen.queryByText("Connect Slack")).toBeNull();
   });
 });

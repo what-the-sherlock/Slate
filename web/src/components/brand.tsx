@@ -94,6 +94,10 @@ const NAMES: Record<string, string> = {
   slack: "Slack",
 };
 
+// Official full-colour marks (Wikimedia Commons, checked for scripts and external links),
+// served from /public: simple-icons has only one-colour versions, and no Slack at all.
+const COLOR_LOGOS = new Set(["gmail", "googledrive", "googlecalendar", "slack"]);
+
 export function connectorName(connector: string): string {
   return NAMES[connector] ?? (ICONS as Record<string, SimpleIcon>)[connector]?.title ?? connector;
 }
@@ -102,7 +106,12 @@ export function ConnectorIcon({ connector, className }: { connector: ConnectorKe
   if (connector === "upload") {
     return <Upload className={cn("text-brand-strong", className)} aria-hidden="true" />;
   }
-  const icon = (ICONS as Record<string, SimpleIcon>)[ALIASES[connector] ?? connector];
+  const key = ALIASES[connector] ?? connector;
+  if (COLOR_LOGOS.has(key)) {
+    // eslint-disable-next-line @next/next/no-img-element -- a tiny static SVG; next/image adds nothing
+    return <img src={`/brand/logos/${key}.svg`} alt="" className={cn("object-contain", className)} aria-hidden="true" />;
+  }
+  const icon = (ICONS as Record<string, SimpleIcon>)[key];
   if (!icon) return <MessageSquare className={cn("text-fg-muted", className)} aria-hidden="true" />;
   return (
     <svg role="img" viewBox="0 0 24 24" className={className} fill={`#${icon.hex}`} aria-hidden="true">
