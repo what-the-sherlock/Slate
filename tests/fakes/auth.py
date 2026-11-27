@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 
+from core.domain.admin import AuthEventKind
 from core.domain.auth import CodeCheck, CodePurpose, Role
 from core.domain.emails import OutgoingEmail
 from core.domain.errors import Conflict, UpstreamUnavailable
@@ -95,6 +96,12 @@ class InMemoryAccounts:
 
     async def set_password(self, user_id: UserId, password_hash: str) -> None:
         self.users[user_id] = replace(self.users[user_id], password_hash=password_hash)
+
+    async def replace_password_hash(self, user_id: UserId, old: str, new: str) -> bool:
+        if self.users[user_id].password_hash != old:
+            return False
+        self.users[user_id] = replace(self.users[user_id], password_hash=new)
+        return True
 
     async def delete_unverified_before(self, cutoff: datetime) -> int:
         doomed = [
@@ -275,3 +282,27 @@ class FakeMailer:
     def last_code(self) -> str:
         """The 6-digit code from the most recent email (tests only)."""
         return self.sent[-1].subject.split()[0]
+
+
+class InMemoryAuthEvents:
+    """AuthEventLog fake: records (kind, user_id, actor_id); ``down`` simulates a DB error."""
+
+    def __init__(self, clock: FakeClock | None = None) -> None:
+        self.clock = clock or FakeClock()
+        self.rows: list[tuple[AuthEventKind, UserId | None, UserId | None, datetime]] = []
+        self.down = False
+
+    async def record(
+        self, kind: AuthEventKind, user_id: UserId | None, *, actor_id: UserId | None = None
+    ) -> None:
+        if self.down:
+            raise RuntimeError("db down")
+        self.rows.append((kind, user_id, actor_id, self.clock.now()))
+
+    async def delete_before(self, cutoff: datetime) -> int:
+        before = len(self.rows)
+        self.rows = [r for r in self.rows if r[3] >= cutoff]
+        return before - len(self.rows)
+
+    def kinds(self) -> list[AuthEventKind]:
+        return [r[0] for r in self.rows]

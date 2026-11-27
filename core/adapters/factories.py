@@ -30,6 +30,7 @@ from core.adapters.openai.chat import DEFAULT_MODEL as DEFAULT_CHAT_MODEL
 from core.adapters.openai.chat import OpenAIChatModel
 from core.adapters.openai.embedder import OpenAIEmbedder
 from core.adapters.parsers.formats import FormatParser
+from core.adapters.postgres.admin import PostgresAuthEventLog
 from core.adapters.postgres.auth import (
     PostgresAccountStore,
     PostgresCodeStore,
@@ -397,6 +398,7 @@ def auth_service(settings: Settings, uow: UnitOfWork) -> AuthService:
         human=human or missing,
         mailer=mailer or missing,
         clock=SystemClock(),
+        events=PostgresAuthEventLog(uow),
         policy=AuthPolicy(
             code_key=_code_key(settings),
             owner_email=settings.owner_email,

@@ -36,6 +36,7 @@ from core.adapters.factories import (
     s3_blob_store,
     workersai_embedder,
 )
+from core.adapters.postgres.admin import PostgresAuthEventLog
 from core.adapters.postgres.auth import PostgresAccountStore
 from core.adapters.postgres.documents import PostgresDocumentStore
 from core.adapters.postgres.engine import (
@@ -48,9 +49,11 @@ from core.adapters.postgres.jobs import PostgresJobQueue
 from core.adapters.postgres.sources import PostgresSourceStore
 from core.adapters.postgres.uow import UnitOfWork, make_uow
 from core.adapters.postgres.usage import PostgresGenerationStore, PostgresUsageLedger
+from core.adapters.system import SystemClock
 from core.config import Settings, get_settings
 from core.domain.github import CREDENTIAL_KIND as GITHUB_TOKEN
 from core.logs import configure_logging
+from core.services.admin import sweep_auth_events
 from core.services.backfill import BackfillReport, Provider, backfill_generation
 from core.services.connected import SYNC_CONNECTED
 from core.services.discord import SYNC_DISCORD
@@ -104,6 +107,10 @@ async def housekeeping(settings: Settings, uow: UnitOfWork) -> None:
         await sweep_unverified_accounts(PostgresAccountStore(uow), datetime.now(UTC))
     except Exception as e:
         log.warning("sweep_failed", sweep="unverified_accounts", error_type=type(e).__name__)
+    try:
+        await sweep_auth_events(PostgresAuthEventLog(uow), SystemClock())  # 90-day retention
+    except Exception as e:
+        log.warning("sweep_failed", sweep="auth_events", error_type=type(e).__name__)
     try:
         # Hourly: queue a sync for every repo whose interval has passed (ADR-0023).
         queued = await github_service(settings, uow).enqueue_due()

@@ -22,7 +22,9 @@ A permission-aware enterprise knowledge assistant, inspired by Onyx and Glean. I
 - **No Docker anywhere.** The dev laptop has under 10 GB free. No local Postgres and no local ML models. Develop against Neon branches.
 - **Vercel functions have a 300 s maximum.** The API does nothing long-running. Heavy work goes to the worker (GitHub Actions) through the `jobs` table.
 - **Neon compute budget is 100 CU-hours a month.** Don't add anything that keeps the database awake: no tight polling, and hourly cron by default.
-- **Single workspace in the UI**, but every table and query is scoped by `workspace_id`.
+- **Single workspace in the UI**, but every table and query is scoped by `workspace_id`. The only exceptions are
+  platform-level account tables (`users`, `auth_events`) and the platform admin console that reads them
+  (ADR-0042); they never hold or return workspace content.
 - **Cross-platform tooling.** The developer may be on Windows. Write scripts in Python or as package-manager scripts, never bash-only.
 
 ## Stack

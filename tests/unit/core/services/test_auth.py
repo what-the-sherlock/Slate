@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
 
+from core.domain.admin import AuthEventKind as K
 from core.domain.auth import (
     CODE_SENDS_PER_USER_PER_HOUR,
     CODE_TTL,
@@ -44,6 +46,7 @@ from tests.fakes.auth import (
     FakeHumanVerifier,
     FakeMailer,
     InMemoryAccounts,
+    InMemoryAuthEvents,
     InMemoryCodes,
     InMemorySessions,
     InMemoryThrottle,
@@ -67,6 +70,7 @@ class Env:
         self.rate = InMemoryRateLimiter(self.clock)
         self.human = FakeHumanVerifier()
         self.mailer = FakeMailer()
+        self.events = InMemoryAuthEvents(self.clock)
         self.auth = AuthService(
             accounts=self.accounts,
             sessions=self.sessions,
@@ -78,6 +82,7 @@ class Env:
             mailer=self.mailer,
             clock=self.clock,
             policy=AuthPolicy(code_key=b"k" * 32, **policy),  # type: ignore[arg-type]
+            events=self.events,
         )
 
     async def signup(self, req: SignupRequest = ADA, ip: str | None = "1.2.3.4") -> IssuedSession:
@@ -239,7 +244,7 @@ async def test_kill_switch_closes_signup_but_not_login() -> None:
     closed.accounts, closed.auth = env.accounts, AuthService(
         accounts=env.accounts, sessions=env.sessions, throttle=env.throttle, hasher=env.hasher,
         codes=env.codes, rate=env.rate, human=env.human, mailer=env.mailer, clock=env.clock,
-        policy=AuthPolicy(code_key=b"k" * 32, signups_enabled=False),
+        policy=AuthPolicy(code_key=b"k" * 32, signups_enabled=False), events=env.events,
     )  # fmt: skip
     with pytest.raises(PermissionDenied, match="closed"):
         await closed.signup(SignupRequest("B", "b@acme.dev", PASSWORD, human_token=HUMAN))
@@ -630,3 +635,82 @@ async def test_only_the_token_hash_is_stored(env: Env) -> None:
     stored = [row["token_hash"] for row in env.sessions.rows.values()]
     assert hash_token(token) in stored
     assert all(token.encode() != h for h in stored)
+
+
+# ------------------------------------------------------- auth events (ADR-0042)
+
+
+async def test_auth_flow_records_events_without_personal_data(env: Env) -> None:
+    issued = await env.signup()
+    await env.auth.verify_email(issued.identity, env.mailer.last_code(), ip="1.2.3.4")
+    with pytest.raises(Unauthenticated):
+        await env.auth.login("ada@acme.dev", "wrong password!!", ip="1.2.3.4", user_agent=None)
+    with pytest.raises(Unauthenticated):
+        await env.auth.login("nobody@acme.dev", PASSWORD, ip="1.2.3.4", user_agent=None)
+    session = await env.auth.login("ada@acme.dev", PASSWORD, ip="1.2.3.4", user_agent=None)
+    await env.auth.logout(session.identity)
+    uid = issued.identity.user_id
+    assert env.events.rows
+    assert [(k, u) for k, u, _, _ in env.events.rows] == [
+        (K.SIGNUP, uid),
+        (K.EMAIL_VERIFIED, uid),
+        (K.LOGIN_FAILED, uid),
+        (K.LOGIN_FAILED, None),
+        (K.LOGIN_SUCCESS, uid),
+        (K.LOGOUT, uid),
+    ]
+    # The port takes only kind, user and actor: no IP, email or user agent can be stored.
+    assert all(len(r) == 4 for r in env.events.rows)
+
+
+async def test_throttled_login_is_recorded(env: Env) -> None:
+    await env.signup()
+    for _ in range(MAX_FAILURES_PER_EMAIL_IP):
+        with pytest.raises(Unauthenticated):
+            await env.auth.login("ada@acme.dev", "nope nope nope", ip="9.9.9.9", user_agent=None)
+    with pytest.raises(RateLimited):
+        await env.auth.login("ada@acme.dev", PASSWORD, ip="9.9.9.9", user_agent=None)
+    assert env.events.kinds()[-1] is K.LOGIN_THROTTLED
+
+
+async def test_event_log_outage_never_blocks_sign_in(env: Env) -> None:
+    await env.signup()
+    env.events.down = True
+    assert await env.auth.login("ada@acme.dev", PASSWORD, ip="1.2.3.4", user_agent=None)
+
+
+async def test_outdated_hash_is_upgraded_on_sign_in(env: Env) -> None:
+    issued = await env.signup()
+    uid = issued.identity.user_id
+    env.hasher.needs_rehash = lambda h: h.startswith("fake$")  # type: ignore[method-assign]
+    env.hasher.hash = lambda p: f"new${p[::-1]}"  # type: ignore[method-assign]
+    env.hasher.verify = lambda h, p: h.endswith(p[::-1])  # type: ignore[method-assign]
+    await env.auth.login("ada@acme.dev", PASSWORD, ip="1.2.3.4", user_agent=None)
+    assert env.accounts.users[uid].password_hash.startswith("new$")
+
+
+async def test_rehash_never_undoes_a_concurrent_reset(env: Env) -> None:
+    issued = await env.signup()
+    uid = issued.identity.user_id
+    env.hasher.needs_rehash = lambda h: True  # type: ignore[method-assign]
+    real_hash = env.hasher.hash
+
+    def hash_and_race(p: str) -> str:
+        # A reset commits between sign-in's verify and its rehash write.
+        env.accounts.users[uid] = replace(env.accounts.users[uid], password_hash="reset$new")
+        return real_hash(p)
+
+    env.hasher.hash = hash_and_race  # type: ignore[method-assign]
+    await env.auth.login("ada@acme.dev", PASSWORD, ip="1.2.3.4", user_agent=None)
+    assert env.accounts.users[uid].password_hash == "reset$new"
+
+
+async def test_repeated_throttled_logins_store_one_event(env: Env) -> None:
+    await env.signup()
+    for _ in range(MAX_FAILURES_PER_EMAIL_IP):
+        with pytest.raises(Unauthenticated):
+            await env.auth.login("ada@acme.dev", "nope nope nope", ip="9.9.9.9", user_agent=None)
+    for _ in range(20):
+        with pytest.raises(RateLimited):
+            await env.auth.login("ada@acme.dev", PASSWORD, ip="9.9.9.9", user_agent=None)
+    assert env.events.kinds().count(K.LOGIN_THROTTLED) == 1

@@ -64,6 +64,11 @@ class AccountStore(Protocol):
 
     async def set_password(self, user_id: UserId, password_hash: str) -> None: ...
 
+    async def replace_password_hash(self, user_id: UserId, old: str, new: str) -> bool:
+        """Compare-and-set: store ``new`` only if the hash is still ``old``. Used by the
+        sign-in rehash, so a password reset that lands meanwhile is never undone."""
+        ...
+
     async def delete_unverified_before(self, cutoff: datetime) -> int:
         """Delete never-verified accounts created before ``cutoff``, with their personal
         workspaces (cascade). Returns how many accounts were deleted."""

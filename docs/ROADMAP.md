@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status:** M0–M7 complete (2026-11-27). **M8 answer quality code-complete** (2026-11-27, ADR-0031; owner steps below). **M9 integrations framework code-complete** (2026-11-27, ADR-0032). **M10 connected sources code-complete** (2026-11-27, ADR-0033; owner steps below).
+**Status:** M0–M7 complete (2026-11-27). **M8 answer quality code-complete** (2026-11-27, ADR-0031; owner steps below). **M9 integrations framework code-complete** (2026-11-27, ADR-0032). **M10 connected sources code-complete** (2026-11-27, ADR-0033; owner steps below). **Admin console code-complete** (2026-11-28, ADR-0042, owner-requested; owner steps below).
 
 **Chat redesign (2026-11-26, owner-requested, outside the milestone plan):** answer modes (general knowledge and small talk, ADR-0025), regenerate and edit by superseding (ADR-0024, migration 0005), GitHub sync retries failed items, `scripts/diagnose_sources.py`, and the redesigned Chat page (UI_DESIGN §4.3). Pending owner steps: run `alembic upgrade head` on prod, run `evals.answers` (paid) and record it in EVALS.md, and run the diagnosis script against prod for the 0-document repo.
 
@@ -112,6 +112,14 @@ Update this line and tick items as work completes. Only the current milestone is
 - [x] Planner kinds for the new sources
 - [ ] Owner: register the OAuth apps (`docs/INTEGRATIONS_SETUP.md`), set the secrets in Vercel, GitHub Secrets and `.env`; `alembic upgrade head` (0010) on test, `pytest -m integration`, then prod; connect each provider once and ask a question about it
 - Later: HubSpot (live), Slack threads and private channels, Drive PDFs/Sheets/Slides, Calendar as a live lookup
+
+### Admin console (owner-requested 2026-11-28, ADR-0042)
+- [x] Audit: sign-up, verification, sign-in, reset, Turnstile and rate limits already existed (ADR-0021), so nothing was rebuilt
+- [x] `auth_events` (migration 0014), recorded best-effort on sign-up, verification, sign-in (success, failure, throttled), sign-out and reset, with 90-day retention in the worker's housekeeping
+- [x] Sign-in rehashes when `needs_rehash` says so; disabling an account deletes its sessions
+- [x] `AdminService` and `/api/v1/admin/*`, which answer 404 to everyone except the verified `OWNER_EMAIL`; responses are allow-listed
+- [x] `/admin` page with three tabs: Overview (KPIs, sign-up trend, status breakdown), Users (search, filter, sort, disable/enable) and Security (failed sign-ins, events)
+- [ ] Owner: run `alembic upgrade head` (0014, 0015) and `uv run pytest -m integration` on the test branch, then upgrade prod. Sign in as `OWNER_EMAIL` and review UI_DESIGN §4.10
 
 ## Later phases (not in scope until the owner says so)
 

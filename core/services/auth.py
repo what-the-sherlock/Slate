@@ -30,6 +30,7 @@ from uuid import UUID
 
 import structlog
 
+from core.domain.admin import AuthEventKind
 from core.domain.auth import (
     CODE_CHECKS_PER_IP_PER_HOUR,
     CODE_DIGITS,
@@ -74,6 +75,7 @@ from core.domain.errors import (
 )
 from core.domain.ids import GroupId, UserId
 from core.domain.principals import Principals
+from core.ports.admin import AuthEventLog
 from core.ports.auth import (
     AccountStore,
     CodeStore,
@@ -152,6 +154,7 @@ class AuthService:
         mailer: EmailSender,
         clock: Clock,
         policy: AuthPolicy,
+        events: AuthEventLog,
     ) -> None:
         self._accounts = accounts
         self._sessions = sessions
@@ -163,6 +166,7 @@ class AuthService:
         self._mailer = mailer
         self._clock = clock
         self._policy = policy
+        self._events = events
         self._owner = canonical_email(policy.owner_email) if policy.owner_email else None
         self._setup_token = policy.setup_token or None
         # Precomputed so the first unknown-email login isn't measurably slower.
@@ -227,6 +231,7 @@ class AuthService:
         session = await self._issue(user_id, ip=ip, user_agent=user_agent)
         await self._try_send_code(user_id, email, name, CodePurpose.VERIFY_EMAIL)
         log.info("auth.signup", user_id=str(user_id))
+        await self._event(AuthEventKind.SIGNUP, user_id)
         return session
 
     def _check_owner_claim(self, canonical: str, setup_token: str) -> None:
@@ -274,6 +279,7 @@ class AuthService:
             raise ValidationFailed(message, extra={"fields": {"code": message}})
         await self._accounts.mark_email_verified(identity.user_id)
         log.info("auth.email_verified", user_id=str(identity.user_id))
+        await self._event(AuthEventKind.EMAIL_VERIFIED, identity.user_id)
         return replace(
             identity,
             email_verified=True,
@@ -286,7 +292,16 @@ class AuthService:
         self, email: str, password: str, *, ip: str | None, user_agent: str | None
     ) -> IssuedSession:
         email = normalise_email(email)
-        attempt = await self._reserve(email, ip, LOGIN_LIMITS)
+        try:
+            attempt = await self._reserve(email, ip, LOGIN_LIMITS)
+        except RateLimited:
+            # One event per IP per window: a script hammering a locked login must not turn
+            # every rejected request into a stored row. (An over-limit spend writes nothing.)
+            if await self._rate.try_spend(
+                f"event:throttled:{ip or UNKNOWN_IP}", 1, Limit(1, LOGIN_WINDOW)
+            ):
+                await self._event(AuthEventKind.LOGIN_THROTTLED, None)
+            raise
         user = (
             await self._accounts.find_user(canonical_email(email))
             if is_valid_email(email)
@@ -296,9 +311,13 @@ class AuthService:
         stored = user.password_hash if user else self._dummy_hash
         ok = await asyncio.to_thread(self._hasher.verify, stored, password)
         if not ok or user is None or user.disabled:
+            await self._event(AuthEventKind.LOGIN_FAILED, user.id if user else None)
             raise Unauthenticated(GENERIC_LOGIN_ERROR)  # the reserved attempt stays a failure
         await self._throttle.mark_success(attempt)
-        return await self._issue(user.id, ip=ip, user_agent=user_agent)
+        await self._upgrade_hash(user.id, user.password_hash, password)
+        session = await self._issue(user.id, ip=ip, user_agent=user_agent)
+        await self._event(AuthEventKind.LOGIN_SUCCESS, user.id)
+        return session
 
     async def authenticate(self, session_token: str | None) -> Identity | None:
         """Resolve a session cookie to an Identity, or None if absent, unknown or expired."""
@@ -313,6 +332,7 @@ class AuthService:
 
     async def logout(self, identity: Identity) -> None:
         await self._sessions.delete(identity.session_id)
+        await self._event(AuthEventKind.LOGOUT, identity.user_id)
 
     # ---------------------------------------------------------- password reset
 
@@ -357,6 +377,7 @@ class AuthService:
         await self._accounts.mark_email_verified(user.id)
         await self._sessions.delete_for_user(user.id)  # SECURITY.md: password change → sign out all
         log.info("auth.password_reset", user_id=str(user.id))
+        await self._event(AuthEventKind.PASSWORD_RESET, user.id)
 
     # ------------------------------------------------------------- maintenance
 
@@ -365,6 +386,27 @@ class AuthService:
         return await sweep_unverified_accounts(self._accounts, self._clock.now())
 
     # ----------------------------------------------------------------- helpers
+
+    async def _event(self, kind: AuthEventKind, user_id: UserId | None) -> None:
+        """Record a security event for the admin console (ADR-0042). Best effort: a
+        failed write is logged, never surfaced, so monitoring can't lock anyone out."""
+        try:
+            await self._events.record(kind, user_id)
+        except Exception as exc:
+            log.warning("auth.event_not_recorded", kind=kind.value, error=type(exc).__name__)
+
+    async def _upgrade_hash(self, user_id: UserId, stored: str, password: str) -> None:
+        """Rehash with current parameters when the stored hash uses older ones. Sign-in is
+        the only moment the plaintext is in hand, so upgrades happen here, silently."""
+        if not self._hasher.needs_rehash(stored):
+            return
+        try:
+            fresh = await asyncio.to_thread(self._hasher.hash, password)
+            # Compare-and-set: if a reset changed the hash since we verified, keep the reset.
+            if await self._accounts.replace_password_hash(user_id, stored, fresh):
+                log.info("auth.password_rehashed", user_id=str(user_id))
+        except Exception as exc:
+            log.warning("auth.rehash_failed", error=type(exc).__name__)
 
     async def _require_human(self, token: str, ip: str | None) -> None:
         if not token:

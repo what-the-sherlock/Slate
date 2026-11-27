@@ -4,6 +4,108 @@
  */
 
 export interface paths {
+    "/api/v1/admin/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent security events */
+        get: operations["events_api_v1_admin_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/failed-logins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Failed sign-ins per day */
+        get: operations["failed_logins_api_v1_admin_failed_logins_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Account totals and activity */
+        get: operations["overview_api_v1_admin_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/signups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sign-ups over time */
+        get: operations["signups_api_v1_admin_signups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Accounts on the platform */
+        get: operations["users_api_v1_admin_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Disable or re-enable an account */
+        patch: operations["set_status_api_v1_admin_users__user_id__patch"];
+        trace?: never;
+    };
     "/api/v1/auth/config": {
         parameters: {
             query?: never;
@@ -925,6 +1027,33 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** AdminUserOut */
+        AdminUserOut: {
+            /** Disabled */
+            disabled: boolean;
+            /** Email */
+            email: string;
+            /** Email Verified */
+            email_verified: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Joined At
+             * Format: date-time
+             */
+            joined_at: string;
+            /** Last Active At */
+            last_active_at: string | null;
+            /** Name */
+            name: string;
+            /** Workspaces */
+            workspaces: number;
+            /** You */
+            you: boolean;
+        };
         /** AnswerSourceOut */
         AnswerSourceOut: {
             /** Author */
@@ -969,6 +1098,25 @@ export interface components {
              * @description Public Cloudflare Turnstile site key; None when no widget is needed (dev).
              */
             turnstile_site_key: string | null;
+        };
+        /** AuthEventOut */
+        AuthEventOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "signup" | "email_verified" | "login_success" | "login_failed" | "login_throttled" | "logout" | "password_reset" | "account_disabled" | "account_enabled";
+            /** User Email */
+            user_email: string | null;
+            /** User Id */
+            user_id: string | null;
         };
         /** AuthorizeOut */
         AuthorizeOut: {
@@ -1385,6 +1533,13 @@ export interface components {
              */
             v: 1;
         };
+        /** EventPageOut */
+        EventPageOut: {
+            /** Items */
+            items: components["schemas"]["AuthEventOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
         /** FeedbackBody */
         FeedbackBody: {
             /** Comment */
@@ -1763,6 +1918,31 @@ export interface components {
              */
             v: 1;
         };
+        /** OverviewOut */
+        OverviewOut: {
+            /** Active 30D */
+            active_30d: number;
+            /** Active 7D */
+            active_7d: number;
+            /** Disabled */
+            disabled: number;
+            /** Failed Logins 24H */
+            failed_logins_24h: number;
+            /** New 30D */
+            new_30d: number;
+            /** New 7D */
+            new_7d: number;
+            /** New Prev 7D */
+            new_prev_7d: number;
+            /** New Today */
+            new_today: number;
+            /** Total */
+            total: number;
+            /** Unverified */
+            unverified: number;
+            /** Verified */
+            verified: number;
+        };
         /** PresignedPost */
         PresignedPost: {
             /**
@@ -1961,6 +2141,26 @@ export interface components {
              */
             notices: string[];
         };
+        /** SeriesOut */
+        SeriesOut: {
+            /**
+             * Bucket
+             * @enum {string}
+             */
+            bucket: "day" | "week" | "month";
+            /** Points */
+            points: components["schemas"]["SeriesPointOut"][];
+        };
+        /** SeriesPointOut */
+        SeriesPointOut: {
+            /** Count */
+            count: number;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+        };
         /** ShareBody */
         ShareBody: {
             /**
@@ -2131,6 +2331,20 @@ export interface components {
              */
             v: 1;
         };
+        /** UserPageOut */
+        UserPageOut: {
+            /** Items */
+            items: components["schemas"]["AdminUserOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Total */
+            total: number;
+        };
+        /** UserStatusBody */
+        UserStatusBody: {
+            /** Disabled */
+            disabled: boolean;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -2180,6 +2394,194 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    events_api_v1_admin_events_get: {
+        parameters: {
+            query?: {
+                kind?: ("signup" | "email_verified" | "login_success" | "login_failed" | "login_throttled" | "logout" | "password_reset" | "account_disabled" | "account_enabled") | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventPageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    failed_logins_api_v1_admin_failed_logins_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overview_api_v1_admin_overview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverviewOut"];
+                };
+            };
+        };
+    };
+    signups_api_v1_admin_signups_get: {
+        parameters: {
+            query?: {
+                /** @description 30, 90 or 365 */
+                days?: number;
+                bucket?: ("day" | "week" | "month") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    users_api_v1_admin_users_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                status?: "all" | "verified" | "unverified" | "disabled" | "active" | "inactive";
+                sort?: "joined" | "last_active" | "email";
+                order?: "asc" | "desc";
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_status_api_v1_admin_users__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserStatusBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     auth_config_api_v1_auth_config_get: {
         parameters: {
             query?: never;

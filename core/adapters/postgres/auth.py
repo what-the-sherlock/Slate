@@ -93,6 +93,8 @@ _CREATE_SESSION = (
     "  RETURNING *"
     "), gc AS ("
     "  DELETE FROM sessions WHERE expires_at < now() - interval '1 day'"
+    "), seen AS ("  # signing in is activity (ADR-0042); same statement, no extra trip
+    "  UPDATE users SET last_active_at = now() WHERE id = :u"
     ") " + _RESOLVE_SESSION.format(source="s_new", where="true")
 )
 
@@ -176,6 +178,19 @@ class PostgresAccountStore:
                 {"u": user_id, "h": password_hash},
             )
 
+    async def replace_password_hash(self, user_id: UserId, old: str, new: str) -> bool:
+        async with self._uow() as s:
+            row = (
+                await s.execute(
+                    text(
+                        "UPDATE users SET password_hash = :new"
+                        " WHERE id = :u AND password_hash = :old RETURNING id"
+                    ),
+                    {"u": user_id, "old": old, "new": new},
+                )
+            ).first()
+        return row is not None
+
     async def delete_unverified_before(self, cutoff: datetime) -> int:
         async with self._uow() as s:
             rows = (await s.execute(text(_DELETE_UNVERIFIED), {"cutoff": cutoff})).all()
@@ -217,8 +232,12 @@ class PostgresSessionStore:
         async with self._uow() as s:
             await s.execute(
                 text(
-                    "UPDATE sessions SET last_seen_at = now(),"
+                    # One statement: slide the session and record the user's activity
+                    # (users.last_active_at outlives the session, ADR-0042).
+                    "WITH s AS (UPDATE sessions SET last_seen_at = now(),"
                     " expires_at = now() + make_interval(secs => :ttl) WHERE id = :id"
+                    " RETURNING user_id)"
+                    " UPDATE users SET last_active_at = now() FROM s WHERE users.id = s.user_id"
                 ),
                 {"id": session_id, "ttl": ttl.total_seconds()},
             )

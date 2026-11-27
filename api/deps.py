@@ -31,6 +31,7 @@ from core.adapters.factories import (
     worker_trigger,
 )
 from core.adapters.github.dispatch import NoWorkerTrigger
+from core.adapters.postgres.admin import PostgresAdminStore, PostgresAuthEventLog
 from core.adapters.postgres.auth import PostgresSessionStore
 from core.adapters.postgres.catalog import PostgresCatalog
 from core.adapters.postgres.chat import PostgresChatStore
@@ -47,6 +48,7 @@ from core.domain.integrations import provider
 from core.ports.chat import ChatStore
 from core.ports.jobs import WorkerTrigger
 from core.ports.system import HealthProbe
+from core.services.admin import AdminService
 from core.services.answer import AnswerService
 from core.services.auth import AuthService
 from core.services.catalog import CatalogService
@@ -88,6 +90,13 @@ class Container:
     # caller doesn't pass one (tests).
     actions: SourceActions | None = None
     trigger: WorkerTrigger = field(default_factory=NoWorkerTrigger)  # ADR-0035
+    admin: AdminService | None = None  # ADR-0042: platform admin console
+
+    @property
+    def admin_service(self) -> AdminService:
+        if self.admin is None:
+            raise RuntimeError("Container.admin is not wired")
+        return self.admin
 
     @property
     def workspaces_service(self) -> WorkspaceService:
@@ -152,6 +161,13 @@ def get_container() -> Container:
             app_url=settings.app_url,
         ),
         trigger=trigger,
+        admin=AdminService(
+            PostgresAdminStore(uow),
+            PostgresAuthEventLog(uow),
+            PostgresSessionStore(uow),
+            SystemClock(),
+            owner_email=settings.owner_email,
+        ),
         actions=SourceActions(
             PostgresSourceStore(uow),
             {

@@ -15,6 +15,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from core.adapters.postgres.admin import PostgresAuthEventLog
 from core.adapters.postgres.auth import (
     PostgresAccountStore,
     PostgresCodeStore,
@@ -76,6 +77,7 @@ def service(uow: UnitOfWork, mailer: FakeMailer | None = None) -> AuthService:
         mailer=mailer or FakeMailer(),
         clock=SystemClock(),
         policy=AuthPolicy(code_key=KEY),
+        events=PostgresAuthEventLog(uow),
     )
 
 

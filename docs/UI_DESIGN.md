@@ -676,6 +676,30 @@ One place to connect accounts. Sidebar item "Integrations" (`blocks` icon) after
 - **Callback page** (`/integrations/callback`): "Finishing the sign-in…" with a spinner, then back to Integrations with the toast "Connected ada@kestrel.example". Failures are an inline danger alert with "Back to Integrations": "Nothing was connected" (cancelled at the provider), "This sign-in link has expired" (no pending sign-in in this tab), or "Couldn't finish connecting" plus the server's message.
 - **Loading:** 8 skeleton rows of the real size. **Empty filter results:** one centred `caption` line ("Nothing needs signing in again.", "You haven't connected anything yet.", "No integrations match "x"."). **Viewers** see the list without actions.
 
+### 4.10 Admin (ADR-0042; platform admin only)
+
+- **Who sees it:** only the verified `OWNER_EMAIL` account. The sidebar link (`shield-check`) sits in the bottom group beside System status, because both pages cover the whole platform, not the current workspace. Anyone else who opens `/admin` gets the plain "Page not found" empty state, the same as for any unknown address.
+- **Header:** the title "Admin", with the description "Accounts across Slate. Nobody's documents or chats are shown here." Below it is a tab row in Integrations' segmented style: Overview, Users and Security. The current tab is kept in `?tab=`.
+- **Overview:**
+  - A KPI row in the panel grammar (§3.7): Accounts (with new today), New this week (with the change from the week before), Verified % (with n of total) and Active, 7 days (with the 30-day count). The Active tooltip says it is accurate to about 5 minutes.
+  - A 2:1 row. On the left, Sign-ups as a column chart with a 30 days / 90 days / 12 months toggle, bucketed by day, week and month. On the right, Account status as one stacked bar with a labelled legend: verified, unverified and disabled, which add up to the total. Below it, a line mentions the 48-hour cleanup of unverified accounts and the failed sign-ins in the last 24 hours.
+- **Charts** (dataviz guidance, no chart library):
+  - Each chart has one series, so there's no legend; the panel label names it.
+  - Columns have 2 px gaps and 4 px rounded tops on the baseline, over a recessive three-tick grid.
+  - Hovering a column shows its tooltip and dims the others. "Show table" gives the exact figures.
+  - Sign-ups use `--accent`. Failed sign-ins use `--danger`, because that is a status meaning.
+- **Users:**
+  - A toolbar with search (name or email, debounced 250 ms), a "Show" select (All, Active, Inactive, Verified, Unverified, Disabled) and the matching count.
+  - A full-bleed table like Sources, with the columns Account (name, then email), Status pill, Joined, Last active ("Never" when there is none), Workspaces, and Disable or Re-enable.
+  - The Account, Joined and Last active headers sort (`aria-sort`). Your own row has no action.
+  - A confirm dialog says what will happen ("signed out everywhere straight away … nothing is deleted").
+  - "Load more" fetches 25 rows at a time.
+- **Security:**
+  - A short failed-sign-ins chart covering 30 days.
+  - Recent events: each row has a kind pill, the account's email, and the relative time with an absolute tooltip. In place of the email, an unknown address shows "No matching account" and a removed one shows "Deleted account".
+  - A type filter and "Load more".
+- **States:** skeletons sized like the content, an empty state for each filter, and an inline error with Retry. When the range or a filter changes, the old data stays visible, dimmed, until the new data arrives.
+
 ## 5. Thinking orbs
 
 - Package: `thinking-orbs` (MIT, zero dependencies, 2D canvas, SSR-safe, pauses offscreen and in hidden tabs, renders a static frame under reduced motion). Wrap it once in `web/src/components/thinking-orb.tsx` (a client component), so the rest of the app never imports the package directly and it can be swapped.

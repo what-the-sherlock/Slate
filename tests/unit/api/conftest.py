@@ -15,6 +15,7 @@ from core.config import Settings
 from core.domain.budget import SpendLimits
 from core.domain.integrations import REGISTRY
 from core.ports.integrations import ClientCredentials
+from core.services.admin import AdminService
 from core.services.answer import AnswerService
 from core.services.auth import AuthPolicy, AuthService
 from core.services.catalog import CatalogService
@@ -26,11 +27,13 @@ from core.services.search import SearchService
 from core.services.source_actions import ConnectorEntry, SourceActions
 from core.services.uploads import UploadService
 from core.services.workspaces import WorkspaceService
+from tests.fakes.admin import InMemoryAdminStore
 from tests.fakes.auth import (
     FakeHasher,
     FakeHumanVerifier,
     FakeMailer,
     InMemoryAccounts,
+    InMemoryAuthEvents,
     InMemoryCodes,
     InMemorySessions,
     InMemoryThrottle,
@@ -82,8 +85,30 @@ def sessions(accounts: InMemoryAccounts, auth_clock: FakeClock) -> InMemorySessi
     return InMemorySessions(accounts, auth_clock)
 
 
+ADMIN_EMAIL = "admin@slate.test"  # the platform admin (OWNER_EMAIL) in API tests
+
+
+@pytest.fixture
+def auth_events(auth_clock: FakeClock) -> InMemoryAuthEvents:
+    return InMemoryAuthEvents(auth_clock)
+
+
+@pytest.fixture
+def admin(
+    accounts: InMemoryAccounts,
+    sessions: InMemorySessions,
+    auth_events: InMemoryAuthEvents,
+    auth_clock: FakeClock,
+) -> AdminService:
+    return AdminService(
+        InMemoryAdminStore(accounts, sessions, auth_events), auth_events, sessions, auth_clock,
+        owner_email=ADMIN_EMAIL,
+    )  # fmt: skip
+
+
 @pytest.fixture
 def auth(
+    auth_events: InMemoryAuthEvents,
     mailer: FakeMailer,
     human: FakeHumanVerifier,
     accounts: InMemoryAccounts,
@@ -101,7 +126,8 @@ def auth(
         human=human,
         mailer=mailer,
         clock=clock,
-        policy=AuthPolicy(code_key=b"k" * 32),
+        policy=AuthPolicy(code_key=b"k" * 32, owner_email=ADMIN_EMAIL),
+        events=auth_events,
     )
 
 
@@ -255,6 +281,7 @@ def app(
     chats: InMemoryChatStore,
     integrations: IntegrationService,
     worker_trigger: FakeWorkerTrigger,
+    admin: AdminService,
 ) -> FastAPI:
     application = create_app()
     container = Container(
@@ -273,6 +300,7 @@ def app(
         workspaces=workspaces,
         integrations=integrations,
         trigger=worker_trigger,
+        admin=admin,
         actions=SourceActions(
             source_store,
             {

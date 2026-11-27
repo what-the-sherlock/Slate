@@ -28,6 +28,12 @@ export const keys = {
   invites: ["invites"] as const,
   activity: ["activity"] as const,
   integrations: ["integrations"] as const,
+  admin: ["admin"] as const,
+  adminOverview: ["admin", "overview"] as const,
+  adminSignups: (days: AdminRange) => ["admin", "signups", days] as const,
+  adminFailed: ["admin", "failed-logins"] as const,
+  adminUsers: (f: AdminUserFilters) => ["admin", "users", f] as const,
+  adminEvents: (kind: AdminEventKind | null) => ["admin", "events", kind] as const,
 };
 
 /** The signed-in user, or null when signed out (401 is an answer, not an error). */
@@ -235,5 +241,83 @@ export function useIntegrations() {
     queryKey: keys.integrations,
     queryFn: async () => unwrap(await api.GET("/api/v1/integrations")),
     staleTime: 30_000,
+  });
+}
+
+// ------------------------------------------------------------ admin console (ADR-0042)
+
+export type AdminOverview = components["schemas"]["OverviewOut"];
+export type AdminUser = components["schemas"]["AdminUserOut"];
+export type AdminEvent = components["schemas"]["AuthEventOut"];
+export type AdminEventKind = AdminEvent["kind"];
+export type AdminRange = 30 | 90 | 365;
+export type AdminUserStatus = "all" | "verified" | "unverified" | "disabled" | "active" | "inactive";
+export type AdminUserSort = "joined" | "last_active" | "email";
+export type AdminUserFilters = { q: string; status: AdminUserStatus; sort: AdminUserSort; order: "asc" | "desc" };
+
+const ADMIN_PAGE = 25;
+
+export function useAdminOverview() {
+  return useQuery({
+    queryKey: keys.adminOverview,
+    queryFn: async () => unwrap(await api.GET("/api/v1/admin/overview")),
+    staleTime: 60_000,
+  });
+}
+
+export function useAdminSignups(days: AdminRange) {
+  return useQuery({
+    queryKey: keys.adminSignups(days),
+    queryFn: async () => unwrap(await api.GET("/api/v1/admin/signups", { params: { query: { days } } })),
+    staleTime: 60_000,
+    placeholderData: keepPreviousData, // switching range keeps the old bars until the new ones land
+  });
+}
+
+export function useAdminFailedLogins() {
+  return useQuery({
+    queryKey: keys.adminFailed,
+    queryFn: async () => unwrap(await api.GET("/api/v1/admin/failed-logins", { params: { query: { days: 30 } } })),
+    staleTime: 60_000,
+  });
+}
+
+export function useAdminUsers(f: AdminUserFilters) {
+  return useInfiniteQuery({
+    queryKey: keys.adminUsers(f),
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) =>
+      unwrap(
+        await api.GET("/api/v1/admin/users", {
+          params: { query: { ...f, limit: ADMIN_PAGE, ...(pageParam ? { cursor: pageParam } : {}) } },
+        }),
+      ),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: keepPreviousData, // typing in search doesn't blank the table
+  });
+}
+
+export function useAdminEvents(kind: AdminEventKind | null) {
+  return useInfiniteQuery({
+    queryKey: keys.adminEvents(kind),
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) =>
+      unwrap(
+        await api.GET("/api/v1/admin/events", {
+          params: { query: { ...(kind ? { kind } : {}), ...(pageParam ? { cursor: pageParam } : {}) } },
+        }),
+      ),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Disable or re-enable an account; refreshes every admin view on success. */
+export function useSetUserDisabled() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, disabled }: { id: string; disabled: boolean }) =>
+      unwrap(await api.PATCH("/api/v1/admin/users/{user_id}", { params: { path: { user_id: id } }, body: { disabled } })),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.admin }),
   });
 }

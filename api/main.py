@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from api.errors import install_error_handlers
 from api.middleware import RequestIdMiddleware
 from api.routers import (
+    admin,
     auth,
     chat,
     discord,
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(mail.router, prefix=API_PREFIX)
     app.include_router(workspaces.router, prefix=API_PREFIX)
     app.include_router(integrations.router, prefix=API_PREFIX)
+    app.include_router(admin.router, prefix=API_PREFIX)
     app.add_middleware(RequestIdMiddleware)
     return app
 

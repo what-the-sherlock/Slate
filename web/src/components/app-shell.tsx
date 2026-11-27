@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Activity, Blocks, ChevronsLeft, House, LogOut, Menu, MessageSquare, Plug, Search, SquarePen, Users, X, type LucideIcon } from "lucide-react";
+import { Activity, Blocks, ChevronsLeft, House, LogOut, Menu, MessageSquare, Plug, Search, ShieldCheck, SquarePen, Users, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -170,6 +170,11 @@ function SidebarContent({
 
       <div className="shrink-0 space-y-0.5 border-t border-border px-2 py-3">
         <NavLink href="/status" label="System status" icon={Activity} active={isActive("/status")} collapsed={collapsed} onNavigate={onNavigate} />
+        {/* Platform-wide, not part of a workspace, so it sits with System status. Hiding the
+            link is only courtesy: the API answers 404 to everyone else (ADR-0042). */}
+        {me.is_platform_admin ? (
+          <NavLink href="/admin" label="Admin" icon={ShieldCheck} active={isActive("/admin")} collapsed={collapsed} onNavigate={onNavigate} />
+        ) : null}
         <Account me={me} collapsed={collapsed} />
         {onCollapsedChange ? (
           <button
