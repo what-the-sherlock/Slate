@@ -44,7 +44,7 @@ jobs:
       MONTHLY_LLM_BUDGET_USD: "5"
       EMBEDDER: ${{ inputs.embedder }} # via env, never interpolated into a script
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
