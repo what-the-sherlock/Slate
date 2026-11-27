@@ -138,6 +138,7 @@ class AuthPolicy:
     setup_token: str | None = None
     setup_token_required: bool = False  # prod: refuse OWNER_EMAIL sign-up without a token
     signups_enabled: bool = True  # kill switch (SIGNUPS_ENABLED)
+    app_url: str | None = None  # for the logo in HTML emails (APP_URL)
 
 
 class AuthService:
@@ -460,7 +461,9 @@ class AuthService:
         await self._codes.replace(
             user_id, purpose, hash_code(self._policy.code_key, user_id, purpose, code), CODE_TTL
         )
-        await self._mailer.send(code_email(to, name, code, purpose))  # never log `code`
+        await self._mailer.send(
+            code_email(to, name, code, purpose, app_url=self._policy.app_url)
+        )  # never log `code`
 
     async def _try_send_code(
         self, user_id: UserId, to: str, name: str, purpose: CodePurpose

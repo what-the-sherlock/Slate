@@ -321,3 +321,18 @@ export function useSetUserDisabled() {
     onSuccess: () => client.invalidateQueries({ queryKey: keys.admin }),
   });
 }
+
+/** Permanently delete an account (the admin types its email to confirm). */
+export function useDeleteUser() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, confirmEmail }: { id: string; confirmEmail: string }) => {
+      const r = await api.POST("/api/v1/admin/users/{user_id}/delete", {
+        params: { path: { user_id: id } },
+        body: { confirm_email: confirmEmail },
+      });
+      if (!r.response.ok) unwrap(r);
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.admin }),
+  });
+}

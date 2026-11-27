@@ -84,7 +84,7 @@ export function SecurityPanel() {
                 <li key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
                   <Pill variant={EVENT_TONE[e.kind]}>{EVENT_LABEL[e.kind]}</Pill>
                   <span className="min-w-0 flex-1 truncate text-body text-fg" title={e.user_email ?? undefined}>
-                    {e.user_email ?? <span className="text-fg-subtle">{e.user_id ? "Deleted account" : "No matching account"}</span>}
+                    {e.user_email ?? <span className="text-fg-subtle">{e.kind === "account_deleted" || e.user_id ? "Deleted account" : "No matching account"}</span>}
                   </span>
                   <time dateTime={e.at} title={absoluteTime(e.at)} className="text-caption text-fg-subtle">
                     {relativeTime(e.at)}

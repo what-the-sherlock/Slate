@@ -17,7 +17,7 @@ from uuid import UUID
 import structlog
 
 from core.domain.auth import Identity, Role, canonical_email
-from core.domain.emails import OutgoingEmail
+from core.domain.emails import OutgoingEmail, invite_email_html
 from core.domain.errors import (
     Conflict,
     NotFound,
@@ -147,8 +147,12 @@ class WorkspaceService:
         subject, body = invite_email_text(
             inviter=identity.name, workspace=name, link=link, role=role
         )
+        page = invite_email_html(
+            inviter=identity.name.strip()[:60] or "Someone", workspace=name.strip()[:80],
+            role=role.value, link=link, days=INVITE_TTL.days, app_url=self._app_url,
+        )  # fmt: skip
         try:
-            await self._mailer.send(OutgoingEmail(to=to, subject=subject, text=body))
+            await self._mailer.send(OutgoingEmail(to=to, subject=subject, text=body, html=page))
         except UpstreamUnavailable:
             log.warning("workspace.invite_mail_failed")
             return False

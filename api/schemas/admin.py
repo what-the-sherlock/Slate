@@ -7,11 +7,11 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 EventKind = Literal[
     "signup", "email_verified", "login_success", "login_failed", "login_throttled",
-    "logout", "password_reset", "account_disabled", "account_enabled",
+    "logout", "password_reset", "account_disabled", "account_enabled", "account_deleted",
 ]  # fmt: skip
 
 
@@ -68,6 +68,10 @@ class AuthEventOut(BaseModel):
 class EventPageOut(BaseModel):
     items: list[AuthEventOut]
     next_cursor: str | None
+
+
+class DeleteUserBody(BaseModel):
+    confirm_email: str = Field(min_length=3, max_length=320)
 
 
 class UserStatusBody(BaseModel):

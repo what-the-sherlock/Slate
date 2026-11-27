@@ -96,3 +96,33 @@ def test_query_validation(client: TestClient, mailer: FakeMailer) -> None:
     assert client.get("/api/v1/admin/users?status=root").status_code == 422
     assert client.get("/api/v1/admin/users?limit=500").status_code == 422
     assert client.get("/api/v1/admin/users?cursor=abc").status_code == 422
+
+
+def test_delete_account_then_sign_up_again(client: TestClient, mailer: FakeMailer) -> None:
+    sign_up(client, mailer, email="bob@acme.dev")
+    headers = sign_up(client, mailer, email=ADMIN_EMAIL)
+    users = client.get("/api/v1/admin/users").json()["items"]
+    bob = next(u for u in users if u["email"] == "bob@acme.dev")
+    path = f"/api/v1/admin/users/{bob['id']}/delete"
+    assert client.post(path, json={"confirm_email": "bob@acme.dev"}).status_code == 403  # CSRF
+    assert (
+        client.post(path, json={"confirm_email": "nope@acme.dev"}, headers=headers).status_code
+        == 422
+    )
+    assert (
+        client.post(path, json={"confirm_email": "bob@acme.dev"}, headers=headers).status_code
+        == 204
+    )
+    kinds = [e["kind"] for e in client.get("/api/v1/admin/events").json()["items"]]
+    assert kinds[0] == "account_deleted"
+    client.cookies.clear()
+    sign_up(client, mailer, email="bob@acme.dev")  # the address is free again
+
+
+def test_ordinary_user_cannot_delete(client: TestClient, mailer: FakeMailer) -> None:
+    headers = sign_up(client, mailer, email="bob@acme.dev")
+    r = client.post(
+        "/api/v1/admin/users/00000000-0000-0000-0000-000000000000/delete",
+        json={"confirm_email": "x@acme.dev"}, headers=headers,
+    )  # fmt: skip
+    assert r.status_code == 404

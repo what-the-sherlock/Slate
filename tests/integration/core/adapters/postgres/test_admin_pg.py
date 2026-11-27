@@ -127,3 +127,35 @@ async def test_disable_events_and_retention(uow: UnitOfWork, run: Run) -> None:
             {"u": uid},
         )
     assert await events.delete_before(datetime.now(UTC) - timedelta(days=90)) >= 1
+
+
+async def test_delete_user_cascades_and_blocks_shared_owner(uow: UnitOfWork, run: Run) -> None:
+    from core.domain.admin import DeleteOutcome
+
+    store = PostgresAdminStore(uow)
+    gone = await _user(uow, run.email("gone"))
+    host = await _user(uow, run.email("host"))
+    guest = await _user(uow, run.email("guest"))
+    async with uow() as s:
+        ws = (
+            await s.execute(
+                text("SELECT workspace_id FROM memberships WHERE user_id = :u"), {"u": host}
+            )
+        ).scalar_one()
+        await s.execute(
+            text("INSERT INTO memberships (workspace_id, user_id, role) VALUES (:w, :u, 'member')"),
+            {"w": ws, "u": guest},
+        )
+    assert await store.delete_user(host, actor_id=gone) is DeleteOutcome.OWNS_SHARED_WORKSPACE
+    assert await store.get_user(host) is not None  # nothing changed
+    # A guest can be deleted: their membership in host's workspace goes, host's stays.
+    assert await store.delete_user(guest, actor_id=host) is DeleteOutcome.DELETED
+    assert await store.get_user(guest) is None
+    assert await store.delete_user(host, actor_id=gone) is DeleteOutcome.DELETED
+    async with uow() as s:
+        left = (
+            await s.execute(text("SELECT count(*) FROM workspaces WHERE id = :w"), {"w": ws})
+        ).scalar_one()
+    assert left == 0
+    assert await store.delete_user(host, actor_id=gone) is DeleteOutcome.NOT_FOUND
+    assert await store.delete_user(gone, actor_id=gone) is DeleteOutcome.DELETED

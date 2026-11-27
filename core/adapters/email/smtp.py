@@ -86,4 +86,6 @@ def _build(sender: str, email: OutgoingEmail) -> EmailMessage:
     message["Message-ID"] = make_msgid(domain="slate.local")
     message["Auto-Submitted"] = "auto-generated"  # RFC 3834: don't auto-reply to this
     message.set_content(email.text)
+    if email.html:  # multipart/alternative: clients that block HTML show the text part
+        message.add_alternative(email.html, subtype="html")
     return message

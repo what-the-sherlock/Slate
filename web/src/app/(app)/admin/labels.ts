@@ -12,6 +12,7 @@ export const EVENT_LABEL: Record<AdminEventKind, string> = {
   password_reset: "Reset password",
   account_disabled: "Account disabled",
   account_enabled: "Account re-enabled",
+  account_deleted: "Account deleted",
 };
 
 export const EVENT_TONE: Record<AdminEventKind, PillVariant> = {
@@ -24,6 +25,7 @@ export const EVENT_TONE: Record<AdminEventKind, PillVariant> = {
   password_reset: "neutral",
   account_disabled: "danger",
   account_enabled: "success",
+  account_deleted: "danger",
 };
 
 /** One status per account, most important first: disabled beats unverified. */

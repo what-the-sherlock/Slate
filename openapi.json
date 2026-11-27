@@ -352,7 +352,8 @@
               "logout",
               "password_reset",
               "account_disabled",
-              "account_enabled"
+              "account_enabled",
+              "account_deleted"
             ],
             "title": "Kind",
             "type": "string"
@@ -1000,6 +1001,21 @@
           "connected_at"
         ],
         "title": "ConnectionOut",
+        "type": "object"
+      },
+      "DeleteUserBody": {
+        "properties": {
+          "confirm_email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Confirm Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm_email"
+        ],
+        "title": "DeleteUserBody",
         "type": "object"
       },
       "DiscordChannelOut": {
@@ -3438,7 +3454,8 @@
                     "logout",
                     "password_reset",
                     "account_disabled",
-                    "account_enabled"
+                    "account_enabled",
+                    "account_deleted"
                   ],
                   "type": "string"
                 },
@@ -3807,6 +3824,52 @@
           }
         },
         "summary": "Disable or re-enable an account",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{user_id}/delete": {
+      "post": {
+        "operationId": "delete_user_api_v1_admin_users__user_id__delete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteUserBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Permanently delete an account and everything it owns",
         "tags": [
           "admin"
         ]

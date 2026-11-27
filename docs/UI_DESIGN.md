@@ -693,6 +693,7 @@ One place to connect accounts. Sidebar item "Integrations" (`blocks` icon) after
   - A full-bleed table like Sources, with the columns Account (name, then email), Status pill, Joined, Last active ("Never" when there is none), Workspaces, and Disable or Re-enable.
   - The Account, Joined and Last active headers sort (`aria-sort`). Your own row has no action.
   - A confirm dialog says what will happen ("signed out everywhere straight away … nothing is deleted").
+  - **Delete** (red, beside Disable/Re-enable, which are neutral and fixed width so Delete lines up): a dialog lists what is deleted, says it can't be undone and that the email can sign up again, and enables "Delete account" only once the account's email is typed. The "owns a shared workspace" refusal shows inside the dialog. In the event feed a deleted account reads "Deleted account".
   - "Load more" fetches 25 rows at a time.
 - **Security:**
   - A short failed-sign-ins chart covering 30 days.

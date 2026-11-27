@@ -11,6 +11,7 @@ from core.domain.admin import (
     AuthEvent,
     AuthEventKind,
     Bucket,
+    DeleteOutcome,
     Overview,
     UserSort,
     UserStatus,
@@ -152,6 +153,27 @@ class InMemoryAdminStore:
         rows = [e for e in rows if (kind is None or e.kind is kind)]
         rows = [e for e in rows if before_id is None or e.id < before_id]
         return sorted(rows, key=lambda e: e.id, reverse=True)[:limit]
+
+    async def delete_user(self, user_id: UserId, *, actor_id: UserId) -> DeleteOutcome:
+        acc = self._accounts
+        if user_id not in acc.users:
+            return DeleteOutcome.NOT_FOUND
+        own = acc.members.get(user_id)
+        if own is not None and own.role.value == "owner":
+            others = [
+                u
+                for u, m in acc.members.items()
+                if u != user_id and m.workspace_id == own.workspace_id
+            ] + [u for u, extra in acc.extra.items() if own.workspace_id in extra]
+            if others:
+                return DeleteOutcome.OWNS_SHARED_WORKSPACE
+            acc.workspaces.pop(own.workspace_id, None)
+        for table in (acc.users, acc.canonical, acc.created_at, acc.groups, acc.members, acc.extra):
+            table.pop(user_id, None)
+        for sid in [k for k, r in self._sessions.rows.items() if r["user_id"] == user_id]:
+            del self._sessions.rows[sid]
+        await self._events.record(AuthEventKind.ACCOUNT_DELETED, None, actor_id=actor_id)
+        return DeleteOutcome.DELETED
 
     async def set_disabled(self, user_id: UserId, disabled: bool, *, actor_id: UserId) -> bool:
         rec = self._accounts.users.get(user_id)

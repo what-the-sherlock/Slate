@@ -405,6 +405,7 @@ def auth_service(settings: Settings, uow: UnitOfWork) -> AuthService:
             setup_token=settings.setup_token.get_secret_value() if settings.setup_token else None,
             setup_token_required=settings.env is not Env.DEV,  # any reachable env
             signups_enabled=settings.signups_enabled and ready,
+            app_url=settings.app_url,
         ),
     )
 

@@ -23,6 +23,7 @@ from core.domain.admin import (
     AuthEvent,
     AuthEventKind,
     Bucket,
+    DeleteOutcome,
     Overview,
     Page,
     SeriesPoint,
@@ -32,7 +33,7 @@ from core.domain.admin import (
     fill_series,
 )
 from core.domain.auth import Identity, canonical_email
-from core.domain.errors import NotFound, PermissionDenied, ValidationFailed
+from core.domain.errors import Conflict, NotFound, PermissionDenied, ValidationFailed
 from core.domain.ids import UserId
 from core.ports.admin import AdminStore, AuthEventLog
 from core.ports.auth import SessionStore
@@ -146,6 +147,33 @@ class AdminService:
         if updated is None:
             raise NotFound("That account no longer exists.")
         return updated
+
+    async def delete_user(self, identity: Identity, user_id: UserId, *, confirm_email: str) -> None:
+        """Permanently delete an account and everything it owns (ADR-0042). The admin must
+        type the account's email, so a stale page or a misclick can't delete the wrong one.
+        The address is free again afterwards, so the person can sign up afresh."""
+        _require_admin(identity)
+        if user_id == identity.user_id:
+            raise PermissionDenied("You can't delete your own account.")
+        target = await self._store.get_user(user_id)
+        if target is None:
+            raise NotFound("That account no longer exists.")
+        if self._owner is not None and canonical_email(target.email) == self._owner:
+            raise PermissionDenied("The platform admin account can't be deleted.")
+        if confirm_email.strip().lower() != target.email.strip().lower():
+            raise ValidationFailed(
+                "Type the account's email address to confirm.",
+                extra={"fields": {"confirm_email": "That doesn't match this account's email."}},
+            )
+        outcome = await self._store.delete_user(user_id, actor_id=identity.user_id)
+        if outcome is DeleteOutcome.NOT_FOUND:
+            raise NotFound("That account no longer exists.")
+        if outcome is DeleteOutcome.OWNS_SHARED_WORKSPACE:
+            raise Conflict(
+                "This account owns a workspace other people belong to. Ask them to remove "
+                "those members first, or disable the account instead."
+            )
+        log.info("admin.account_deleted", user_id=str(user_id))
 
 
 async def sweep_auth_events(events: AuthEventLog, clock: Clock) -> int:

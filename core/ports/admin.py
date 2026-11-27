@@ -10,6 +10,7 @@ from core.domain.admin import (
     AuthEvent,
     AuthEventKind,
     Bucket,
+    DeleteOutcome,
     Overview,
     UserSort,
     UserStatus,
@@ -60,6 +61,15 @@ class AdminStore(Protocol):
         self, *, kind: AuthEventKind | None, before_id: int | None, limit: int
     ) -> list[AuthEvent]:
         """Newest first; keyset pagination on id."""
+        ...
+
+    async def delete_user(self, user_id: UserId, *, actor_id: UserId) -> DeleteOutcome:
+        """Delete the account and everything it owns, in one transaction: its sole-member
+        workspaces (all content cascades), what it connected in workspaces it joined, and
+        then the user row (sessions, codes and connections cascade). Records
+        ``account_deleted``. Refuses, changing nothing, if it owns a workspace other
+        people belong to. Uploaded files left without a document are removed by the
+        worker's abandoned-upload sweep."""
         ...
 
     async def set_disabled(self, user_id: UserId, disabled: bool, *, actor_id: UserId) -> bool:

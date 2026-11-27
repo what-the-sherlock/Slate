@@ -27,6 +27,13 @@ class AuthEventKind(StrEnum):
     PASSWORD_RESET = "password_reset"  # noqa: S105 (an event name, not a secret)
     ACCOUNT_DISABLED = "account_disabled"
     ACCOUNT_ENABLED = "account_enabled"
+    ACCOUNT_DELETED = "account_deleted"
+
+
+class DeleteOutcome(StrEnum):
+    DELETED = "deleted"
+    NOT_FOUND = "not_found"
+    OWNS_SHARED_WORKSPACE = "owns_shared_workspace"
 
 
 class UserStatus(StrEnum):

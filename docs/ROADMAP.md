@@ -118,8 +118,8 @@ Update this line and tick items as work completes. Only the current milestone is
 - [x] `auth_events` (migration 0014), recorded best-effort on sign-up, verification, sign-in (success, failure, throttled), sign-out and reset, with 90-day retention in the worker's housekeeping
 - [x] Sign-in rehashes when `needs_rehash` says so; disabling an account deletes its sessions
 - [x] `AdminService` and `/api/v1/admin/*`, which answer 404 to everyone except the verified `OWNER_EMAIL`; responses are allow-listed
-- [x] `/admin` page with three tabs: Overview (KPIs, sign-up trend, status breakdown), Users (search, filter, sort, disable/enable) and Security (failed sign-ins, events)
-- [ ] Owner: run `alembic upgrade head` (0014, 0015) and `uv run pytest -m integration` on the test branch, then upgrade prod. Sign in as `OWNER_EMAIL` and review UI_DESIGN §4.10
+- [x] `/admin` page with three tabs: Overview (KPIs, sign-up trend, status breakdown), Users (search, filter, sort, disable/enable, delete) and Security (failed sign-ins, events)
+- [ ] Owner: run `alembic upgrade head` (0014, 0015, 0016) and `uv run pytest -m integration` on the test branch, then upgrade prod. Sign in as `OWNER_EMAIL` and review UI_DESIGN §4.10
 
 ## Later phases (not in scope until the owner says so)
 

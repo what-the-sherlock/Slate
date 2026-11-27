@@ -38,7 +38,7 @@ function mockApi({ admin = true }: { admin?: boolean } = {}) {
     "fetch",
     vi.fn(async (req: Request) => {
       const url = new URL(req.url);
-      const body = req.method === "PATCH" ? await req.json() : null;
+      const body = req.method === "PATCH" || req.method === "POST" ? await req.json() : null;
       calls.push({ path: url.pathname, method: req.method, query: url.searchParams, body });
       switch (url.pathname) {
         case "/api/v1/me":
@@ -51,6 +51,8 @@ function mockApi({ admin = true }: { admin?: boolean } = {}) {
           return json({ items: [USER("bob"), USER("me", { you: true })], next_cursor: null, total: 2 });
         case "/api/v1/admin/users/bob":
           return json(USER("bob", { disabled: true }));
+        case "/api/v1/admin/users/bob/delete":
+          return new Response(null, { status: 204 });
         default:
           return json({}, 404);
       }
@@ -104,6 +106,24 @@ describe("AdminView", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Disable account" }));
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ disabled: true });
+  });
+
+  it("deletes only after the email is typed", async () => {
+    mockApi();
+    search = new URLSearchParams("tab=users");
+    renderView();
+    await screen.findByText("bob@acme.dev");
+    expect(screen.queryByRole("button", { name: "Delete me@acme.dev" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete bob@acme.dev" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/can.t be undone/)).toBeInTheDocument();
+    const confirm = within(dialog).getByRole("button", { name: "Delete account" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "BOB@acme.dev " } });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    await waitFor(() => expect(calls.some((c) => c.path.endsWith("/delete"))).toBe(true));
+    expect(calls.find((c) => c.path.endsWith("/delete"))?.body).toEqual({ confirm_email: "BOB@acme.dev" });
   });
 
   it("sorts by a column header and filters by status", async () => {

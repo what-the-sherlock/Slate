@@ -10,12 +10,13 @@ from __future__ import annotations
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 
 from api.deps import Container, get_container
 from api.schemas.admin import (
     AdminUserOut,
     AuthEventOut,
+    DeleteUserBody,
     EventKind,
     EventPageOut,
     OverviewOut,
@@ -134,3 +135,15 @@ async def set_status(
 ) -> AdminUserOut:
     updated = await svc.set_disabled(identity, UserId(user_id), disabled=body.disabled)
     return _user(updated, identity)
+
+
+@router.post(
+    "/users/{user_id}/delete",
+    summary="Permanently delete an account and everything it owns",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_user(
+    user_id: UUID, body: DeleteUserBody, identity: MutatingIdentity, svc: Admin
+) -> None:
+    # POST with a body (not DELETE): the typed confirmation travels in the request body.
+    await svc.delete_user(identity, UserId(user_id), confirm_email=body.confirm_email)

@@ -13,12 +13,14 @@ from typing import Any
 from sqlalchemy import RowMapping, text
 
 from core.adapters.postgres.uow import UnitOfWork
+from core.adapters.postgres.workspaces import REMOVE_MEMBER_SQL
 from core.domain.admin import (
     ACTIVE_WINDOW,
     AdminUser,
     AuthEvent,
     AuthEventKind,
     Bucket,
+    DeleteOutcome,
     Overview,
     UserSort,
     UserStatus,
@@ -235,6 +237,57 @@ class PostgresAdminStore:
             )
             for r in rows
         ]
+
+    async def delete_user(self, user_id: UserId, *, actor_id: UserId) -> DeleteOutcome:
+        async with self._uow() as s:
+            # Lock the account first: concurrent invites, sign-ins and a second delete wait.
+            found = (
+                await s.execute(
+                    text("SELECT id FROM users WHERE id = :u FOR UPDATE"), {"u": user_id}
+                )
+            ).first()
+            if found is None:
+                return DeleteOutcome.NOT_FOUND
+            # Lock their workspaces before counting members: accepting an invite inserts a
+            # membership, whose foreign key needs a share lock on the workspace row, so a
+            # concurrent join waits until we're done instead of slipping past the check.
+            memberships = (
+                await s.execute(
+                    text(
+                        "SELECT m.workspace_id, m.role FROM memberships m"
+                        " JOIN workspaces w ON w.id = m.workspace_id"
+                        " WHERE m.user_id = :u FOR UPDATE OF m, w"
+                    ),
+                    {"u": user_id},
+                )
+            ).all()
+            counts = dict(
+                (
+                    await s.execute(
+                        text(
+                            "SELECT workspace_id, count(*) FROM memberships"
+                            " WHERE workspace_id = ANY(:ws) GROUP BY workspace_id"
+                        ),
+                        {"ws": [ws for ws, _ in memberships]},
+                    )
+                ).all()
+            )
+            memberships = [(ws, role, int(counts.get(ws, 1))) for ws, role in memberships]
+            if any(role == "owner" and members > 1 for _, role, members in memberships):
+                return DeleteOutcome.OWNS_SHARED_WORKSPACE  # nothing changed
+            for ws, role, _ in memberships:
+                if role == "owner":  # a workspace only they belong to: content cascades
+                    await s.execute(text("DELETE FROM workspaces WHERE id = :ws"), {"ws": ws})
+                else:  # someone else's workspace: the same cleanup as "Remove member"
+                    for statement in REMOVE_MEMBER_SQL.split(";"):
+                        if statement.strip():
+                            await s.execute(text(statement), {"ws": ws, "u": user_id})
+            await s.execute(
+                text("INSERT INTO auth_events (kind, user_id, actor_id) VALUES (:k, NULL, :a)"),
+                {"k": AuthEventKind.ACCOUNT_DELETED.value, "a": actor_id},
+            )
+            await s.execute(text("DELETE FROM users WHERE id = :u"), {"u": user_id})
+        return DeleteOutcome.DELETED
 
     async def set_disabled(self, user_id: UserId, disabled: bool, *, actor_id: UserId) -> bool:
         # One statement: the change and its event commit together or not at all, and an

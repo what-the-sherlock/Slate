@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { ArrowDown, ArrowUp, Ban, RotateCcw, Search, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, Ban, RotateCcw, Search, Trash2, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/empty-state";
@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { errorMessage } from "@/lib/api/client";
-import { useAdminUsers, useSetUserDisabled, type AdminUser, type AdminUserFilters, type AdminUserSort, type AdminUserStatus } from "@/lib/api/hooks";
+import { ApiProblem, errorMessage } from "@/lib/api/client";
+import { useAdminUsers, useDeleteUser, useSetUserDisabled, type AdminUser, type AdminUserFilters, type AdminUserSort, type AdminUserStatus } from "@/lib/api/hooks";
 import { absoluteTime, formatCount, relativeTime } from "@/lib/format";
 import { accountStatus } from "./labels";
 
@@ -35,6 +35,7 @@ export function UsersPanel() {
   const [sort, setSort] = useState<AdminUserSort>("joined");
   const [order, setOrder] = useState<"asc" | "desc">("desc");
   const [target, setTarget] = useState<AdminUser | null>(null);
+  const [deleting, setDeleting] = useState<AdminUser | null>(null);
 
   // Debounced: one request after typing pauses, not one per keystroke (Neon CU budget).
   useEffect(() => {
@@ -139,16 +140,26 @@ export function UsersPanel() {
                     </td>
                     <td className={`${TD} text-right text-fg tabular-nums`}>{formatCount(u.workspaces)}</td>
                     <td className={`${TD} text-right`}>
-                      {u.you ? null : u.disabled ? (
-                        <Button variant="ghost" size="sm" onClick={() => setTarget(u)} aria-label={`Re-enable ${u.email}`}>
-                          <RotateCcw aria-hidden="true" />
-                          Re-enable
-                        </Button>
-                      ) : (
-                        <Button variant="ghost" size="sm" onClick={() => setTarget(u)} aria-label={`Disable ${u.email}`} className="text-danger hover:text-danger">
-                          <Ban aria-hidden="true" />
-                          Disable
-                        </Button>
+                      {u.you ? null : (
+                        <span className="inline-flex items-center justify-end gap-1">
+                          {/* Fixed width so Delete lines up whichever label is showing. */}
+                          {u.disabled ? (
+                            <Button variant="ghost" size="sm" onClick={() => setTarget(u)} aria-label={`Re-enable ${u.email}`} className="w-[104px] justify-start">
+                              <RotateCcw aria-hidden="true" />
+                              Re-enable
+                            </Button>
+                          ) : (
+                            <Button variant="ghost" size="sm" onClick={() => setTarget(u)} aria-label={`Disable ${u.email}`} className="w-[104px] justify-start">
+                              <Ban aria-hidden="true" />
+                              Disable
+                            </Button>
+                          )}
+                          {/* Red is kept for the one action that can't be undone. */}
+                          <Button variant="ghost" size="sm" onClick={() => setDeleting(u)} aria-label={`Delete ${u.email}`} className="text-danger hover:bg-danger-subtle hover:text-danger">
+                            <Trash2 aria-hidden="true" />
+                            Delete
+                          </Button>
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -167,6 +178,7 @@ export function UsersPanel() {
       )}
 
       <StatusDialog user={target} onClose={() => setTarget(null)} />
+      <DeleteDialog key={deleting?.id ?? "none"} user={deleting} onClose={() => setDeleting(null)} />
     </>
   );
 }
@@ -222,6 +234,71 @@ function StatusDialog({ user, onClose }: { user: AdminUser | null; onClose: () =
             {disabling ? "Disable account" : "Re-enable account"}
           </Button>
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Deleting can't be undone, so the dialog says exactly what goes, offers Disable as the
+ * reversible alternative, and enables the button only once the email is typed (the server
+ * checks it again).
+ */
+function DeleteDialog({ user, onClose }: { user: AdminUser | null; onClose: () => void }) {
+  const remove = useDeleteUser();
+  const [typed, setTyped] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const matches = !!user && typed.trim().toLowerCase() === user.email.toLowerCase();
+  const who = user?.name || user?.email;
+
+  return (
+    <Dialog open={user !== null} onOpenChange={(o) => (!o && !remove.isPending ? onClose() : null)}>
+      <DialogContent className="sm:max-w-[460px]">
+        <DialogHeader>
+          <DialogTitle>Delete {who}?</DialogTitle>
+          <DialogDescription>
+            This permanently deletes the account and everything in its own workspace: sources, uploaded files, documents and chats. Anything it connected in other people&apos;s workspaces is removed too. It can&apos;t be undone. The email address can be used to sign up again.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!user || !matches) return;
+            setError(null);
+            remove.mutate(
+              { id: user.id, confirmEmail: typed.trim() },
+              {
+                onSuccess: () => {
+                  toast.success(`${user.email} was deleted`);
+                  onClose();
+                },
+                // A 409 (owns a shared workspace) is explained in place, not as a toast.
+                onError: (err) => (err instanceof ApiProblem && err.status === 409 ? setError(errorMessage(err)) : toast.error(errorMessage(err))),
+              },
+            );
+          }}
+        >
+          <label className="block space-y-1.5 text-caption font-medium text-fg">
+            <span>
+              Type <span className="font-mono text-data font-normal text-fg-body select-all">{user?.email}</span> to confirm
+            </span>
+            <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" spellCheck={false} autoFocus aria-invalid={!!error} className="h-9 font-normal" />
+          </label>
+          {error ? (
+            <p role="alert" className="rounded-md border border-danger-border bg-danger-subtle px-3 py-2 text-caption text-danger">
+              {error}
+            </p>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onClose} disabled={remove.isPending}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="danger" loading={remove.isPending} disabled={!matches}>
+              Delete account
+            </Button>
+          </div>
+        </form>
       </DialogContent>
     </Dialog>
   );

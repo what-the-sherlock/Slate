@@ -222,3 +222,54 @@ async def test_never_active_accounts_sort_last_both_ways(env: Env) -> None:
     for descending in (True, False):
         page = await env.svc.users(env.admin, sort=UserSort.LAST_ACTIVE, descending=descending)
         assert page.items[0].id == seen
+
+
+# ------------------------------------------------------------------ delete account
+
+
+async def test_delete_removes_account_and_frees_the_email(env: Env) -> None:
+    from core.domain.ids import WorkspaceId
+    from tests.fakes.auth import _Member
+
+    uid = env.accounts.add_user("a@acme.dev", "A", "h", verified=True)
+    ws = WorkspaceId(env.accounts.ids.new_uuid())
+    env.accounts.members[uid] = _Member(ws, Role.OWNER)
+    env.accounts.workspaces[ws] = "A's workspace"
+    await env.svc.delete_user(env.admin, uid, confirm_email=" A@ACME.dev ")
+    assert uid not in env.accounts.users
+    assert ws not in env.accounts.workspaces
+    assert await env.accounts.find_user("a@acme.dev") is None  # free to sign up again
+    assert env.events.rows[-1][:3] == (AuthEventKind.ACCOUNT_DELETED, None, env.admin_id)
+
+
+async def test_delete_needs_the_typed_email(env: Env) -> None:
+    uid = env.accounts.add_user("a@acme.dev", "A", "h")
+    with pytest.raises(ValidationFailed, match="confirm"):
+        await env.svc.delete_user(env.admin, uid, confirm_email="b@acme.dev")
+    assert uid in env.accounts.users
+
+
+async def test_delete_refuses_self_owner_and_shared_workspaces(env: Env) -> None:
+    from core.domain.errors import Conflict
+    from core.domain.ids import WorkspaceId
+    from tests.fakes.auth import _Member
+
+    with pytest.raises(PermissionDenied, match="your own"):
+        await env.svc.delete_user(env.admin, env.admin_id, confirm_email=OWNER)
+    twin = env.accounts.add_user("Admin@Slate.test", "Twin", "h")
+    with pytest.raises(PermissionDenied, match="platform admin"):
+        await env.svc.delete_user(env.admin, twin, confirm_email="Admin@Slate.test")
+    host = env.accounts.add_user("host@acme.dev", "H", "h")
+    guest = env.accounts.add_user("guest@acme.dev", "G", "h")
+    ws = WorkspaceId(env.accounts.ids.new_uuid())
+    env.accounts.members[host] = _Member(ws, Role.OWNER)
+    env.accounts.extra[guest] = {ws: Role.MEMBER}
+    with pytest.raises(Conflict, match="other people"):
+        await env.svc.delete_user(env.admin, host, confirm_email="host@acme.dev")
+    assert host in env.accounts.users
+
+
+async def test_non_admin_cannot_delete(env: Env) -> None:
+    bob = env.identity(env.accounts.add_user("bob@acme.dev", "Bob", "h", verified=True))
+    with pytest.raises(NotFound):
+        await env.svc.delete_user(bob, env.admin_id, confirm_email=OWNER)

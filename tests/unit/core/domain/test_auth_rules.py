@@ -104,3 +104,39 @@ def test_code_email_is_plain_text_with_the_code_and_no_link(purpose: CodePurpose
 @pytest.mark.parametrize("email", ["+x@corp.com", "josé@corp.com", "ada@corpé.com"])
 def test_emails_that_cannot_be_delivered_or_canonicalised_are_invalid(email: str) -> None:
     assert not is_valid_email(email)
+
+
+def test_code_email_has_a_branded_html_part() -> None:
+    mail = code_email(
+        "ada@acme.dev",
+        "<b>Ada</b>",
+        "042137",
+        CodePurpose.VERIFY_EMAIL,
+        app_url="https://slate.test/",
+    )
+    assert mail.html is not None
+    assert "042137" in mail.html
+    assert "Verify your email" in mail.html
+    assert 'src="https://slate.test/brand/email-logo.png"' in mail.html
+    assert "<b>Ada</b>" not in mail.html  # typed names are escaped
+    assert "&lt;b&gt;Ada&lt;/b&gt;" in mail.html
+    assert "<a " not in mail.html  # code emails carry no links to click
+    assert "042137" in mail.text  # the plain-text part is still there
+
+
+def test_code_email_without_app_url_has_no_image() -> None:
+    mail = code_email("ada@acme.dev", "Ada", "042137", CodePurpose.RESET_PASSWORD)
+    assert mail.html is not None
+    assert "<img" not in mail.html
+    assert "Reset your password" in mail.html
+
+
+def test_invite_html_escapes_and_links() -> None:
+    from core.domain.emails import invite_email_html
+
+    page = invite_email_html(
+        inviter='Eve "x"', workspace="<script>", role="member",
+        link="https://slate.test/invite#tok&x", days=7, app_url=None,
+    )  # fmt: skip
+    assert "<script>" not in page
+    assert 'href="https://slate.test/invite#tok&amp;x"' in page

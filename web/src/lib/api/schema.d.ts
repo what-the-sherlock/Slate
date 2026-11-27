@@ -106,6 +106,23 @@ export interface paths {
         patch: operations["set_status_api_v1_admin_users__user_id__patch"];
         trace?: never;
     };
+    "/api/v1/admin/users/{user_id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Permanently delete an account and everything it owns */
+        post: operations["delete_user_api_v1_admin_users__user_id__delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/config": {
         parameters: {
             query?: never;
@@ -1112,7 +1129,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "signup" | "email_verified" | "login_success" | "login_failed" | "login_throttled" | "logout" | "password_reset" | "account_disabled" | "account_enabled";
+            kind: "signup" | "email_verified" | "login_success" | "login_failed" | "login_throttled" | "logout" | "password_reset" | "account_disabled" | "account_enabled" | "account_deleted";
             /** User Email */
             user_email: string | null;
             /** User Id */
@@ -1346,6 +1363,11 @@ export interface components {
              * @enum {string}
              */
             status: "connected" | "needs_reconnect" | "error";
+        };
+        /** DeleteUserBody */
+        DeleteUserBody: {
+            /** Confirm Email */
+            confirm_email: string;
         };
         /** DiscordChannelOut */
         DiscordChannelOut: {
@@ -2397,7 +2419,7 @@ export interface operations {
     events_api_v1_admin_events_get: {
         parameters: {
             query?: {
-                kind?: ("signup" | "email_verified" | "login_success" | "login_failed" | "login_throttled" | "logout" | "password_reset" | "account_disabled" | "account_enabled") | null;
+                kind?: ("signup" | "email_verified" | "login_success" | "login_failed" | "login_throttled" | "logout" | "password_reset" | "account_disabled" | "account_enabled" | "account_deleted") | null;
                 cursor?: string | null;
                 limit?: number;
             };
@@ -2570,6 +2592,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AdminUserOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_user_api_v1_admin_users__user_id__delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteUserBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

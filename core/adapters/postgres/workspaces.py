@@ -16,7 +16,7 @@ from core.domain.ids import SourceId, UserId, WorkspaceId
 from core.domain.principals import user_principal, workspace_principal
 from core.ports.workspaces import InviteRecord, InviteView, MemberView, WorkspaceMembership
 
-_REMOVE_MEMBER = (
+REMOVE_MEMBER_SQL = (
     # Everything they connected here (documents, chunks and runs cascade; the 0007 trigger
     # deletes stored credentials), their uploads in the shared upload sources, their chats.
     "DELETE FROM sources WHERE workspace_id = :ws AND created_by = :u AND connector <> 'upload';"
@@ -238,7 +238,7 @@ class PostgresWorkspaceStore:
                     )
                 ).scalar_one()
             )
-            for statement in _REMOVE_MEMBER.split(";"):
+            for statement in REMOVE_MEMBER_SQL.split(";"):
                 if statement.strip():
                     await s.execute(text(statement), {"ws": ws, "u": user})
             await s.execute(
