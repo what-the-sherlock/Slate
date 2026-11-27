@@ -79,3 +79,24 @@ async def test_reclaim_marks_dead_when_attempts_exhausted(
     await _backdate_heartbeat(uow, job.id)
     await q.reclaim_stale(timedelta(minutes=10))
     assert (await q.get(job.id)).status is JobStatus.DEAD
+
+
+async def test_success_after_a_failed_attempt_clears_the_old_error(
+    uow: UnitOfWork, pg_workspace: WorkspaceId
+) -> None:
+    q = PostgresJobQueue(uow)
+    kind = f"clear_{pg_workspace.hex[:8]}"
+    await q.enqueue(pg_workspace, kind, {}, f"c-{pg_workspace}", run_after=PAST)
+    job = await q.claim("w1", [kind])
+    assert job is not None
+    await q.fail(job.id, "w1", "unexpected TypeError", retryable=True)
+    async with uow() as s:  # make the retry due now
+        await s.execute(
+            text("UPDATE jobs SET run_after = now() - interval '1 second' WHERE id = :id"),
+            {"id": job.id},
+        )
+    again = await q.claim("w1", [kind])
+    assert again is not None
+    await q.complete(again.id, "w1")
+    done = await q.get(again.id)
+    assert (done.status, done.last_error) == (JobStatus.SUCCEEDED, None)

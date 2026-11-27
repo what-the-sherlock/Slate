@@ -166,7 +166,8 @@ class PostgresSourceStore:
                 (
                     await s.execute(
                         text(
-                            "SELECT status, error_summary, skipped FROM ingestion_runs"
+                            "SELECT status, error_summary, skipped, started_at, docs_seen"
+                            " FROM ingestion_runs"
                             " WHERE source_id = :s ORDER BY created_at DESC LIMIT 1"
                         ),
                         {"s": source_id},
@@ -177,18 +178,27 @@ class PostgresSourceStore:
             )
         if r is None:
             return None
-        return LastRun(r["status"], r["error_summary"], dict(r["skipped"] or {}))
+        return LastRun(
+            r["status"], r["error_summary"], dict(r["skipped"] or {}), r["started_at"],
+            int(r["docs_seen"]),
+        )  # fmt: skip
 
-    async def worker_overdue(self, ws: WorkspaceId) -> bool:
+    async def worker_overdue(self, source_id: SourceId) -> bool:
         async with self._uow() as s:
             row = (
                 await s.execute(
                     text(
-                        "SELECT 1 FROM jobs WHERE workspace_id = :ws"
-                        " AND status IN ('queued', 'failed') AND attempts < max_attempts"
-                        " AND run_after < now() - interval '2 hours' LIMIT 1"
+                        "SELECT 1 FROM jobs j JOIN sources s ON s.id = :s"
+                        " AND j.workspace_id = s.workspace_id"
+                        " WHERE j.payload->>'source_id' = CAST(:s AS text)"
+                        " AND j.status IN ('queued', 'failed') AND j.attempts < j.max_attempts"
+                        " AND j.run_after < now() - interval '2 hours'"
+                        " AND NOT EXISTS (SELECT 1 FROM ingestion_runs r WHERE r.source_id = :s"
+                        "   AND r.status IN ('succeeded', 'partial')"
+                        "   AND r.started_at > j.run_after)"
+                        " LIMIT 1"
                     ),
-                    {"ws": ws},
+                    {"s": source_id},
                 )
             ).first()
         return row is not None

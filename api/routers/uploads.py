@@ -83,6 +83,10 @@ async def complete_upload(
         outcome = await container.inline.run(result.job_id)
         if outcome is InlineOutcome.DONE:
             status = "indexed"
+    if result.job_id is not None and status != "indexed":
+        # Big files, mbox imports and deferred work need the worker: start it now
+        # (ADR-0035) rather than waiting for the cron. Best effort, throttled.
+        await container.trigger.trigger("upload")
     return CompleteUploadResponse(
         status=status,
         job_id=result.job_id,

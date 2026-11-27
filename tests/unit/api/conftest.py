@@ -47,7 +47,7 @@ from tests.fakes.models import FakeChatModel, FakeEmbedder, WordTokenizer
 from tests.fakes.rate_limit import InMemoryRateLimiter
 from tests.fakes.sources import InMemorySources
 from tests.fakes.storage import InMemoryBlobStore, InMemoryIndex
-from tests.fakes.system import FakeClock, FakeHealthProbe
+from tests.fakes.system import FakeClock, FakeHealthProbe, FakeWorkerTrigger
 from tests.fakes.usage import InMemoryGenerations, InMemoryLedger
 from tests.fakes.workspaces import InMemoryWorkspaces
 
@@ -254,6 +254,7 @@ def app(
     answers: AnswerService,
     chats: InMemoryChatStore,
     integrations: IntegrationService,
+    worker_trigger: FakeWorkerTrigger,
 ) -> FastAPI:
     application = create_app()
     container = Container(
@@ -271,6 +272,7 @@ def app(
         mail=mail,
         workspaces=workspaces,
         integrations=integrations,
+        trigger=worker_trigger,
         actions=SourceActions(
             source_store,
             {
@@ -283,6 +285,11 @@ def app(
     )
     application.dependency_overrides[get_container] = lambda: container
     return application
+
+
+@pytest.fixture
+def worker_trigger() -> FakeWorkerTrigger:
+    return FakeWorkerTrigger()
 
 
 @pytest.fixture

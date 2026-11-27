@@ -206,7 +206,9 @@ async def run(connector: str | None) -> None:
                 for j in jobs:
                     print(
                         f"   job  {j.kind:<11} {j.status:<9} attempts={j.attempts}/{j.max_attempts}"
-                        f" run_after={j.run_after} {j.err or ''}"
+                        f" run_after={j.run_after}"
+                        # Errors of attempts before a success are history, not a problem.
+                        + (f" {j.err}" if j.err and j.status != "succeeded" else "")
                     )
                 for e in errors:
                     print(f"   err  {e.stage:<6} x{e.n} {e.message}")

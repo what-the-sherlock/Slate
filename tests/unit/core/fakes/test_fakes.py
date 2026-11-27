@@ -136,3 +136,26 @@ async def test_blob_store_roundtrip_and_idempotent_delete() -> None:
     await store.delete(ref)
     with pytest.raises(NotFound):
         await store.get(ref)
+
+
+async def test_a_job_that_succeeds_after_a_failure_drops_the_old_error() -> None:
+    from datetime import timedelta
+    from uuid import uuid4
+
+    from core.domain.ids import WorkspaceId
+    from core.domain.jobs import JobStatus
+    from tests.fakes.jobs import FakeJobQueue
+    from tests.fakes.system import FakeClock
+
+    clock = FakeClock()
+    q = FakeJobQueue(clock)
+    await q.enqueue(WorkspaceId(uuid4()), "k", {}, "key")
+    job = await q.claim("w", ["k"])
+    assert job is not None
+    await q.fail(job.id, "w", "unexpected TypeError", retryable=True)
+    clock.advance(timedelta(hours=1))
+    again = await q.claim("w", ["k"])
+    assert again is not None
+    await q.complete(again.id, "w")
+    done = await q.get(again.id)
+    assert (done.status, done.last_error) == (JobStatus.SUCCEEDED, None)

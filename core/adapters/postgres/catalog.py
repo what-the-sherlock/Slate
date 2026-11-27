@@ -22,7 +22,8 @@ SELECT s.id, s.name, s.connector, s.data_class, s.visibility, s.status, s.last_s
        r.status AS run_status, r.error_summary AS run_error, r.started_at AS run_started_at,
        r.skipped AS run_skipped,
        ok.started_at AS last_ok_run_at,
-       j.running, j.running_since, j.waiting, j.oldest_waiting_due, j.retry_error,
+       j.running, j.running_since, j.waiting, j.oldest_waiting_due, j.newest_waiting_due,
+       j.retry_error,
        dead.last_error AS dead_error, dead.finished_at AS dead_at
 FROM sources s
 LEFT JOIN LATERAL (
@@ -40,6 +41,7 @@ LEFT JOIN LATERAL (
                AS running_since,
            count(*) FILTER (WHERE status IN ('queued', 'failed')) AS waiting,
            min(run_after) FILTER (WHERE status IN ('queued', 'failed')) AS oldest_waiting_due,
+           max(run_after) FILTER (WHERE status IN ('queued', 'failed')) AS newest_waiting_due,
            (array_agg(last_error ORDER BY created_at DESC)
                FILTER (WHERE status = 'failed'))[1] AS retry_error
     FROM jobs
@@ -93,6 +95,7 @@ class PostgresCatalog:
                     running_since=r["running_since"],
                     jobs_waiting=int(r["waiting"] or 0),
                     oldest_waiting_due=r["oldest_waiting_due"],
+                    newest_waiting_due=r["newest_waiting_due"],
                     retry_error=r["retry_error"],
                     dead_error=r["dead_error"],
                     dead_at=r["dead_at"],

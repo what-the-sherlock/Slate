@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Protocol
 
@@ -18,6 +19,7 @@ from core.domain.errors import NotFound, UpstreamUnavailable
 from core.domain.ids import JobId, SourceId
 from core.domain.skips import describe_skips
 from core.domain.source_status import WAITING_FOR_WORKER
+from core.ports.jobs import WorkerTrigger
 from core.ports.sources import SourceStore
 from core.services.inline import InlineOutcome, InlineRunner
 
@@ -49,6 +51,8 @@ class SyncResult:
 
 
 CRASHED = "Slate hit an internal error while syncing. It will retry automatically."
+LATER = "The rest continues when the background worker runs."
+CLOCK_SKEW = timedelta(seconds=30)  # API clock vs database clock
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,9 +63,15 @@ class ConnectorEntry:
 
 
 class SourceActions:
-    def __init__(self, sources: SourceStore, connectors: Mapping[str, ConnectorEntry]) -> None:
+    def __init__(
+        self,
+        sources: SourceStore,
+        connectors: Mapping[str, ConnectorEntry],
+        trigger: WorkerTrigger | None = None,
+    ) -> None:
         self._sources = sources
         self._connectors = dict(connectors)
+        self._trigger = trigger
 
     async def _entry(self, identity: Identity, source_id: SourceId) -> ConnectorEntry:
         source = await self._sources.get_source(identity.workspace_id, source_id)
@@ -76,6 +86,14 @@ class SourceActions:
         return entry
 
     async def sync_now(self, identity: Identity, source_id: SourceId) -> SyncResult:
+        result = await self._sync_now(identity, source_id)
+        if result.status is not SyncStatus.DONE and self._trigger is not None:
+            # Work was handed to the worker (the rest of a big sync, a retry): start it now
+            # instead of waiting hours for GitHub's cron (ADR-0035). Best effort.
+            await self._trigger.trigger(f"sync_now:{result.status.value}")
+        return result
+
+    async def _sync_now(self, identity: Identity, source_id: SourceId) -> SyncResult:
         """Queue a sync and, where an inline runner exists, run it now (up to ~90 s).
 
         The answer comes from the *run* the sync recorded, not from the job: a job can
@@ -87,15 +105,24 @@ class SourceActions:
             raise UpstreamUnavailable(f"{entry.name} isn't set up on this server yet.")
         job = await entry.actions.sync_now(identity, source_id)
         if entry.inline is None:
-            return await self._background(identity, job)
+            return await self._background(source_id, job)
+        started = datetime.now(UTC) - CLOCK_SKEW
         # Up to ~90 s here; a big source continues in the background from its checkpoint.
         outcome = await entry.inline.run(job)
         run = await self._sources.last_run(source_id)
+        if run is not None and run.started_at is not None and run.started_at < started:
+            run = None  # an earlier sync's run: not what happened just now
         if outcome is InlineOutcome.FAILED:
             reason = run.error_summary if run is not None and run.status == "failed" else None
             return SyncResult(job, SyncStatus.FAILED, reason or CRASHED)
         if outcome is InlineOutcome.DEFERRED:
-            return await self._background(identity, job)
+            if run is not None and run.status in {"partial", "cancelled", "running"}:
+                # It did part of the work here (e.g. stopped at the time limit); the worker
+                # does the rest. That's progress, not a failure.
+                done = f"Synced {run.seen} item(s) so far." if run.seen else None
+                reason = " ".join(x for x in (done, run.error_summary, LATER) if x)
+                return SyncResult(job, SyncStatus.PARTIAL, reason, describe_skips(run.skipped))
+            return await self._background(source_id, job)
         if run is None:  # the job finished without a run: the source was gone or paused
             return SyncResult(job, SyncStatus.DONE)
         if run.status == "failed":
@@ -105,8 +132,8 @@ class SourceActions:
             return SyncResult(job, SyncStatus.PARTIAL, run.error_summary, skipped)
         return SyncResult(job, SyncStatus.DONE, None, skipped)
 
-    async def _background(self, identity: Identity, job: JobId) -> SyncResult:
-        if await self._sources.worker_overdue(identity.workspace_id):
+    async def _background(self, source_id: SourceId, job: JobId) -> SyncResult:
+        if await self._sources.worker_overdue(source_id):
             # Earlier work is still waiting: saying "it continues" would be a promise.
             return SyncResult(job, SyncStatus.FAILED, WAITING_FOR_WORKER)
         return SyncResult(job, SyncStatus.BACKGROUND)

@@ -33,6 +33,7 @@ class SourceSummary:
     running_since: datetime | None = None
     jobs_waiting: int = 0
     oldest_waiting_due: datetime | None = None
+    newest_waiting_due: datetime | None = None
     retry_error: str | None = None
     dead_error: str | None = None
     dead_at: datetime | None = None
@@ -45,6 +46,7 @@ class SourceSummary:
             run_started_at=self.run_started_at, run_skipped=self.run_skipped,
             jobs_running=self.jobs_running, running_since=self.running_since,
             jobs_waiting=self.jobs_waiting, oldest_waiting_due=self.oldest_waiting_due,
+            newest_waiting_due=self.newest_waiting_due,
             retry_error=self.retry_error, dead_error=self.dead_error, dead_at=self.dead_at,
             last_ok_run_at=self.last_ok_run_at,
         )  # fmt: skip

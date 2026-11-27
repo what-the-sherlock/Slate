@@ -28,7 +28,7 @@ class InMemorySources:
         self.finished: dict[RunId, tuple[str, int, int, int, str | None]] = {}
         self.errors: list[tuple[RunId, str, str, bool]] = []
         self.skipped: dict[RunId, dict[str, int]] = {}
-        self.overdue = False  # worker_overdue()
+        self.overdue: set[SourceId] = set()  # sources whose jobs no worker picks up
         self.progressed: list[tuple[RunId, int, int, int]] = []
         self.used_blobs: set[str] = set()
         self.usage: dict[WorkspaceId, tuple[int, int]] = {}  # (documents, bytes)
@@ -85,11 +85,11 @@ class InMemorySources:
         mine = [r for r, (sid, _) in self.runs.items() if sid == source_id and r in self.finished]
         if not mine:
             return None
-        status, *_, summary = self.finished[mine[-1]]
-        return LastRun(status, summary, self.skipped.get(mine[-1], {}))
+        status, seen, *_, summary = self.finished[mine[-1]]
+        return LastRun(status, summary, self.skipped.get(mine[-1], {}), None, seen)
 
-    async def worker_overdue(self, ws: WorkspaceId) -> bool:
-        return self.overdue
+    async def worker_overdue(self, source_id: SourceId) -> bool:
+        return source_id in self.overdue
 
     async def progress(self, run_id: RunId, *, seen: int, changed: int, failed: int) -> None:
         self.progressed.append((run_id, seen, changed, failed))

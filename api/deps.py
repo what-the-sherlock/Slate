@@ -6,7 +6,7 @@ for the life of the process. Tests override ``get_container`` with fakes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -28,7 +28,9 @@ from core.adapters.factories import (
     mail_sync,
     s3_blob_store,
     search_service,
+    worker_trigger,
 )
+from core.adapters.github.dispatch import NoWorkerTrigger
 from core.adapters.postgres.auth import PostgresSessionStore
 from core.adapters.postgres.catalog import PostgresCatalog
 from core.adapters.postgres.chat import PostgresChatStore
@@ -43,6 +45,7 @@ from core.adapters.system import SystemClock
 from core.config import Settings, get_settings
 from core.domain.integrations import provider
 from core.ports.chat import ChatStore
+from core.ports.jobs import WorkerTrigger
 from core.ports.system import HealthProbe
 from core.services.answer import AnswerService
 from core.services.auth import AuthService
@@ -84,6 +87,7 @@ class Container:
     # Sync now / disconnect for any connected source; built from the fields above when the
     # caller doesn't pass one (tests).
     actions: SourceActions | None = None
+    trigger: WorkerTrigger = field(default_factory=NoWorkerTrigger)  # ADR-0035
 
     @property
     def workspaces_service(self) -> WorkspaceService:
@@ -117,6 +121,7 @@ def get_container() -> Container:
     ready = {"github": github.available, "discord": discord.available, "email": mail.available}
     integrations = integration_service(settings, uow, ready)
     connected = connected_sources(settings, uow, integrations)
+    trigger = worker_trigger(settings)
     connected_inline = InlineRunner(
         PostgresJobQueue(uow), connected.handle_inline, runner_id="api-inline",
         kinds=frozenset({SYNC_CONNECTED}),
@@ -146,6 +151,7 @@ def get_container() -> Container:
             mailer=email_sender(settings),
             app_url=settings.app_url,
         ),
+        trigger=trigger,
         actions=SourceActions(
             PostgresSourceStore(uow),
             {
@@ -158,6 +164,7 @@ def get_container() -> Container:
                     for p in connected.providers
                 },
             },
+            trigger,
         ),
     )
 

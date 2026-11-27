@@ -17,6 +17,7 @@ from core.adapters.discord.api import DiscordBot
 from core.adapters.email.dev import AllowAllHumanVerifier, LogEmailSender
 from core.adapters.email.smtp import SmtpEmailSender
 from core.adapters.github.app import GitHubApp
+from core.adapters.github.dispatch import GitHubWorkflowTrigger, NoWorkerTrigger
 from core.adapters.google.calendar import CalendarConnector
 from core.adapters.google.drive import DriveConnector
 from core.adapters.google.gmail import GmailConnector
@@ -60,6 +61,7 @@ from core.domain.integrations import REGISTRY
 from core.ports.auth import HumanVerifier
 from core.ports.email import EmailSender
 from core.ports.integrations import ClientCredentials
+from core.ports.jobs import WorkerTrigger
 from core.ports.storage import BlobStore
 from core.services.answer import AnswerService
 from core.services.auth import AuthPolicy, AuthService
@@ -457,3 +459,16 @@ def connected_sources(
     for provider in engine.providers:
         integrations.on_connected(provider, engine.connected)
     return engine
+
+
+def worker_trigger(settings: Settings) -> WorkerTrigger:
+    """Starts the sync workflow when the API hands work to the worker (ADR-0035). Without
+    a token and repo, work waits for the hourly cron, as before."""
+    token, repo = settings.github_dispatch_token, settings.github_repo
+    if token is None or not repo:
+        return NoWorkerTrigger()
+    try:
+        return GitHubWorkflowTrigger(token=token.get_secret_value(), repo=repo.strip())
+    except ValueError:
+        log.error("worker_trigger_misconfigured")  # GITHUB_REPO isn't owner/name
+        return NoWorkerTrigger()

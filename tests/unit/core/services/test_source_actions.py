@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -16,6 +18,7 @@ from core.domain.source_status import WAITING_FOR_WORKER
 from core.services.inline import InlineRunner
 from core.services.source_actions import (
     CRASHED,
+    LATER,
     ConnectorEntry,
     SourceActions,
     SyncStatus,
@@ -188,7 +191,7 @@ async def test_background_is_promised_only_while_the_worker_keeps_up() -> None:
     sid = await _source(store, me)
     actions = SourceActions(store, {"discord": ConnectorEntry("Discord", rec)})
     assert (await actions.sync_now(me, sid)).status is SyncStatus.BACKGROUND
-    store.overdue = True  # earlier jobs have waited 2 h+: nobody is processing them
+    store.overdue.add(sid)  # this source's jobs have waited 2 h+: nobody processes them
     result = await actions.sync_now(me, sid)
     assert (result.status, result.reason) == (SyncStatus.FAILED, WAITING_FOR_WORKER)
 
@@ -208,3 +211,62 @@ async def test_a_done_sync_says_what_it_left_out() -> None:
     result = await actions.sync_now(me, sid)
     assert result.status is SyncStatus.DONE
     assert result.skipped == "12 code and other files (not supported yet)"
+
+
+async def test_another_sources_stuck_jobs_never_fail_this_one() -> None:
+    store, rec = InMemorySources(), Recorder()
+    me = identity(WorkspaceId(uuid4()))
+    mine, other = await _source(store, me), await _source(store, me)
+    store.overdue.add(other)  # e.g. a repo's old retries; Gmail must not inherit them
+    actions = SourceActions(store, {"discord": ConnectorEntry("Discord", rec)})
+    assert (await actions.sync_now(me, mine)).status is SyncStatus.BACKGROUND
+
+
+async def test_a_sync_cut_off_by_the_time_limit_reports_its_progress() -> None:
+    store, queue = InMemorySources(), FakeJobQueue(FakeClock())
+    me = identity(WorkspaceId(uuid4()))
+    sid = await _source(store, me)
+    store.overdue.add(sid)  # even with the worker behind, progress isn't "failed"
+
+    async def slow(job: Job) -> None:
+        run = await store.create_run(sid, "full")
+        tally = _Tally(seen=50, changed=50)
+        async with RunBoundary(store, sid, run, event="t", counts=lambda: tally, checkpoint=None):
+            await asyncio.sleep(10)  # cancelled by the runner's time limit
+
+    runner = InlineRunner(queue, slow, runner_id="api-inline")
+    actions = SourceActions(store, {"discord": ConnectorEntry("Discord", Queued(queue), runner)})
+    with patch("core.services.inline.INLINE_TIMEOUT_S", 0.05):
+        result = await actions.sync_now(me, sid)
+    assert result.status is SyncStatus.PARTIAL
+    assert result.reason
+    assert result.reason.startswith("Synced 50 item(s) so far.")
+    assert result.reason.endswith(LATER)
+
+
+async def test_the_worker_is_started_only_when_work_is_handed_to_it() -> None:
+    from tests.fakes.system import FakeWorkerTrigger
+
+    store, queue = InMemorySources(), FakeJobQueue(FakeClock())
+    me = identity(WorkspaceId(uuid4()))
+    sid = await _source(store, me)
+    behaviour = "ok"
+
+    async def handler(job: Job) -> None:
+        run = await store.create_run(sid, "full")
+        async with RunBoundary(store, sid, run, event="t", counts=_Tally, checkpoint=None) as b:
+            if behaviour == "partial":
+                b.partial("Still syncing: the rest continues in the background.")
+
+    trigger = FakeWorkerTrigger()
+    runner = InlineRunner(queue, handler, runner_id="api-inline")
+    entry = ConnectorEntry("Discord", Queued(queue), runner)
+    actions = SourceActions(store, {"discord": entry}, trigger)
+    await actions.sync_now(me, sid)
+    assert trigger.reasons == []  # finished here: no need to wake the worker (or Neon)
+    behaviour = "partial"
+    await actions.sync_now(me, sid)
+    assert trigger.reasons == ["sync_now:partial"]
+    no_inline = SourceActions(store, {"discord": ConnectorEntry("Discord", Recorder())}, trigger)
+    await no_inline.sync_now(me, sid)
+    assert trigger.reasons[-1] == "sync_now:background"

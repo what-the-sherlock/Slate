@@ -130,3 +130,23 @@ def test_an_empty_source_is_never_shown_as_healthy() -> None:
 
 def test_never_synced() -> None:
     assert source_status(facts(last_synced_at=None, run_status=None), NOW).badge is Badge.NEVER
+
+
+def test_leftover_retries_older_than_a_good_run_are_not_the_headline() -> None:
+    # Production 2026-11-27: four retries of the pre-fix TypeError waited for a worker
+    # while the deployed fix had already synced the repo. Show the good run.
+    st = source_status(
+        facts(jobs_waiting=4, oldest_waiting_due=AGO[600], newest_waiting_due=AGO[180],
+              retry_error="unexpected TypeError", last_ok_run_at=AGO[5]),
+        NOW,
+    )  # fmt: skip
+    assert st.badge is Badge.SYNCED
+
+
+def test_a_retry_due_after_the_last_good_run_still_counts() -> None:
+    st = source_status(
+        facts(jobs_waiting=1, oldest_waiting_due=AGO[180], newest_waiting_due=AGO[180],
+              retry_error="unexpected TypeError", last_ok_run_at=AGO[600]),
+        NOW,
+    )  # fmt: skip
+    assert st.badge is Badge.WAITING_FOR_WORKER

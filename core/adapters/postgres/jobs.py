@@ -166,8 +166,10 @@ class PostgresJobQueue:
             await self._require_owned(s, job_id, worker_id)
             await s.execute(
                 text(
-                    "UPDATE jobs SET status = 'succeeded', locked_by = NULL, finished_at = now()"
-                    " WHERE id = :id"
+                    # A success clears the error of an earlier attempt: an error shown next
+                    # to "succeeded" reads as a current problem.
+                    "UPDATE jobs SET status = 'succeeded', locked_by = NULL, finished_at = now(),"
+                    " last_error = NULL WHERE id = :id"
                 ),
                 {"id": job_id},
             )

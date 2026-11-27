@@ -85,7 +85,9 @@ class FakeJobQueue:
 
     async def complete(self, job_id: JobId, worker_id: str) -> None:
         job = self._owned(job_id, worker_id)
-        self.jobs[job_id] = replace(job, status=JobStatus.SUCCEEDED, locked_by=None)
+        self.jobs[job_id] = replace(
+            job, status=JobStatus.SUCCEEDED, locked_by=None, last_error=None
+        )
 
     async def fail(self, job_id: JobId, worker_id: str, error: str, *, retryable: bool) -> Job:
         job = self._owned(job_id, worker_id)

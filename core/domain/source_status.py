@@ -6,9 +6,11 @@ unhealthy state says why and what to do. Precedence, first match wins:
 1. ``paused``.
 2. A job is running: ``syncing`` (unless it has been running far longer than any job may,
    which means its worker died: then ``waiting_for_worker``).
-3. A job is waiting and is *overdue*: runnable for over ``WORKER_OVERDUE``. The worker drains
-   every runnable job each (hourly) run, so an overdue job proves no worker handles that
-   kind: the GitHub Actions workflow isn't running, or runs without that handler's secrets.
+3. A job is waiting (and not superseded: a run that worked started after every waiting job
+   was due, so they're leftovers) and is *overdue*: runnable for over ``WORKER_OVERDUE``.
+   The worker drains every runnable job each run, so an overdue job proves no worker
+   handles that kind: the sync workflow isn't running, or runs without that handler's
+   secrets.
 4. A job is waiting after a failure: ``retrying`` with the job's error.
 5. A job is queued: ``queued``.
 6. The newest job is ``dead`` and newer than the last run that worked: ``failed`` with its
@@ -67,6 +69,7 @@ class SourceFacts:
     running_since: datetime | None = None  # the oldest running job's heartbeat or lock
     jobs_waiting: int = 0  # queued, or failed and due for a retry
     oldest_waiting_due: datetime | None = None  # min(run_after) of the waiting ones
+    newest_waiting_due: datetime | None = None  # max(run_after) of the waiting ones
     retry_error: str | None = None  # last_error of the newest waiting failed job
     dead_error: str | None = None  # last_error when the newest job is dead
     dead_at: datetime | None = None
@@ -95,7 +98,7 @@ def source_status(f: SourceFacts, now: datetime) -> Status:
         if f.running_since is not None and now - f.running_since > JOB_STUCK:
             return Status(Badge.WAITING_FOR_WORKER, WAITING_FOR_WORKER)
         return Status(Badge.SYNCING)
-    if f.jobs_waiting:
+    if f.jobs_waiting and not _superseded(f):
         overdue = f.oldest_waiting_due is not None and now - f.oldest_waiting_due > WORKER_OVERDUE
         if overdue:
             return Status(Badge.WAITING_FOR_WORKER, _join(WAITING_FOR_WORKER, f.retry_error))
@@ -119,6 +122,16 @@ def source_status(f: SourceFacts, now: datetime) -> Status:
         skipped = describe_skips(f.run_skipped)
         return Status(Badge.EMPTY, f"Skipped {skipped}." if skipped else EMPTY)
     return Status(Badge.SYNCED)
+
+
+def _superseded(f: SourceFacts) -> bool:
+    """Every waiting job was due before a run that worked: leftovers (e.g. retries of a bug
+    that a deploy fixed). They'll run again harmlessly (checksums); they aren't the news."""
+    return (
+        f.last_ok_run_at is not None
+        and f.newest_waiting_due is not None
+        and f.last_ok_run_at > f.newest_waiting_due
+    )
 
 
 def _plain(error: str) -> str:

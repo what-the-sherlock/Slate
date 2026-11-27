@@ -41,6 +41,8 @@ class LastRun:
     status: str
     error_summary: str | None
     skipped: Mapping[str, int] = field(default_factory=dict[str, int])
+    started_at: datetime | None = None
+    seen: int = 0
 
 
 class SourceStore(Protocol):
@@ -78,9 +80,10 @@ class SourceStore(Protocol):
         """The newest run of this source (what a just-finished sync actually did)."""
         ...
 
-    async def worker_overdue(self, ws: WorkspaceId) -> bool:
-        """True when a runnable job in this workspace has waited over 2 hours: the worker
-        drains every runnable job each run, so nobody is handling it (P0-2)."""
+    async def worker_overdue(self, source_id: SourceId) -> bool:
+        """True when a runnable job of *this source* has waited over 2 hours and no run of
+        it has worked since: the worker drains every runnable job each run, so nobody is
+        handling it (P0-2). Another source's leftovers never count."""
         ...
 
     async def progress(self, run_id: RunId, *, seen: int, changed: int, failed: int) -> None:

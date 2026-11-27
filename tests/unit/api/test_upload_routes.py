@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from tests.fakes.auth import FakeMailer
 from tests.fakes.storage import InMemoryBlobStore
+from tests.fakes.system import FakeWorkerTrigger
 from tests.unit.api.accounts import sign_up
 
 DATA = b"# Notes\n\nhello"
@@ -18,7 +19,10 @@ def begin_body(name: str = "notes.md") -> dict[str, object]:
 
 
 def test_upload_flow_over_http(
-    client: TestClient, mailer: FakeMailer, blobs: InMemoryBlobStore
+    client: TestClient,
+    mailer: FakeMailer,
+    blobs: InMemoryBlobStore,
+    worker_trigger: FakeWorkerTrigger,
 ) -> None:
     csrf = owner(client, mailer)
     r = client.post("/api/v1/uploads", json=begin_body(), headers=csrf)
@@ -33,6 +37,7 @@ def test_upload_flow_over_http(
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "upload"
     assert r.json()["job_id"]
+    assert worker_trigger.reasons == ["upload"]  # queued for the worker: start it now
 
 
 def test_upload_requires_csrf(client: TestClient, mailer: FakeMailer) -> None:
