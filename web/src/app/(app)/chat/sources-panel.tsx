@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, X } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { PanelLabel } from "@/components/panel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -47,7 +47,7 @@ export function SourcesPanel({
           <X />
         </Button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         {source ? (
           <Preview source={source} />
         ) : (
@@ -101,7 +101,7 @@ function Preview({ source }: { source: SourceOut }) {
   }
   return (
     <div className="p-4">
-      <h3 className="text-[15px] font-semibold text-fg">{doc.data.title}</h3>
+      <h3 className="text-[15px] font-semibold wrap-anywhere text-fg">{doc.data.title}</h3>
       <p className="mb-4 text-data text-fg-subtle">{doc.data.source_name}</p>
       {doc.data.chunks.map((c) => {
         const hit = c.ordinal === source.ordinal;
@@ -110,15 +110,60 @@ function Preview({ source }: { source: SourceOut }) {
             key={c.ordinal}
             ref={hit ? focus : undefined}
             className={cn(
-              "mb-3 rounded-r-md py-2 pr-3 pl-3 text-body whitespace-pre-wrap text-fg-body",
-              hit && "border-l-2 border-brand bg-brand-subtle",
+              "mb-3 min-w-0 rounded-r-md border-l-2 border-transparent py-2 pr-3 pl-3 text-body whitespace-pre-wrap wrap-anywhere text-fg-body",
+              hit && "border-brand bg-brand-subtle",
             )}
           >
-            {c.heading_path ? <PanelLabel className="mb-1 block">{c.heading_path}</PanelLabel> : null}
-            {c.content}
+            {c.heading_path ? <PanelLabel className="mb-1.5 block truncate">{c.heading_path}</PanelLabel> : null}
+            <CompactLinks text={c.content} />
           </div>
         );
       })}
     </div>
   );
+}
+
+const URL_RE = /\[?(https?:\/\/[^\s\]<>"]+)\]?/g;
+
+/** "https://mail.example.com/a/very/long/path?x=1" → "mail.example.com/…" (scheme and www dropped). */
+export function shortUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^www\./, "");
+    return u.pathname.length > 1 || u.search ? `${host}/…` : host;
+  } catch {
+    return raw.length > 40 ? `${raw.slice(0, 37)}…` : raw;
+  }
+}
+
+/**
+ * Renders plain text with URLs collapsed to their host. Emails especially carry long
+ * tracking links that drown the actual passage. Links open in a new tab, without a referrer.
+ */
+export function CompactLinks({ text }: { text: string }) {
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(URL_RE)) {
+    const at = m.index ?? 0;
+    if (at > last) parts.push(text.slice(last, at));
+    const url = m[1] ?? "";
+    const href = url.replace(/[.,;:)]+$/, "");
+    parts.push(
+      <a
+        key={at}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer nofollow"
+        title={href}
+        className="rounded-xs bg-muted/70 px-1 text-[0.92em] text-brand no-underline hover:underline"
+      >
+        {shortUrl(href)}
+      </a>,
+    );
+    const tail = url.slice(href.length);
+    if (tail) parts.push(tail);
+    last = at + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
 }

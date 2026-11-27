@@ -1,6 +1,6 @@
 # Slate improvement plan
 
-Status: proposal, 2026-11-27. Nothing in this plan has been implemented yet.
+Status: **P0 complete** (P0-0 to P0-4, verified in production 2026-11-27; P0-5 deferred by the owner). P1 and P2 are not started.
 
 **How to use this file.** Work through it one item at a time in a Claude Code session, for example: *"Read docs/IMPROVEMENT_PLAN.md and implement P0-1. Follow CLAUDE.md."* Each item is one thin vertical slice: plan, code, tests, docs or ADR, then a commit. The order below is the recommended order.
 
@@ -101,7 +101,7 @@ Each item lists: problem → root cause → change → files → schema → test
 
 #### P0-0 Fix the GitHub `headers` TypeError (do first; it blocks every GitHub source)
 
-**Status: done in code, 2026-11-27.** `_get` now takes explicit `params` and `headers` instead of `**kw`. The regression tests are in `tests/unit/core/adapters/test_github_app.py` (`head_commit` and the headers on every GET) and `tests/unit/core/services/test_github.py` (`test_sync_with_the_real_github_app_indexes_docs_and_issues`: the real adapter under `GitHubSync`). The step that remains is the owner's: deploy, then "Sync now" on Wave.
+**Status: complete, 2026-11-27 (verified in production: Wave indexed 13 docs).** `_get` now takes explicit `params` and `headers` instead of `**kw`. The regression tests are in `tests/unit/core/adapters/test_github_app.py` (`head_commit` and the headers on every GET) and `tests/unit/core/services/test_github.py` (`test_sync_with_the_real_github_app_indexes_docs_and_issues`: the real adapter under `GitHubSync`).
 
 - **Problem:** every GitHub sync crashes at `head_commit` (§3, "Confirmed on production").
 - **Root cause:** `GitHubApp._get(installation_id, url, **kw)` always sends its own `headers=`, so a caller that passes `headers` (here, `Accept: application/vnd.github.sha`) collides with it.
@@ -117,7 +117,7 @@ Each item lists: problem → root cause → change → files → schema → test
 
 #### P0-1 Sync crashes must be recorded as failures
 
-**Status: done in code, 2026-11-27 (ADR-0034).** `RunBoundary` in `core/services/sync_run.py` now backs GitHub, Discord, IMAP, mbox and the connected engine. Beyond the plan, it also handles cancellation: the inline 120 s `asyncio.timeout` raises `CancelledError`, which `except Exception` misses, so even `mail` and `connected` used to record a timed-out run as succeeded. GitHub and Discord configs are parsed (`GitHubSourceConfig`, `is_snowflake`). Tests: `tests/unit/core/services/test_sync_run.py`, plus a crash test in each engine's test file. The eval-fixture configs are now reported as "settings are incomplete" instead of KeyError and ValueError.
+**Status: complete, 2026-11-27 (ADR-0034).** `RunBoundary` in `core/services/sync_run.py` now backs GitHub, Discord, IMAP, mbox and the connected engine. Beyond the plan, it also handles cancellation: the inline 120 s `asyncio.timeout` raises `CancelledError`, which `except Exception` misses, so even `mail` and `connected` used to record a timed-out run as succeeded. GitHub and Discord configs are parsed (`GitHubSourceConfig`, `is_snowflake`). Tests: `tests/unit/core/services/test_sync_run.py`, plus a crash test in each engine's test file. The eval-fixture configs are now reported as "settings are incomplete" instead of KeyError and ValueError.
 
 - **Problem:** §3.1. GitHub and Discord record an unexpected crash as a successful, empty run and advance `last_synced_at`.
 - **Root cause:** four sync engines each copy the same run-boundary `try/finally`, and two copies missed the catch-all. The duplication is the defect, so the fix is structural.
@@ -134,7 +134,7 @@ Each item lists: problem → root cause → change → files → schema → test
 
 #### P0-2 Tell the user when the first sync failed
 
-**Status: done in code, 2026-11-27 (ADR-0034).** Status comes from `core/domain/source_status.py` (pure, tested). "Sync now" answers from the run (`SyncResult`), which also fixed a case the plan missed: a job that *finished* while its run failed used to be reported as `done`. The callback page shows the failure with Try again and Open source. GitHub, Discord, email, Manage, the source page, Home and the chat empty state all use the new fields. Worker liveness is inferred from overdue runnable jobs (no new table).
+**Status: complete, 2026-11-27 (ADR-0034, amended after the first production run).** Status comes from `core/domain/source_status.py` (pure, tested). "Sync now" answers from the run (`SyncResult`), which also fixed a case the plan missed: a job that *finished* while its run failed used to be reported as `done`. The callback page shows the failure with Try again and Open source. GitHub, Discord, email, Manage, the source page, Home and the chat empty state all use the new fields. Worker liveness is inferred from overdue runnable jobs (no new table), per source; leftover retries older than a good run don't set the badge. Follow-ups found in production: the worker now starts on demand through `workflow_dispatch` (ADR-0035), succeeded jobs clear their old error, and the worker receives `OWNER_EMAIL` (development spend caps: ADR-0021 amendment).
 
 - **Problem:** §3.2. The UI says "continues in the background" after a crash.
 - **Change:**
@@ -150,7 +150,7 @@ Each item lists: problem → root cause → change → files → schema → test
 
 #### P0-3 Diagnose production, then make diagnosis permanent (owner steps + small code change)
 
-**Status: code done, 2026-11-27.** `scripts/diagnose_sources.py` covers every connector, the connection state, skipped counts, stuck runs, a per-kind worker table, and dead or failed jobs before any "repo held nothing" hint. Hint rules: `tests/unit/scripts/test_diagnose_hints.py`. Owner steps 2–4 are still open.
+**Status: complete, 2026-11-27.** `scripts/diagnose_sources.py` covers every connector, the connection state, skipped counts, stuck runs, a per-kind worker table, and dead or failed jobs before any "repo held nothing" hint. Hint rules: `tests/unit/scripts/test_diagnose_hints.py`. Owner steps: run against production (done); Actions worker checked (the cron fires every 8–10 h, which led to ADR-0035; the Google OAuth secrets were added). Still worth checking once: Vercel's function max duration and the Google consent screen mode.
 
 **Owner steps** (in this order; they settle which part of §3 hit your sources):
 
@@ -172,7 +172,7 @@ Each item lists: problem → root cause → change → files → schema → test
 
 #### P0-4 Explain every document Slate didn't index
 
-**Status: done in code, 2026-11-27 (ADR-0034, migration 0011).** Skips are counted in GitHub (code, vendored paths, too large, the file cap, the tarball cap, empty), Drive (now lists every file: unsupported types, too large, unreadable, empty, the cap) and the connected engine (empty documents, page skips). The GitHub preview is the first sync's real skip summary on the connect page, plus a note in the picker, instead of a tree pre-scan (see the ADR's alternatives). Also fixed: migration 0011 allows the `import` run kind, which every mbox import needed. Other connected connectors (Notion, Linear, Slack, Calendar, Gmail) can report `Page.skipped` but don't yet.
+**Status: complete, 2026-11-27 (ADR-0034, migration 0011).** Skips are counted in GitHub (code, vendored paths, too large, the file cap, the tarball cap, empty), Drive (now lists every file: unsupported types, too large, unreadable, empty, the cap) and the connected engine (empty documents, page skips). The GitHub preview is the first sync's real skip summary on the connect page, plus a note in the picker, instead of a tree pre-scan (see the ADR's alternatives). Also fixed: migration 0011 allows the `import` run kind, which every mbox import needed. Other connected connectors (Notion, Linear, Slack, Calendar, Gmail) can report `Page.skipped` but don't yet.
 
 - **Problem:** §3.5 and §3.6. "0 documents" with no reason.
 - **Change:**

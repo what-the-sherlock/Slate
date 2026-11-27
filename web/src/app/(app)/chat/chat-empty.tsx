@@ -68,7 +68,7 @@ export function ChatEmpty({ sources, loading, onPick }: { sources: Source[]; loa
             </p>
           )}
           {syncing.map((s) => (
-            <p key={s.id} className="inline-flex items-center gap-1.5 rounded-full bg-subtle px-3 py-1 text-caption text-fg-muted">
+            <p key={s.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-subtle px-3 py-1 text-caption wrap-anywhere text-fg-muted">
               <Loader className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
               <span>
                 <strong className="font-medium text-fg">{s.name}</strong>{" "}
@@ -80,17 +80,26 @@ export function ChatEmpty({ sources, loading, onPick }: { sources: Source[]; loa
             </p>
           ))}
           {failing.map((s) => (
-            <p key={s.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-danger-subtle px-3 py-1 text-caption text-fg-muted">
-              <CircleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
-              <span className="truncate">
-                <strong className="font-medium text-fg">{s.name}</strong>
-                {s.status === "empty" ? " has nothing indexed" : " couldn't sync"}
-                {s.status_reason ?? s.last_error ? `: ${s.status_reason ?? s.last_error}` : "."}
-              </span>
-              <Link href="/sources" className="shrink-0 font-medium text-brand hover:underline">
-                Fix in Sources
+            <div
+              key={s.id}
+              role="status"
+              className="flex w-full max-w-[520px] min-w-0 items-start gap-2.5 rounded-lg border border-danger-border bg-danger-subtle px-3 py-2.5 text-left text-caption"
+            >
+              <CircleAlert className="mt-px size-4 shrink-0 text-danger" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium wrap-anywhere text-fg">
+                  {s.name} {s.status === "empty" ? "has nothing indexed" : "couldn't sync"}
+                </p>
+                {s.status_reason ?? s.last_error ? (
+                  <p className="mt-0.5 line-clamp-2 wrap-anywhere text-fg-muted" title={s.status_reason ?? s.last_error ?? undefined}>
+                    {s.status_reason ?? s.last_error}
+                  </p>
+                ) : null}
+              </div>
+              <Link href="/sources" className="shrink-0 self-center rounded-md px-2 py-1 font-medium whitespace-nowrap text-brand hover:bg-bg/60">
+                Fix
               </Link>
-            </p>
+            </div>
           ))}
         </div>
       </div>

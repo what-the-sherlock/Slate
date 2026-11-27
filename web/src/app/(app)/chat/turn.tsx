@@ -222,44 +222,70 @@ function AssistantMessage({
   );
 }
 
+const STRIP_MAX = 4;
+
+/**
+ * Cited sources first (they back the answer), then the rest; at most STRIP_MAX chips plus a
+ * "+N more" chip that opens the full panel. Chips wrap rather than scroll, so nothing is
+ * silently cut off at the edge.
+ */
+export function stripSources(sources: SourceOut[], cited: number[]): { shown: SourceOut[]; hidden: number } {
+  const ordered = [...sources.filter((s) => cited.includes(s.n)), ...sources.filter((s) => !cited.includes(s.n))];
+  const max = ordered.length > STRIP_MAX ? STRIP_MAX - 1 : STRIP_MAX;
+  return { shown: ordered.slice(0, max), hidden: Math.max(0, ordered.length - max) };
+}
+
 function SourceStrip({ turn, onOpen }: { turn: Turn; onOpen: (n: number | null) => void }) {
+  const { shown, hidden } = stripSources(turn.sources, turn.cited);
   return (
-    <div className="flex items-center gap-2">
-      <ul className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]" aria-label="Sources">
-        {turn.sources.map((s, i) => (
-          <li
-            key={s.n}
-            className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-300 motion-reduce:animate-none"
-            style={{ animationDelay: `${Math.min(i, 8) * 30}ms` }}
+    <ul className="flex flex-wrap gap-1.5" aria-label="Sources">
+      {shown.map((s, i) => (
+        <li
+          key={s.n}
+          className="max-w-full min-w-0 animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-300 motion-reduce:animate-none"
+          style={{ animationDelay: `${i * 30}ms` }}
+        >
+          <SourceChip source={s} cited={turn.cited.includes(s.n)} onClick={() => onOpen(s.n)} />
+        </li>
+      ))}
+      {hidden ? (
+        <li className="animate-in fade-in fill-mode-both duration-300 motion-reduce:animate-none" style={{ animationDelay: `${shown.length * 30}ms` }}>
+          <button
+            type="button"
+            onClick={() => onOpen(null)}
+            className="inline-flex h-7 items-center rounded-md border border-border px-2.5 text-[13px] font-medium text-fg-muted transition-colors duration-200 hover:border-border-strong hover:bg-subtle hover:text-fg"
           >
-            <SourceChip source={s} cited={turn.cited.includes(s.n)} onClick={() => onOpen(s.n)} />
-          </li>
-        ))}
-      </ul>
-    </div>
+            +{hidden} more
+          </button>
+        </li>
+      ) : null}
+    </ul>
   );
 }
 
 function SourceChip({ source, cited, onClick }: { source: SourceOut; cited: boolean; onClick: () => void }) {
+  const title = source.title.trim() || "Untitled";
   return (
     <button
       type="button"
       onClick={onClick}
-      title={source.heading_path ? `${source.title} · ${source.heading_path}` : source.title}
+      title={source.heading_path ? `${title} · ${source.heading_path}` : title}
       className={cn(
-        "inline-flex h-7 items-center gap-2 rounded-sm py-[3px] pr-2.5 pl-[3px] text-[13px] font-medium transition-[filter,background-color] duration-200 active:scale-[0.98]",
-        cited ? "bg-brand-subtle text-brand-strong hover:brightness-95" : "bg-subtle text-fg-muted hover:bg-muted",
+        "inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border py-[3px] pr-2.5 pl-[3px] text-[13px] font-medium transition-[background-color,border-color,color] duration-200 active:scale-[0.98]",
+        cited
+          ? "border-brand-border bg-brand-subtle text-brand-strong hover:border-brand"
+          : "border-border bg-bg text-fg-muted hover:border-border-strong hover:bg-subtle hover:text-fg",
       )}
     >
       <span
         className={cn(
-          "inline-flex size-[22px] items-center justify-center rounded-xs text-[12px] font-semibold tabular-nums transition-colors duration-300",
-          cited ? "bg-brand text-white" : "bg-emphasis text-fg-muted",
+          "inline-flex h-[20px] min-w-[20px] shrink-0 items-center justify-center rounded-[5px] px-1 text-[11px] font-semibold tabular-nums",
+          cited ? "bg-brand text-white" : "bg-muted text-fg-muted",
         )}
       >
         {source.n}
       </span>
-      <span className="max-w-[180px] truncate">{source.title}</span>
+      <span className="max-w-[200px] min-w-0 truncate">{title}</span>
     </button>
   );
 }
