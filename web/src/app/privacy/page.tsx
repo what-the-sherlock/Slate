@@ -6,7 +6,7 @@ import { PanelLabel } from "@/components/panel";
 
 export const metadata = { title: "Privacy policy" };
 
-const CONTACT = "usta.aashu@gmail.com";
+const CONTACT = "nusta.aashu@gmail.com";
 const UPDATED = "27 November 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
