@@ -34,6 +34,8 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
       SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+      # The owner's own syncs are bound only by the monthly stop (budget.py), as in the API.
+      OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
       # Embedding uploads and repos (paid; capped by the budget guard and spend caps).
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       # Upload storage (Neon Object Storage, ADR-0014).

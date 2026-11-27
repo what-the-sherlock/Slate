@@ -60,11 +60,13 @@ class Settings(BaseSettings):
     monthly_llm_budget_usd: float = Field(default=5.0, ge=0)  # the hard stop for all users
     # Open sign-up (ADR-0021): a burst can't use the month in a day, and one workspace
     # can't crowd out the rest. See core/domain/budget.py.
-    daily_llm_budget_usd: float = Field(default=0.50, ge=0)
-    workspace_monthly_budget_usd: float = Field(default=0.25, ge=0)
-    workspace_daily_budget_usd: float = Field(default=0.05, ge=0)
-    # First week of a workspace (ADR-0021 amendment, M7): ~8 answers a day.
-    new_account_daily_budget_usd: float = 0.01
+    # DEVELOPMENT DEFAULTS (owner, 2026-11-27): only the monthly hard stop above binds. Before
+    # opening Slate to the public, set these in the environment (the launch values were
+    # 0.50 / 0.25 / 0.05 / 0.01), or put the defaults back.
+    daily_llm_budget_usd: float = Field(default=5.0, ge=0)
+    workspace_monthly_budget_usd: float = Field(default=5.0, ge=0)
+    workspace_daily_budget_usd: float = Field(default=5.0, ge=0)
+    new_account_daily_budget_usd: float = Field(default=5.0, ge=0)  # first week of a workspace
 
     # Neon Object Storage (ADR-0014): AWS-standard names, injected by `neon deploy`.
     aws_access_key_id: str | None = None
