@@ -33,6 +33,7 @@ class SourceRecord:
     last_synced_at: datetime | None = None
     created_by: UserId | None = None  # who connected it; None for system upload sources
     credential_id: UUID | None = None  # its encrypted secret, if the connector needs one
+    connection_id: UUID | None = None  # the OAuth connection it syncs through (ADR-0033)
 
 
 class SourceStore(Protocol):
@@ -85,6 +86,7 @@ class SourceStore(Protocol):
         data_class: DataClass,
         created_by: UserId | None = None,
         credential_id: UUID | None = None,
+        connection_id: UUID | None = None,
     ) -> SourceId:
         """Raises Conflict if the workspace already has a source with this name.
 

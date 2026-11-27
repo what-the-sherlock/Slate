@@ -19,7 +19,7 @@ from core.ports.sources import ExistingUpload, SourceRecord
 
 _SOURCE_COLS = (
     "id, workspace_id, connector, name, visibility, data_class, status, config, checkpoint,"
-    " last_synced_at, created_by, credential_id"
+    " last_synced_at, created_by, credential_id, connection_id"
 )
 
 
@@ -40,6 +40,7 @@ def _source(r: Any) -> SourceRecord:  # reason: RowMapping values are Any
         last_synced_at=r["last_synced_at"],
         created_by=UserId(r["created_by"]) if r["created_by"] is not None else None,
         credential_id=r["credential_id"],
+        connection_id=r["connection_id"],
     )
 
 
@@ -204,14 +205,16 @@ class PostgresSourceStore:
         data_class: DataClass,
         created_by: UserId | None = None,
         credential_id: UUID | None = None,
+        connection_id: UUID | None = None,
     ) -> SourceId:
         async with self._uow() as s:
             row = (
                 await s.execute(
                     text(
                         "INSERT INTO sources (workspace_id, connector, name, config, visibility,"
-                        " data_class, created_by, credential_id) VALUES (:ws, :c, :n,"
-                        " CAST(:cfg AS jsonb), CAST(:v AS text[]), :dc, :by, :cred)"
+                        " data_class, created_by, credential_id, connection_id)"
+                        " VALUES (:ws, :c, :n, CAST(:cfg AS jsonb), CAST(:v AS text[]), :dc,"
+                        " :by, :cred, :conn)"
                         # Any unique rule (the name, one IMAP mailbox per workspace) -> Conflict.
                         " ON CONFLICT DO NOTHING RETURNING id"
                     ),
@@ -224,6 +227,7 @@ class PostgresSourceStore:
                         "dc": data_class.value,
                         "by": created_by,
                         "cred": credential_id,
+                        "conn": connection_id,
                     },
                 )
             ).first()

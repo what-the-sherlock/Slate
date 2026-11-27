@@ -1,7 +1,6 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Plus, Search, ShieldCheck } from "lucide-react";
+import { CircleAlert, Plus, Search, ShieldCheck, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -13,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, errorMessage, unwrap } from "@/lib/api/client";
-import { keys, useIntegrations, useMe } from "@/lib/api/hooks";
+import { useIntegrations, useMe } from "@/lib/api/hooks";
 import {
   accountSummary,
   brandKey,
@@ -24,6 +23,7 @@ import {
   type Tab,
 } from "@/lib/integrations";
 import { cn } from "@/lib/utils";
+import { ManageDialog } from "./manage-dialog";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "all", label: "All" },
@@ -38,9 +38,8 @@ export function IntegrationsView({ go = (url: string) => window.location.assign(
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [confirming, setConfirming] = useState<Integration | null>(null);
-  const [disconnecting, setDisconnecting] = useState<Integration | null>(null);
+  const [managing, setManaging] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const client = useQueryClient();
   const canConnect = !!me.data && me.data.role !== "viewer";
 
   async function start(i: Integration) {
@@ -57,25 +56,6 @@ export function IntegrationsView({ go = (url: string) => window.location.assign(
     }
   }
 
-  async function disconnect(i: Integration) {
-    setBusy(i.id);
-    try {
-      for (const c of i.connections) {
-        unwrap(
-          await api.DELETE("/api/v1/integrations/connections/{connection_id}", {
-            params: { path: { connection_id: c.id } },
-          }),
-        );
-      }
-      toast.success(`${i.name} disconnected`);
-      void client.invalidateQueries({ queryKey: keys.integrations });
-    } catch (err) {
-      toast.error(errorMessage(err));
-    } finally {
-      setBusy(null);
-      setDisconnecting(null);
-    }
-  }
 
   const list = integrations.data ?? [];
   const counts = tabCounts(list);
@@ -145,7 +125,7 @@ export function IntegrationsView({ go = (url: string) => window.location.assign(
                 canConnect={canConnect}
                 busy={busy === i.id}
                 onConnect={() => (i.notice ? setConfirming(i) : void start(i))}
-                onDisconnect={() => setDisconnecting(i)}
+                onManage={() => setManaging(i.id)}
               />
             ))}
           </ul>
@@ -176,25 +156,15 @@ export function IntegrationsView({ go = (url: string) => window.location.assign(
         </DialogContent>
       </Dialog>
 
-      <Dialog open={disconnecting !== null} onOpenChange={(open) => !open && setDisconnecting(null)}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle className="text-dialog font-semibold tracking-[-0.015em]">Disconnect {disconnecting?.name}?</DialogTitle>
-            <DialogDescription className="text-body text-fg-muted">
-              Slate revokes its access and deletes the stored sign-in for{" "}
-              {disconnecting ? (accountSummary(disconnecting) ?? "this account") : ""}. You can connect it again later.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setDisconnecting(null)}>
-              Cancel
-            </Button>
-            <Button variant="danger" loading={busy === disconnecting?.id} onClick={() => disconnecting && void disconnect(disconnecting)}>
-              Disconnect
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ManageDialog
+        integration={list.find((x) => x.id === managing) ?? null}
+        onClose={() => setManaging(null)}
+        onConnect={(i) => {
+          setManaging(null);
+          if (i.notice) setConfirming(i);
+          else void start(i);
+        }}
+      />
     </>
   );
 }
@@ -204,20 +174,25 @@ function Row({
   canConnect,
   busy,
   onConnect,
-  onDisconnect,
+  onManage,
 }: {
   integration: Integration;
   canConnect: boolean;
   busy: boolean;
   onConnect: () => void;
-  onDisconnect: () => void;
+  onManage: () => void;
 }) {
   const account = accountSummary(i);
   return (
     <li className="flex items-center gap-4 border-b border-border-subtle py-4">
       <LogoTile connector={brandKey(i.id)} size={48} className="rounded-lg" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-ui font-medium text-fg">{i.name}</p>
+        <p className="flex items-center gap-1.5 truncate text-ui font-medium text-fg">
+          {i.name}
+          {(i.warnings ?? []).length > 0 ? (
+            <TriangleAlert className="size-3.5 text-warning" aria-label="Needs your attention" />
+          ) : null}
+        </p>
         <p className="truncate text-caption text-fg-subtle" title={account ?? i.tagline}>
           {account ?? i.tagline}
         </p>
@@ -225,7 +200,7 @@ function Row({
       <div className="flex shrink-0 items-center gap-3">
         <span className="hidden text-data text-fg-subtle sm:inline">{i.mode === "live" ? "Live lookup" : "Searchable"}</span>
         <Status state={i.state} />
-        <Action integration={i} canConnect={canConnect} busy={busy} onConnect={onConnect} onDisconnect={onDisconnect} />
+        <Action integration={i} canConnect={canConnect} busy={busy} onConnect={onConnect} onManage={onManage} />
       </div>
     </li>
   );
@@ -251,13 +226,13 @@ function Action({
   canConnect,
   busy,
   onConnect,
-  onDisconnect,
+  onManage,
 }: {
   integration: Integration;
   canConnect: boolean;
   busy: boolean;
   onConnect: () => void;
-  onDisconnect: () => void;
+  onManage: () => void;
 }) {
   if (i.state === "coming_soon" || i.state === "not_set_up" || !canConnect) return <span className="w-24" aria-hidden="true" />;
   if (i.auth !== "oauth2") {
@@ -280,8 +255,8 @@ function Action({
   }
   if (i.state === "connected") {
     return (
-      <Button variant="secondary" size="sm" className="w-24" loading={busy} onClick={onDisconnect} aria-label={`Disconnect ${i.name}`}>
-        Disconnect
+      <Button variant="secondary" size="sm" className="w-24" onClick={onManage} aria-label={`Manage ${i.name}`}>
+        Manage
       </Button>
     );
   }

@@ -78,8 +78,21 @@ export const ICONS = {
 export type ConnectorKey = "upload" | "slack" | keyof typeof ICONS;
 
 // Backend connector ids that share another connector's mark (ADR-0028: email sources).
-const ALIASES: Record<string, string> = { imap: "gmail", gmail_mbox: "gmail" };
-const NAMES: Record<string, string> = { upload: "Files", imap: "Email", gmail_mbox: "Email import" };
+const ALIASES: Record<string, string> = {
+  imap: "gmail",
+  gmail_mbox: "gmail",
+  google_calendar: "googlecalendar",
+  google_drive: "googledrive",
+};
+const NAMES: Record<string, string> = {
+  upload: "Files",
+  imap: "Email",
+  gmail_mbox: "Email import",
+  gmail: "Gmail",
+  google_calendar: "Google Calendar",
+  google_drive: "Google Drive",
+  slack: "Slack",
+};
 
 export function connectorName(connector: string): string {
   return NAMES[connector] ?? (ICONS as Record<string, SimpleIcon>)[connector]?.title ?? connector;

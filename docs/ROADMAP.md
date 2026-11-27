@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status:** M0–M7 complete (2026-11-27). **M8 answer quality code-complete** (2026-11-27, ADR-0031; owner steps below). **M9 integrations framework code-complete** (2026-11-27, ADR-0032; owner steps below). M10 waits on owner decisions.
+**Status:** M0–M7 complete (2026-11-27). **M8 answer quality code-complete** (2026-11-27, ADR-0031; owner steps below). **M9 integrations framework code-complete** (2026-11-27, ADR-0032). **M10 connected sources code-complete** (2026-11-27, ADR-0033; owner steps below).
 
 **Chat redesign (2026-11-26, owner-requested, outside the milestone plan):** answer modes (general knowledge and small talk, ADR-0025), regenerate and edit by superseding (ADR-0024, migration 0005), GitHub sync retries failed items, `scripts/diagnose_sources.py`, and the redesigned Chat page (UI_DESIGN §4.3). Pending owner steps: run `alembic upgrade head` on prod, run `evals.answers` (paid) and record it in EVALS.md, and run the diagnosis script against prod for the 0-document repo.
 
@@ -104,9 +104,14 @@ Update this line and tick items as work completes. Only the current milestone is
 - [ ] Owner: `alembic upgrade head` (0009) on the test branch, `uv run pytest -m integration`, then prod; review UI_DESIGN §4.9
 - Done when: a provider is added by writing a spec and an adapter, with no new routes or pages (met: every OAuth provider is a spec; switching one on needs only its adapter and `available=True`)
 
-### M10 — First OAuth providers (needs owner decisions: which provider first, and its OAuth app)
-- [ ] `sources.connection_id`; an indexed OAuth source follows its connection (disconnect removes its documents)
-- [ ] The first provider end to end (sync adapter, `available=True`, evals)
+### M10 — Connected sources (owner-approved 2026-11-27, ADR-0033)
+- [x] One sync engine (`ConnectedSources`) and the `SourceConnector` port; migration 0010 (`sources.connection_id`, cascade, CHECKs)
+- [x] Gmail (OAuth, Gmail API, IMAP's document rules), Notion, Linear, Google Calendar (indexed window), Google Drive (Docs and text), Slack (public channels joined)
+- [x] Refuse and revoke sign-ins missing a required scope or Google's offline grant; Gmail-beside-IMAP warning
+- [x] Integrations: Manage dialog (per-account status, Sync now, Open source, Reconnect, Disconnect with counts, Add another account); source pages sync and disconnect connected sources
+- [x] Planner kinds for the new sources
+- [ ] Owner: register the OAuth apps (`docs/INTEGRATIONS_SETUP.md`), set the secrets in Vercel, GitHub Secrets and `.env`; `alembic upgrade head` (0010) on test, `pytest -m integration`, then prod; connect each provider once and ask a question about it
+- Later: HubSpot (live), Slack threads and private channels, Drive PDFs/Sheets/Slides, Calendar as a live lookup
 
 ## Later phases (not in scope until the owner says so)
 

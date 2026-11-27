@@ -14,8 +14,8 @@ Rules:
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import timedelta
 from uuid import UUID
 
@@ -30,6 +30,7 @@ from core.domain.errors import (
     UpstreamUnavailable,
     ValidationFailed,
 )
+from core.domain.ids import SourceId
 from core.domain.integrations import (
     REFRESH_LEASE,
     REGISTRY,
@@ -40,6 +41,7 @@ from core.domain.integrations import (
     IntegrationState,
     OAuthSpec,
     ProviderSpec,
+    TokenSet,
     authorize_url,
     code_challenge,
     connection_state,
@@ -57,6 +59,7 @@ log = structlog.get_logger(__name__)
 
 CONNECT_LIMIT = Limit(budget=20, window=timedelta(hours=1))
 MAX_CODE_CHARS = 2048
+ConnectedHook = Callable[[Connection], Awaitable[object]]
 EXPIRED = "This sign-in link has expired or isn't yours. Start connecting again."
 
 
@@ -68,6 +71,9 @@ class IntegrationView:
     state: IntegrationState
     connections: tuple[Connection, ...] = ()
     sources: int = 0  # sources created by the older install flows (GitHub, Discord, email)
+    # Each connection's synced source (ADR-0033), for "Open source" and its status.
+    source_ids: Mapping[UUID, SourceId] = field(default_factory=dict[UUID, SourceId])
+    warnings: tuple[str, ...] = ()
 
 
 class IntegrationService:
@@ -96,6 +102,12 @@ class IntegrationService:
         self._legacy_ready = legacy_ready
         self._registry = tuple(registry)
         self._by_id = {p.id: p for p in self._registry}
+        self._hooks: dict[str, ConnectedHook] = {}
+
+    def on_connected(self, provider_id: str, hook: ConnectedHook) -> None:
+        """Run ``hook`` after every sign-in or reconnect to this provider (the sync engine
+        creates the source and queues its first sync). Wired at the composition root."""
+        self._hooks[provider_id] = hook
 
     # ------------------------------------------------------------ catalogue
 
@@ -104,18 +116,46 @@ class IntegrationService:
         views: list[IntegrationView] = []
         for spec in self._registry:
             if spec.auth is AuthKind.OAUTH2:
-                views.append(self._oauth_view(spec, mine))
+                views.append(await self._oauth_view(identity, spec, mine))
             else:
                 views.append(await self._legacy_view(identity, spec))
         return views
 
-    def _oauth_view(self, spec: ProviderSpec, mine: list[Connection]) -> IntegrationView:
+    async def _oauth_view(
+        self, identity: Identity, spec: ProviderSpec, mine: list[Connection]
+    ) -> IntegrationView:
         own = tuple(c for c in mine if c.provider == spec.id)
         if not spec.available and not own:
             return IntegrationView(spec, IntegrationState.COMING_SOON)
         if self._client(spec) is None and not own:
             return IntegrationView(spec, IntegrationState.NOT_SET_UP)
-        return IntegrationView(spec, connection_state([c.status for c in own]), own)
+        source_ids: dict[UUID, SourceId] = {}
+        if own:
+            for src in await self._sources.sources_by_connector(identity.workspace_id, spec.id):
+                if src.connection_id is not None and src.created_by == identity.user_id:
+                    source_ids[src.connection_id] = src.id
+        state = connection_state([c.status for c in own])
+        warnings = await self._warnings(identity, spec, own)
+        return IntegrationView(spec, state, own, source_ids=source_ids, warnings=warnings)
+
+    async def _warnings(
+        self, identity: Identity, spec: ProviderSpec, own: tuple[Connection, ...]
+    ) -> tuple[str, ...]:
+        """Gmail connected *and* the same mailbox over IMAP: everything is indexed twice."""
+        if spec.id != "gmail" or not own:
+            return ()
+        mine = {(c.account_label or "").lower() for c in own}
+        imap = await self._sources.sources_by_connector(identity.workspace_id, "imap")
+        twice = sorted(
+            str(s.config.get("address", "")) for s in imap
+            if s.created_by == identity.user_id
+            and str(s.config.get("address", "")).lower() in mine
+        )  # fmt: skip
+        return tuple(
+            f"{a} is also connected with an app password, so its mail is indexed twice. "
+            "Disconnect the Email (IMAP) source to keep one copy."
+            for a in twice
+        )
 
     async def _legacy_view(self, identity: Identity, spec: ProviderSpec) -> IntegrationView:
         count = 0
@@ -177,11 +217,37 @@ class IntegrationService:
             raise ValidationFailed(EXPIRED)
         verifier = derive_verifier(self._secret, nonce) if oauth.pkce else None
         tokens, account = await self._oauth.exchange(oauth, client, code, verifier, redirect)
+        await self._check_grant(spec, oauth, client, tokens)
         connection = await self._connections.save(
             identity.workspace_id, identity.user_id, spec.id, account, tokens
         )
         log.info("integration.connected", provider=spec.id, connection_id=str(connection.id))
+        hook = self._hooks.get(spec.id)
+        if hook is not None:
+            await hook(connection)  # never raises: the connection is already saved
         return connection
+
+    async def _check_grant(
+        self, spec: ProviderSpec, oauth: OAuthSpec, client: ClientCredentials, tokens: TokenSet
+    ) -> None:
+        """Refuse a sign-in that can't work, and revoke it so nothing is left behind:
+        a required permission was unticked on the consent screen, or no refresh token came
+        back (the connection would die within the hour)."""
+        missing = [s for s in oauth.required_scopes if tokens.scopes and s not in tokens.scopes]
+        if missing:
+            await self._oauth.revoke(oauth, client, tokens.access_token)
+            log.info("integration.scope_missing", provider=spec.id)
+            raise ValidationFailed(
+                f"{spec.name} wasn't connected: Slate needs every permission it asks for. "
+                "Connect again and leave all the boxes ticked on the sign-in screen."
+            )
+        if oauth.requires_refresh and not tokens.refresh_token:
+            await self._oauth.revoke(oauth, client, tokens.access_token)
+            log.info("integration.no_refresh_token", provider=spec.id)
+            raise ValidationFailed(
+                f"{spec.name} didn't grant lasting access. Remove Slate from your account's "
+                "third-party access settings, then connect again."
+            )
 
     async def disconnect(self, identity: Identity, connection_id: UUID) -> None:
         """Revoke at the provider (best effort) and delete the connection: its tokens go

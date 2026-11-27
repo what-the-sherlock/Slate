@@ -97,6 +97,7 @@ class InMemorySources:
         data_class: DataClass,
         created_by: UserId | None = None,
         credential_id: UUID | None = None,
+        connection_id: UUID | None = None,
     ) -> SourceId:
         if any(r.workspace_id == ws and r.name == name for r in self.records.values()):
             raise Conflict(f"{name} is already connected.")
@@ -112,6 +113,7 @@ class InMemorySources:
             dict(config),
             created_by=created_by,
             credential_id=credential_id,
+            connection_id=connection_id,
         )
         return sid
 

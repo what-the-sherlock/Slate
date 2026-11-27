@@ -68,11 +68,16 @@ def test_google_providers_carry_the_unverified_app_notice() -> None:
     assert "read-only" in GOOGLE_UNVERIFIED_NOTICE
 
 
-def test_drive_uses_the_non_restricted_per_file_scope() -> None:
-    drive = provider("google_drive").oauth
-    assert drive is not None
-    assert "https://www.googleapis.com/auth/drive.file" in drive.scopes
-    assert not any(s.endswith("/drive") or s.endswith("drive.readonly") for s in drive.scopes)
+def test_google_providers_are_read_only_and_require_their_scope_and_offline_access() -> None:
+    for pid, scope in (
+        ("gmail", "gmail.readonly"),
+        ("google_calendar", "calendar.readonly"),
+        ("google_drive", "drive.readonly"),  # ADR-0033: not drive.file
+    ):
+        spec = provider(pid).oauth
+        assert spec is not None
+        assert spec.required_scopes == (f"https://www.googleapis.com/auth/{scope}",)
+        assert spec.requires_refresh
 
 
 def test_unknown_providers_are_not_found() -> None:

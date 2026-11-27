@@ -31,10 +31,12 @@ def test_the_catalogue_lists_every_provider_with_its_state(
     sign_up(client, mailer)
     got = by_id(client)
     assert got["linear"]["state"] == "not_connected"
-    assert got["gmail"]["state"] == "coming_soon"
+    assert got["gmail"]["state"] == "not_set_up"  # no Google client in tests
+    assert got["hubspot"]["state"] == "coming_soon"
     assert got["gmail"]["notice"]
     assert got["github"]["connect_path"] == "/sources?add=github"
-    assert got["google_calendar"]["mode"] == "live"
+    assert got["google_calendar"]["mode"] == "indexed"  # ADR-0033
+    assert got["hubspot"]["mode"] == "live"
 
 
 def test_connect_then_disconnect(

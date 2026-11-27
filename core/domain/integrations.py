@@ -84,6 +84,8 @@ class IdentitySpec:
     id_field: str
     label_field: str
     url: str | None = None
+    # A POST lookup (a GraphQL query) instead of a GET, for providers like Linear.
+    post_body: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +101,11 @@ class OAuthSpec:
     client_auth: Literal["body", "basic"] = "body"  # Notion wants HTTP Basic
     token_body: Literal["form", "json"] = "form"  # Notion wants JSON
     revoke_url: str | None = None
+    # Scopes the sign-in must actually grant (Google lets people untick boxes on its
+    # consent screen). Checked when the provider reports the granted scopes.
+    required_scopes: tuple[str, ...] = ()
+    # The provider must return a refresh token, or the connection dies within the hour.
+    requires_refresh: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +151,8 @@ def _google(scope: str) -> OAuthSpec:
         # offline: a refresh token; consent: Google re-issues it on every reconnect.
         extra_params={"access_type": "offline", "prompt": "consent"},
         revoke_url="https://oauth2.googleapis.com/revoke",
+        required_scopes=(scope,),
+        requires_refresh=True,
     )
 
 
@@ -166,13 +175,13 @@ REGISTRY: tuple[ProviderSpec, ...] = (
     ),
     ProviderSpec(
         "gmail", "Gmail", "Sign in with Google to search your mail, read-only.",
-        AuthKind.OAUTH2, Mode.INDEXED, client="google",
+        AuthKind.OAUTH2, Mode.INDEXED, client="google", available=True,
         oauth=_google("https://www.googleapis.com/auth/gmail.readonly"),
         notice=GOOGLE_UNVERIFIED_NOTICE,
     ),
     ProviderSpec(
         "notion", "Notion", "Pages and databases you share with Slate.",
-        AuthKind.OAUTH2, Mode.INDEXED, client="notion",
+        AuthKind.OAUTH2, Mode.INDEXED, client="notion", available=True,
         oauth=OAuthSpec(
             authorize_url="https://api.notion.com/v1/oauth/authorize",
             token_url="https://api.notion.com/v1/oauth/token",
@@ -184,12 +193,17 @@ REGISTRY: tuple[ProviderSpec, ...] = (
         ),
     ),
     ProviderSpec(
-        "linear", "Linear", "Issues and projects from your Linear workspace.",
-        AuthKind.OAUTH2, Mode.INDEXED, client="linear",
+        "linear", "Linear", "Issues from your Linear workspace.",
+        AuthKind.OAUTH2, Mode.INDEXED, client="linear", available=True,
         oauth=OAuthSpec(
             authorize_url="https://linear.app/oauth/authorize",
             token_url="https://api.linear.app/oauth/token",
-            identity=IdentitySpec("token", "organization.id", "organization.name"),
+            # The token response doesn't name the account: ask GraphQL who this is.
+            identity=IdentitySpec(
+                "userinfo", "data.viewer.organization.id", "data.viewer.organization.name",
+                url="https://api.linear.app/graphql",
+                post_body={"query": "{ viewer { id organization { id name } } }"},
+            ),
             scopes=("read",),
             scope_separator=",",
             extra_params={"actor": "user"},
@@ -197,21 +211,23 @@ REGISTRY: tuple[ProviderSpec, ...] = (
         ),
     ),
     ProviderSpec(
-        "google_calendar", "Google Calendar", "Your upcoming events, looked up live.",
-        AuthKind.OAUTH2, Mode.LIVE, client="google",
+        "google_calendar", "Google Calendar", "Your events from a month ago to three months ahead.",
+        # Indexed, not live (ADR-0033): answers about events need citable passages.
+        AuthKind.OAUTH2, Mode.INDEXED, client="google", available=True,
         oauth=_google("https://www.googleapis.com/auth/calendar.readonly"),
         notice=GOOGLE_UNVERIFIED_NOTICE,
     ),
     ProviderSpec(
-        "google_drive", "Google Drive", "Files you pick from your Drive.",
-        AuthKind.OAUTH2, Mode.INDEXED, client="google",
-        # drive.file: only files the user picks, a non-restricted scope (ADR-0032).
-        oauth=_google("https://www.googleapis.com/auth/drive.file"),
+        "google_drive", "Google Drive", "Google Docs and text files from your Drive.",
+        AuthKind.OAUTH2, Mode.INDEXED, client="google", available=True,
+        # drive.readonly (ADR-0033): drive.file would need Google's Picker; Slate is an
+        # unverified app for Gmail's restricted scope already, so this costs nothing more.
+        oauth=_google("https://www.googleapis.com/auth/drive.readonly"),
         notice=GOOGLE_UNVERIFIED_NOTICE,
     ),
     ProviderSpec(
-        "slack", "Slack", "Messages from channels you can read.",
-        AuthKind.OAUTH2, Mode.INDEXED, client="slack",
+        "slack", "Slack", "Messages from public channels you're in.",
+        AuthKind.OAUTH2, Mode.INDEXED, client="slack", available=True,
         oauth=OAuthSpec(
             authorize_url="https://slack.com/oauth/v2/authorize",
             token_url="https://slack.com/api/oauth.v2.access",

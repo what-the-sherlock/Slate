@@ -48,6 +48,16 @@ jobs:
       DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
       # Email (ADR-0028): decrypts the stored IMAP app passwords. Never printed.
       CREDENTIALS_FERNET_KEY: ${{ secrets.CREDENTIALS_FERNET_KEY }}
+      # OAuth-connected sources (ADR-0033): the worker refreshes their tokens. A family
+      # without its secrets simply can't refresh; its sources ask for a reconnect.
+      GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+      NOTION_OAUTH_CLIENT_ID: ${{ secrets.NOTION_OAUTH_CLIENT_ID }}
+      NOTION_OAUTH_CLIENT_SECRET: ${{ secrets.NOTION_OAUTH_CLIENT_SECRET }}
+      LINEAR_OAUTH_CLIENT_ID: ${{ secrets.LINEAR_OAUTH_CLIENT_ID }}
+      LINEAR_OAUTH_CLIENT_SECRET: ${{ secrets.LINEAR_OAUTH_CLIENT_SECRET }}
+      SLACK_OAUTH_CLIENT_ID: ${{ secrets.SLACK_OAUTH_CLIENT_ID }}
+      SLACK_OAUTH_CLIENT_SECRET: ${{ secrets.SLACK_OAUTH_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

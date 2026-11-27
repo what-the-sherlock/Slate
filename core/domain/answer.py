@@ -54,8 +54,9 @@ knowledge. Do not use [n] citations in such an answer."""
 SYSTEM_PROMPT = f"""{_ABOUT} You answer using the numbered sources provided in the user's \
 message.
 
-Each source has attributes: kind (file, email, github or discord), date (when it was sent \
-or last updated), from (its author or senders), title and section. They are part of the \
+Each source has attributes: kind (file, email, github, discord, notion, linear, calendar, \
+drive or slack), date (when it was sent or last updated; for a calendar event, when it \
+happens), from (its author, senders or organizer), title and section. They are part of the \
 source: a fact under a heading such as "Q2 2027" belongs to it, and a message's date and \
 sender are facts you may state and cite.
 

@@ -22,12 +22,14 @@ from decimal import Decimal
 import structlog
 
 from core.adapters.factories import (
+    connected_sources,
     credential_store,
     discord_service,
     discord_sync,
     github_service,
     github_sync,
     ingest_service,
+    integration_service,
     mail_service,
     mail_sync,
     mbox_import,
@@ -50,6 +52,7 @@ from core.config import Settings, get_settings
 from core.domain.github import CREDENTIAL_KIND as GITHUB_TOKEN
 from core.logs import configure_logging
 from core.services.backfill import BackfillReport, Provider, backfill_generation
+from core.services.connected import SYNC_CONNECTED
 from core.services.discord import SYNC_DISCORD
 from core.services.github import SYNC_GITHUB
 from core.services.mail import IMPORT_MBOX, SYNC_MAIL
@@ -84,6 +87,11 @@ def build_handlers(settings: Settings, uow: UnitOfWork) -> dict[str, Handler]:
         handlers[SYNC_MAIL] = msync.handle
     else:
         log.warning("mail_sync_disabled", reason="CREDENTIALS_FERNET_KEY or OPENAI_API_KEY missing")
+    connected = connected_sources(settings, uow, integration_service(settings, uow, {}))
+    if connected.available:
+        handlers[SYNC_CONNECTED] = connected.handle
+    else:
+        log.warning("connected_sync_disabled", reason="OPENAI_API_KEY not configured")
     mbox = mbox_import(settings, uow)
     if mbox is not None:
         handlers[IMPORT_MBOX] = mbox.handle
@@ -122,6 +130,15 @@ async def housekeeping(settings: Settings, uow: UnitOfWork) -> None:
             log.info("mail_syncs_queued", count=queued)
     except Exception as e:
         log.warning("sweep_failed", sweep="mail_schedule", error_type=type(e).__name__)
+    try:
+        # Hourly: Gmail, Notion, Linear, Calendar, Drive, Slack (ADR-0033). Connections
+        # waiting for a reconnect are skipped.
+        engine = connected_sources(settings, uow, integration_service(settings, uow, {}))
+        queued = await engine.enqueue_due()
+        if queued:
+            log.info("connected_syncs_queued", count=queued)
+    except Exception as e:
+        log.warning("sweep_failed", sweep="connected_schedule", error_type=type(e).__name__)
     blobs = s3_blob_store(settings)
     if blobs is None:
         return

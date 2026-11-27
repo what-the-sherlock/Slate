@@ -24,7 +24,8 @@ const base: Omit<Integration, "id" | "name" | "tagline" | "state"> = {
   connections: [],
   sources: 0,
 };
-const CONNECTION = { id: "c1", account_label: "Kestrel Freight", status: "connected" as const, last_error: null, connected_at: "2026-11-27T10:00:00Z" };
+const CONNECTION = { id: "c1", account_label: "Kestrel Freight", status: "connected" as const, last_error: null, connected_at: "2026-11-27T10:00:00Z", source_id: "s1" };
+const SOURCE = { id: "s1", connector: "notion", name: "Notion · Kestrel Freight", status: "synced", documents: 1284, last_synced_at: new Date(Date.now() - 5 * 60_000).toISOString(), data_class: "private", last_error: null, shareable: true, visibility: "private" };
 const LIST: Integration[] = [
   { ...base, id: "github", name: "GitHub", tagline: "Docs and issues", auth: "github_app", state: "connected", connect_path: "/sources?add=github", sources: 2 },
   { ...base, id: "notion", name: "Notion", tagline: "Pages and databases", state: "connected", connections: [CONNECTION] },
@@ -44,6 +45,8 @@ function mockApi() {
       calls.push({ method: req.method, path });
       if (path === "/api/v1/integrations") return json(LIST);
       if (path === "/api/v1/me") return json({ role, user_id: "u1", workspace_id: "w1", email: "a@b.c", name: "A" });
+      if (path === "/api/v1/sources") return json([SOURCE]);
+      if (path.endsWith("/sync")) return json({ source_id: "s1" });
       if (path.endsWith("/authorize")) return json({ authorize_url: "https://linear.app/oauth/authorize?state=s" });
       if (path.startsWith("/api/v1/integrations/connections/")) return json(null, 204);
       return json({}, 404);
@@ -116,11 +119,19 @@ describe("IntegrationsView", () => {
     await vi.waitFor(() => expect(go).toHaveBeenCalled());
   });
 
-  it("disconnects after confirming, naming the account", async () => {
+  it("manages accounts: status, sync now, and a disconnect that says what is deleted", async () => {
     const calls = mockApi();
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Disconnect Notion" }));
-    expect(await screen.findByText(/deletes the stored sign-in for Kestrel Freight/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Manage Notion" }));
+    const accounts = await screen.findByRole("list", { name: "Notion accounts" });
+    expect(await within(accounts).findByText(/1,284 pages · synced 5 min ago/)).toBeInTheDocument();
+    expect(within(accounts).getByRole("link", { name: /Open the Kestrel Freight source/ })).toHaveAttribute("href", "/sources/s1");
+    fireEvent.click(within(accounts).getByRole("button", { name: "Sync Kestrel Freight now" }));
+    await vi.waitFor(() =>
+      expect(calls.some((c) => c.method === "POST" && c.path === "/api/v1/integrations/connections/c1/sync")).toBe(true),
+    );
+    fireEvent.click(within(accounts).getByRole("button", { name: "Disconnect Kestrel Freight" }));
+    expect(await screen.findByText(/deletes 1,284 pages indexed from this account/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     await vi.waitFor(() =>
       expect(calls.some((c) => c.method === "DELETE" && c.path === "/api/v1/integrations/connections/c1")).toBe(true),
@@ -140,5 +151,27 @@ describe("IntegrationsView", () => {
     renderPage();
     await screen.findByText("Notion");
     await vi.waitFor(() => expect(screen.queryByRole("button", { name: /Connect Linear/ })).toBeNull());
+  });
+});
+
+describe("ManageDialog edge cases", () => {
+  it("offers reconnect for an account that needs sign-in, behind the provider notice", async () => {
+    mockApi();
+    const go = renderPage();
+    fireEvent.click(await screen.findByRole("tab", { name: /All/ }));
+    // Gmail needs sign-in: its row offers Reconnect directly (via the notice first).
+    fireEvent.click(await screen.findByRole("button", { name: "Reconnect Gmail" }));
+    expect(await screen.findByText("Google will show an unverified app notice.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Continue to sign in" }));
+    await vi.waitFor(() => expect(go).toHaveBeenCalled());
+  });
+
+  it("adds another account from the dialog", async () => {
+    const calls = mockApi();
+    const go = renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Manage Notion" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Add another account/ }));
+    await vi.waitFor(() => expect(go).toHaveBeenCalled());
+    expect(calls.some((c) => c.path === "/api/v1/integrations/notion/authorize")).toBe(true);
   });
 });

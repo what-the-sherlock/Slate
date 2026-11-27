@@ -16,6 +16,7 @@ from alembic.script import ScriptDirectory
 from core.adapters.factories import (
     answer_service,
     auth_service,
+    connected_sources,
     discord_service,
     discord_sync,
     email_sender,
@@ -40,11 +41,13 @@ from core.adapters.postgres.uow import UnitOfWork, make_uow
 from core.adapters.postgres.workspaces import PostgresWorkspaceStore
 from core.adapters.system import SystemClock
 from core.config import Settings, get_settings
+from core.domain.integrations import provider
 from core.ports.chat import ChatStore
 from core.ports.system import HealthProbe
 from core.services.answer import AnswerService
 from core.services.auth import AuthService
 from core.services.catalog import CatalogService
+from core.services.connected import SYNC_CONNECTED, ConnectedSources
 from core.services.discord import CONNECTOR as DISCORD
 from core.services.discord import SYNC_DISCORD, DiscordService
 from core.services.github import CONNECTOR as GITHUB
@@ -77,6 +80,7 @@ class Container:
     mail: MailService | None = None
     workspaces: WorkspaceService | None = None
     integrations: IntegrationService | None = None  # ADR-0032
+    connected: ConnectedSources | None = None  # ADR-0033: OAuth-connected sources
     # Sync now / disconnect for any connected source; built from the fields above when the
     # caller doesn't pass one (tests).
     actions: SourceActions | None = None
@@ -111,6 +115,12 @@ def get_container() -> Container:
     github, discord = github_service(settings, uow), discord_service(settings, uow)
     mail = mail_service(settings, uow)
     ready = {"github": github.available, "discord": discord.available, "email": mail.available}
+    integrations = integration_service(settings, uow, ready)
+    connected = connected_sources(settings, uow, integrations)
+    connected_inline = InlineRunner(
+        PostgresJobQueue(uow), connected.handle_inline, runner_id="api-inline",
+        kinds=frozenset({SYNC_CONNECTED}),
+    )  # fmt: skip
     return Container(
         settings=settings,
         health=PostgresHealthProbe(uow),
@@ -125,7 +135,8 @@ def get_container() -> Container:
         github=github,
         discord=discord,
         mail=mail,
-        integrations=integration_service(settings, uow, ready),
+        integrations=integrations,
+        connected=connected,
         workspaces=WorkspaceService(
             PostgresWorkspaceStore(uow),
             PostgresSessionStore(uow),
@@ -142,6 +153,10 @@ def get_container() -> Container:
                 DISCORD: ConnectorEntry("Discord", discord, _discord_inline(settings, uow)),
                 IMAP: ConnectorEntry("Email", mail, _mail_inline(settings, uow)),
                 MBOX: ConnectorEntry("Email import", MboxActions(mail)),
+                **{
+                    p: ConnectorEntry(provider(p).name, connected, connected_inline)
+                    for p in connected.providers
+                },
             },
         ),
     )

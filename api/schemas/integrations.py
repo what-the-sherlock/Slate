@@ -19,6 +19,9 @@ class ConnectionOut(BaseModel):
     status: Literal["connected", "needs_reconnect", "error"]
     last_error: str | None = Field(description="The provider's error code, if the last use failed")
     connected_at: datetime
+    source_id: UUID | None = Field(
+        default=None, description="The source this connection syncs into (ADR-0033)"
+    )
 
 
 class IntegrationOut(BaseModel):
@@ -36,6 +39,9 @@ class IntegrationOut(BaseModel):
     notice: str | None = Field(description="Shown before the user goes to the provider")
     connections: list[ConnectionOut]
     sources: int = Field(description="Sources created through the older install flows")
+    warnings: list[str] = Field(
+        default_factory=list[str], description="Things the user should know (e.g. duplicates)"
+    )
 
 
 class AuthorizeOut(BaseModel):
@@ -45,3 +51,7 @@ class AuthorizeOut(BaseModel):
 class CallbackBody(BaseModel):
     code: str = Field(min_length=1, max_length=2048)
     state: str = Field(min_length=1, max_length=2048)
+
+
+class SyncConnectionOut(BaseModel):
+    source_id: UUID = Field(description="The source being synced; open it to follow progress")

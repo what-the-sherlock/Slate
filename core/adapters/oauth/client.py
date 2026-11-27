@@ -120,8 +120,12 @@ class HttpOAuthProvider:
             raise ValidationFailed("This provider has no account endpoint configured.")
         _check_https(url)
         headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+        body = spec.identity.post_body
         try:
-            response = await self._request("GET", url, headers=headers)
+            if body is not None:  # e.g. Linear: a GraphQL "viewer" query
+                response = await self._request("POST", url, headers=headers, json=dict(body))
+            else:
+                response = await self._request("GET", url, headers=headers)
         except httpx.HTTPError as e:
             raise UpstreamUnavailable("The provider didn't answer. Try again.") from e
         if response.status_code != 200:

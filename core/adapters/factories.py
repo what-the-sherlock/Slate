@@ -17,8 +17,13 @@ from core.adapters.discord.api import DiscordBot
 from core.adapters.email.dev import AllowAllHumanVerifier, LogEmailSender
 from core.adapters.email.smtp import SmtpEmailSender
 from core.adapters.github.app import GitHubApp
+from core.adapters.google.calendar import CalendarConnector
+from core.adapters.google.drive import DriveConnector
+from core.adapters.google.gmail import GmailConnector
+from core.adapters.linear.connector import LinearConnector
 from core.adapters.mail.imap import ImapMailbox
 from core.adapters.mail.parse import parse_mbox
+from core.adapters.notion.connector import NotionConnector
 from core.adapters.oauth.client import HttpOAuthProvider
 from core.adapters.openai.chat import DEFAULT_MODEL as DEFAULT_CHAT_MODEL
 from core.adapters.openai.chat import OpenAIChatModel
@@ -42,6 +47,7 @@ from core.adapters.postgres.uow import UnitOfWork
 from core.adapters.postgres.usage import PostgresGenerationStore, PostgresUsageLedger
 from core.adapters.s3.blob_store import S3BlobStore, S3Settings
 from core.adapters.security.argon2_hasher import Argon2Hasher
+from core.adapters.slack.connector import SlackConnector
 from core.adapters.system import SystemClock
 from core.adapters.tokenizer import TiktokenTokenizer
 from core.adapters.turnstile import TurnstileVerifier
@@ -50,12 +56,14 @@ from core.config import Env, Settings
 from core.domain.budget import SpendLimits
 from core.domain.emails import OutgoingEmail
 from core.domain.errors import UpstreamUnavailable
+from core.domain.integrations import REGISTRY
 from core.ports.auth import HumanVerifier
 from core.ports.email import EmailSender
 from core.ports.integrations import ClientCredentials
 from core.ports.storage import BlobStore
 from core.services.answer import AnswerService
 from core.services.auth import AuthPolicy, AuthService
+from core.services.connected import ConnectedSources
 from core.services.discord import DiscordService
 from core.services.discord_sync import DiscordSync
 from core.services.github import GitHubService, GitHubSync
@@ -420,3 +428,32 @@ def integration_service(
         redirect_uri=settings.integrations_redirect_uri,
         legacy_ready=legacy_ready,
     )
+
+
+def connected_sources(
+    settings: Settings, uow: UnitOfWork, integrations: IntegrationService
+) -> ConnectedSources:
+    """The sync engine for every OAuth-connected source (ADR-0033), registered as the
+    integrations' connect hook. Syncing needs only the OpenAI key (no blob storage)."""
+    key = settings.credentials_fernet_key
+    engine = ConnectedSources(
+        PostgresSourceStore(uow),
+        PostgresJobQueue(uow),
+        _ingest(settings, uow, s3_blob_store(settings) or _NoBlobs()),  # type: ignore[arg-type]
+        PostgresConnectionStore(uow, make_fernet(key.get_secret_value() if key else None)),
+        integrations,
+        PostgresRateLimiter(uow),
+        SystemClock(),
+        connectors={
+            "gmail": GmailConnector(),
+            "notion": NotionConnector(),
+            "linear": LinearConnector(),
+            "google_calendar": CalendarConnector(),
+            "google_drive": DriveConnector(),
+            "slack": SlackConnector(),
+        },
+        specs={p.id: p for p in REGISTRY},
+    )
+    for provider in engine.providers:
+        integrations.on_connected(provider, engine.connected)
+    return engine

@@ -52,6 +52,13 @@ This is a personal project that indexes **private mail and code**, and anyone ca
   - Only the spec's fixed https endpoints are called, with no redirects followed. The code exchange and refreshes are never retried (both are single use); refreshes run under a lease so a rotated refresh token can't be raced.
   - A dead grant marks the connection `needs_reconnect` and stops using it; disconnect revokes at the provider where possible and deletes the tokens.
   - Accepted: Google's restricted scopes (Gmail) run as an unverified app (warning screen, 100 users) until a paid CASA assessment; the connect dialog says so.
+- **Connected sources (M10, ADR-0033):**
+  - Every connected source is private to the person who connected it (`user:<id>`), and only they can sync or disconnect it (anyone else gets 404). Gmail is always private data (DB CHECK).
+  - A source can't exist without its connection (CHECK), and deleting the connection deletes the source and everything indexed from it (FK cascade). Leaving a workspace therefore removes it all, in the database.
+  - Read-only scopes only. A sign-in missing a required scope, or Google's offline grant, is refused and revoked.
+  - Connectors call fixed https hosts per provider, follow no redirects, put only validated ids in URL paths, cap every body (2 MB per file, 10 MB per message) and never read attachments.
+  - Provider content is untrusted data: it reaches the model only as escaped source blocks (ADR-0022), and logs carry counts, statuses and error reasons, never content.
+  - Accepted: Google's restricted scopes (Gmail, Drive) as an unverified app (warning screen, 100 users).
 - **Query planner (M8, ADR-0031):** the planner sees the question and recent turns as a delimited, escaped data block, and its output is data: validated JSON that can only *narrow* retrieval (queries, dates, connector kinds, sender), never widen it, because ACLs are applied in SQL regardless. The user's own filters always win. Bad output falls back to the question. Calls are classed private in the ledger. Neither queries nor plans are logged, only counts and the intent. Source metadata shown to the model (sender, title, section) is escaped like content, so a crafted author name can't close a tag. Document URIs are not sent to the model.
 - **GitHub (M4, ADR-0023):**
   - Read-only app permissions (Contents, Issues, Pull requests, Metadata).

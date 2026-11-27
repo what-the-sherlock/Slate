@@ -6,7 +6,7 @@ Status: approved design for the prototype (Phases 0–1). Changes need an ADR in
 
 **Goals:** cited, permission-aware answers over a personal corpus (uploads, GitHub, Discord, Gmail); hybrid search; measurable retrieval quality; clean, swappable components; $0 hosting.
 
-**Non-goals for now:** multi-tenant SaaS, SSO, write-back actions, knowledge graph or personalisation, voice, image generation, Slack.
+**Non-goals for now:** multi-tenant SaaS, SSO, write-back actions, knowledge graph or personalisation, voice, image generation.
 
 ## 2. Deployment topology
 
@@ -97,7 +97,8 @@ connections(id, workspace_id, user_id, provider, account_id, account_label, scop
             UNIQUE (workspace_id, user_id, provider, account_id))   -- 0009, ADR-0032: OAuth sign-ins
 sources(id, workspace_id, connector, name, config jsonb, credential_id, created_by, visibility text[] NOT NULL,
         data_class DEFAULT 'private',             -- ADR-0012: public only if 'public' ∈ visibility; gmail always private
-        schedule_interval interval, status, checkpoint jsonb, last_synced_at, created_at)
+        schedule_interval interval, status, checkpoint jsonb, last_synced_at, created_at,
+        connection_id → connections ON DELETE CASCADE)   -- 0010, ADR-0033: OAuth-connected sources
 ingestion_runs(id, source_id, kind, status, started_at, finished_at, docs_seen, docs_changed, docs_failed, error_summary)
 ingestion_errors(id, run_id, external_id, stage, message, retryable bool, created_at)
 
@@ -208,6 +209,24 @@ Connectors fetch; **integrations** are how a user signs in to a provider. `core/
 
 The older install flows (GitHub App, Discord bot, IMAP) keep their own routes and appear in the same registry, linked to their setup pages. Providers are switched on (`available`) once their sync or live adapter exists.
 
+### Connected sources (ADR-0033)
+
+Gmail, Notion, Linear, Google Calendar, Google Drive and Slack share one sync engine (`core/services/connected.py`). Each provider is a connector that only fetches: `pull(token, checkpoint, now) -> Page` of documents (shaped by its pure rules), deleted ids or id prefixes, the next checkpoint, `done`, and on a full pass's last page `keep_only`. The engine:
+
+- On sign-in (the integrations hook) creates the person's private source for that connection (`sources.connection_id`) and queues `sync_connected`.
+- Syncs page by page with a fresh token (refreshed under the lease), skips unchanged documents by checksum before any paid embedding, indexes, deletes, and commits each fully indexed page's checkpoint. A run stops cleanly and continues later when out of time (inline "Sync now": 90 s), at 2,000 items, out of budget or rate-limited.
+- On a refused token: the connection becomes `needs_reconnect`, the run fails with a plain reason, hourly syncs skip it, and indexed documents stay searchable.
+- On disconnect: revoke and delete the connection; the source and everything indexed from it cascade (migration 0010).
+
+| Provider | Scope | Unit | Incremental | Removal |
+| --- | --- | --- | --- | --- |
+| Gmail | `gmail.readonly` | conversation (IMAP rules) | `history.list` | deleted threads; rescan when history expires |
+| Notion | pages shared with Slate | page (heading sections) | last-edited mark | weekly full pass (`keep_only`) |
+| Linear | `read` | issue + comments | `updatedAt` mark | weekly 180-day full pass |
+| Google Calendar | `calendar.readonly` | event, dated by its start | hourly window, -30/+90 days | every pass (`keep_only`) |
+| Google Drive | `drive.readonly` | Google Doc or text file | modified-time mark | weekly 365-day full pass (≤500 files) |
+| Slack | user token, public channels joined | channel-day | from the day before the last message | channels left (`deleted_prefixes`) |
+
 ## 7. Ingestion pipeline
 
 ```mermaid
@@ -254,7 +273,7 @@ sequenceDiagram
 
 ## 9. API surface (v1, initial)
 
-`GET /api/v1/auth/config`, `POST /api/v1/auth/signup|login|logout`, `POST /api/v1/auth/verify`, `POST /api/v1/auth/verify/resend`, `POST /api/v1/auth/password/forgot|reset`, `GET /api/v1/me`, `GET|POST /api/v1/sources`, `GET /api/v1/sources/github/status`, `POST /api/v1/sources/github/install|installations|repos|connect`, `GET /api/v1/sources/discord/status`, `POST /api/v1/sources/discord/install|installations|channels|connect`, `GET /api/v1/sources/email/status`, `POST /api/v1/sources/email/connect`, `GET /api/v1/integrations`, `POST /api/v1/integrations/{provider}/authorize|callback`, `DELETE /api/v1/integrations/connections/{id}`, `GET /api/v1/workspaces`, `POST /api/v1/workspaces/switch`, `GET|PATCH|DELETE /api/v1/workspaces/members[/{user_id}]`, `GET|POST|DELETE /api/v1/workspaces/invites[/{id}]`, `POST /api/v1/invites/accept`, `PUT /api/v1/sources/{id}/sharing`, `POST /api/v1/sources/{id}/sync`, `DELETE /api/v1/sources/{id}`, `GET /api/v1/sources/{id}/runs`, `POST /api/v1/uploads`, `POST /api/v1/uploads/complete`, `GET /api/v1/documents/{id}` (preview, ACL-checked), `POST /api/v1/search`, `POST /api/v1/chat` (SSE), `GET /api/v1/chat/sessions`, `GET /api/v1/chat/sessions/{id}/messages`, `POST /api/v1/messages/{id}/feedback`, `POST /api/v1/webhooks/{connector}`, `GET /healthz`, `GET /readyz`.
+`GET /api/v1/auth/config`, `POST /api/v1/auth/signup|login|logout`, `POST /api/v1/auth/verify`, `POST /api/v1/auth/verify/resend`, `POST /api/v1/auth/password/forgot|reset`, `GET /api/v1/me`, `GET|POST /api/v1/sources`, `GET /api/v1/sources/github/status`, `POST /api/v1/sources/github/install|installations|repos|connect`, `GET /api/v1/sources/discord/status`, `POST /api/v1/sources/discord/install|installations|channels|connect`, `GET /api/v1/sources/email/status`, `POST /api/v1/sources/email/connect`, `GET /api/v1/integrations`, `POST /api/v1/integrations/{provider}/authorize|callback`, `DELETE /api/v1/integrations/connections/{id}`, `POST /api/v1/integrations/connections/{id}/sync`, `GET /api/v1/workspaces`, `POST /api/v1/workspaces/switch`, `GET|PATCH|DELETE /api/v1/workspaces/members[/{user_id}]`, `GET|POST|DELETE /api/v1/workspaces/invites[/{id}]`, `POST /api/v1/invites/accept`, `PUT /api/v1/sources/{id}/sharing`, `POST /api/v1/sources/{id}/sync`, `DELETE /api/v1/sources/{id}`, `GET /api/v1/sources/{id}/runs`, `POST /api/v1/uploads`, `POST /api/v1/uploads/complete`, `GET /api/v1/documents/{id}` (preview, ACL-checked), `POST /api/v1/search`, `POST /api/v1/chat` (SSE), `GET /api/v1/chat/sessions`, `GET /api/v1/chat/sessions/{id}/messages`, `POST /api/v1/messages/{id}/feedback`, `POST /api/v1/webhooks/{connector}`, `GET /healthz`, `GET /readyz`.
 
 Errors use RFC 9457 `application/problem+json` with a stable `type` URI per domain error. List endpoints use cursor pagination.
 

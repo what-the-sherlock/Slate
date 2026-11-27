@@ -9,12 +9,13 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api, errorMessage, unwrap } from "@/lib/api/client";
 import { keys, type Source } from "@/lib/api/hooks";
+import { isEmail, SYNCABLE } from "@/lib/connectors";
 
 /** "Sync now" for connector sources (UI_DESIGN §4.5). Uploads have nothing to sync. */
 export function SyncNowButton({ source }: { source: Source }) {
   const client = useQueryClient();
   const [busy, setBusy] = useState(false);
-  if (!["github", "discord", "imap"].includes(source.connector)) return null; // uploads and imports don't sync
+  if (!SYNCABLE.includes(source.connector)) return null; // uploads and imports don't sync
   const running = source.status === "syncing" || source.status === "queued";
 
   async function sync() {
@@ -47,7 +48,7 @@ export function DangerZone({ source, canManage }: { source: Source; canManage: b
   const [busy, setBusy] = useState(false);
   if (!canManage || source.connector === "upload") return null;
   const discord = source.connector === "discord";
-  const email = source.connector === "imap" || source.connector === "gmail_mbox";
+  const email = isEmail(source.connector);
 
   async function disconnect() {
     setBusy(true);
@@ -117,7 +118,7 @@ export function ShareToggle({ source, members }: { source: Source; members: numb
   const [busy, setBusy] = useState(false);
   if (!source.shareable || members < 2) return null;
   const shared = source.visibility === "workspace";
-  const email = source.connector === "imap" || source.connector === "gmail_mbox";
+  const email = isEmail(source.connector);
 
   async function toggle() {
     if (!shared && email && !window.confirm("Share this mailbox with every member of the workspace? They'll be able to search your email.")) return;

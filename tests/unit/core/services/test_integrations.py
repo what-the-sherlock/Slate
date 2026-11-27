@@ -107,7 +107,8 @@ async def test_catalogue_states_reflect_setup_availability_and_connections() -> 
     assert got["discord"] is IntegrationState.NOT_SET_UP  # its flow isn't configured here
     assert got["email"] is IntegrationState.NOT_CONNECTED
     assert got["linear"] is IntegrationState.NOT_CONNECTED
-    assert got["gmail"] is IntegrationState.COMING_SOON  # no adapter in this build
+    assert got["gmail"] is IntegrationState.NOT_SET_UP  # no Google client in this Env
+    assert got["hubspot"] is IntegrationState.COMING_SOON  # no adapter in this build
     assert list(got) == [p.id for p in REGISTRY]  # the registry's order
 
 
@@ -200,7 +201,8 @@ async def test_reconnecting_the_same_account_replaces_it_not_duplicates() -> Non
     [
         (who(role=Role.VIEWER), "linear", PermissionDenied),
         (who(verified=False), "linear", PermissionDenied),
-        (who(), "gmail", ValidationFailed),  # coming soon
+        (who(), "hubspot", ValidationFailed),  # coming soon
+        (who(), "gmail", ValidationFailed),  # no Google client on this server
         (who(), "github", ValidationFailed),  # not an OAuth flow
         (who(), "nope", NotFound),
     ],

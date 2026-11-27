@@ -18,6 +18,7 @@ from api.schemas.integrations import (
     CallbackBody,
     ConnectionOut,
     IntegrationOut,
+    SyncConnectionOut,
 )
 from api.security import CurrentIdentity, MutatingIdentity
 from core.domain.errors import UpstreamUnavailable
@@ -36,9 +37,10 @@ def _service(container: Annotated[Container, Depends(get_container)]) -> Integra
 Integrations = Annotated[IntegrationService, Depends(_service)]
 
 
-def _connection(c: Connection) -> ConnectionOut:
+def _connection(c: Connection, source_id: UUID | None = None) -> ConnectionOut:
     return ConnectionOut(
         id=c.id,
+        source_id=source_id,
         account_label=c.account_label,
         status=c.status.value,
         last_error=c.last_error,
@@ -57,8 +59,9 @@ def _integration(v: IntegrationView) -> IntegrationOut:
         state=v.state.value,
         connect_path=s.connect_path,
         notice=s.notice,
-        connections=[_connection(c) for c in v.connections],
+        connections=[_connection(c, v.source_ids.get(c.id)) for c in v.connections],
         sources=v.sources,
+        warnings=list(v.warnings),
     )
 
 
@@ -102,3 +105,19 @@ async def disconnect(
     connection_id: UUID, identity: MutatingIdentity, service: Integrations
 ) -> None:
     await service.disconnect(identity, connection_id)
+
+
+@router.post(
+    "/integrations/connections/{connection_id}/sync",
+    summary="Sync a connected account now (also finishes a setup that failed after sign-in)",
+    response_model=SyncConnectionOut,
+)
+async def sync_connection(
+    connection_id: UUID,
+    identity: MutatingIdentity,
+    container: Annotated[Container, Depends(get_container)],
+) -> SyncConnectionOut:
+    if container.connected is None:
+        raise UpstreamUnavailable("Syncing isn't configured on this server.")
+    source_id = await container.connected.sync_connection(identity, connection_id)
+    return SyncConnectionOut(source_id=source_id)

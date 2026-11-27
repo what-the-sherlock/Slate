@@ -262,6 +262,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations/connections/{connection_id}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sync a connected account now (also finishes a setup that failed after sign-in) */
+        post: operations["sync_connection_api_v1_integrations_connections__connection_id__sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/{provider_id}/authorize": {
         parameters: {
             query?: never;
@@ -1137,6 +1154,11 @@ export interface components {
              */
             last_error: string | null;
             /**
+             * Source Id
+             * @description The source this connection syncs into (ADR-0033)
+             */
+            source_id?: string | null;
+            /**
              * Status
              * @enum {string}
              */
@@ -1443,6 +1465,11 @@ export interface components {
             state: "connected" | "needs_reconnect" | "not_connected" | "not_set_up" | "coming_soon";
             /** Tagline */
             tagline: string;
+            /**
+             * Warnings
+             * @description Things the user should know (e.g. duplicates)
+             */
+            warnings?: string[];
         };
         /** InviteBody */
         InviteBody: {
@@ -1971,6 +1998,15 @@ export interface components {
              */
             workspace_id: string;
         };
+        /** SyncConnectionOut */
+        SyncConnectionOut: {
+            /**
+             * Source Id
+             * Format: uuid
+             * @description The source being synced; open it to follow progress
+             */
+            source_id: string;
+        };
         /** SyncOut */
         SyncOut: {
             /**
@@ -2461,6 +2497,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_connection_api_v1_integrations_connections__connection_id__sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncConnectionOut"];
+                };
             };
             /** @description Validation Error */
             422: {

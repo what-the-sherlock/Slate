@@ -36,9 +36,13 @@ def oauth(provider_id: str) -> OAuthSpec:
 
 
 async def test_linear_exchange_posts_a_form_with_the_verifier_and_reads_the_account() -> None:
-    body = {"access_token": "a", "expires_in": 3600, "organization": {"id": "o1", "name": "K"}}
+    body = {"access_token": "a", "expires_in": 3600}
+    viewer = {"data": {"viewer": {"id": "u1", "organization": {"id": "o1", "name": "K"}}}}
     p, seen = client_for(
-        {"POST https://api.linear.app/oauth/token": httpx.Response(200, json=body)}
+        {
+            "POST https://api.linear.app/oauth/token": httpx.Response(200, json=body),
+            "POST https://api.linear.app/graphql": httpx.Response(200, json=viewer),
+        }
     )
     tokens, account = await p.exchange(oauth("linear"), CLIENT, "code-1", "ver-1", REDIRECT)
     assert tokens.access_token == "a"
@@ -48,6 +52,9 @@ async def test_linear_exchange_posts_a_form_with_the_verifier_and_reads_the_acco
     assert form["code_verifier"] == ["ver-1"]
     assert form["client_secret"] == ["csecret"]
     assert form["redirect_uri"] == [REDIRECT]
+    # The account comes from a GraphQL viewer query made with the new token.
+    assert seen[1].headers["authorization"] == "Bearer a"
+    assert b"viewer" in seen[1].content
 
 
 async def test_notion_exchange_uses_basic_auth_and_a_json_body() -> None:

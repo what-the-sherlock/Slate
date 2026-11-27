@@ -64,7 +64,7 @@ def test_parse_plan_tolerates_prose_and_code_fences_around_the_object() -> None:
         '{"queries": ["  "]}',
         '{"queries": "one string"}',
         plan_json(intent="delete everything"),
-        plan_json(sources=["slack"]),
+        plan_json(sources=["jira"]),
         plan_json(after="next tuesday"),
         "[1, 2, 3]",
     ],
@@ -111,7 +111,7 @@ def test_merge_turns_local_days_into_utc_bounds() -> None:
 def test_merge_maps_kinds_to_connectors_and_sets_the_sender() -> None:
     plan = QueryPlan(("q",), kinds=("email", "github"), sender="Priya")
     f = merge_filters(SearchFilters(), plan, UTC)
-    assert f.connectors == ("imap", "gmail_mbox", "github")
+    assert f.connectors == ("imap", "gmail_mbox", "gmail", "github")
     assert f.author == "Priya"
 
 

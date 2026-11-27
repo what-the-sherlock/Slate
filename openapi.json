@@ -720,6 +720,19 @@
             "description": "The provider's error code, if the last use failed",
             "title": "Last Error"
           },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The source this connection syncs into (ADR-0033)",
+            "title": "Source Id"
+          },
           "status": {
             "enum": [
               "connected",
@@ -1436,6 +1449,14 @@
           "tagline": {
             "title": "Tagline",
             "type": "string"
+          },
+          "warnings": {
+            "description": "Things the user should know (e.g. duplicates)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
@@ -2671,6 +2692,21 @@
         "title": "SwitchBody",
         "type": "object"
       },
+      "SyncConnectionOut": {
+        "properties": {
+          "source_id": {
+            "description": "The source being synced; open it to follow progress",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id"
+        ],
+        "title": "SyncConnectionOut",
+        "type": "object"
+      },
       "SyncOut": {
         "properties": {
           "job_id": {
@@ -3359,6 +3395,49 @@
           }
         },
         "summary": "Disconnect: revoke access and delete the stored tokens",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/integrations/connections/{connection_id}/sync": {
+      "post": {
+        "operationId": "sync_connection_api_v1_integrations_connections__connection_id__sync_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Connection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync a connected account now (also finishes a setup that failed after sign-in)",
         "tags": [
           "integrations"
         ]
