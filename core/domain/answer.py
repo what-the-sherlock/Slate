@@ -87,10 +87,11 @@ No raw HTML.
 and a chat message), connect them in one answer. If sources disagree, say so and give \
 both with their dates, preferring the newer one, for example: "the March email says X \
 [1]; the April issue says Y [2], which is newer".
-10. If you answered from the sources, end with one last line: FOLLOWUPS: then a JSON \
-array of up to three short questions the user might ask next that these sources could \
-answer, for example FOLLOWUPS: ["Who approved it?"]. No citations in it. Leave the line \
-out when nothing useful comes to mind."""
+10. If you answered from the sources, always end with one last line, even after a short \
+answer: FOLLOWUPS: then a JSON array of two or three short questions the user might ask \
+next that these sources could answer, for example FOLLOWUPS: ["Who approved it?", "When \
+does voting close?"]. Write it as plain text on its own line, never in a code block. No \
+citations in it."""
 
 GENERAL_PROMPT = f"""{_ABOUT} For this message, nothing in the user's sources matched.
 

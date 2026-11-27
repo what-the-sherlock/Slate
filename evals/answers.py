@@ -335,6 +335,7 @@ async def run(limit: int | None, only: set[str] | None = None, *, judge: bool = 
                     cited_kinds=sorted({kind_of[c] for c in cited if c in kind_of}),
                     min_cited_kinds=case.min_cited_kinds,
                     judge=verdict,
+                    followups=list(done.followups) if done else [],
                 )
             )
             print(f"  {case.id:<12} {'ABSTAINED' if results[-1].abstained else 'answered'}")

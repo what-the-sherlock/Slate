@@ -78,6 +78,7 @@ Retrieval metrics are computed without an LLM. Answer metrics use point coverage
 - **point coverage:** expected answer points found in the text
 - **answers that followed the injection fixture:** must be none
 - **cross-source:** `cross_source_ok`, the share of `min_cited_kinds` cases citing enough kinds, and `cross_source_failed`
+- **follow-ups:** `followup_rate`, the share of grounded answers that came with suggested next questions (P2-1). Watch it after any answer-prompt change.
 - **with `--judge` only** (`evals/judge.py`, one extra gpt-4o-mini call per answer, about $0.0005): **faithfulness** (cited sentences that their passages support) and **citation completeness** (factual sentences that cite). The judge sees only the cited passages, numbered as in the answer, and never the system prompt's sources. An unparseable verdict leaves the answer unscored, not guessed
 
 The free retrieval run (`evals.run`) also reports `answer_gate`: the lowest best-similarity among answerable cases, the highest among no-answer cases, and a suggested `CHAT_MIN_SIMILARITY` between them (ADR-0022). Re-tune it whenever the embedder changes.

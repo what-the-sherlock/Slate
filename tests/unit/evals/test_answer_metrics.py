@@ -85,3 +85,17 @@ def test_general_and_chat_cases_must_answer_in_their_mode() -> None:
     assert s["missed_abstentions"] == []
     assert "gen-abstained" not in s["false_abstentions"]  # type: ignore[operator]
     assert s["general_instead_of_grounded"] == ["fell-back"]
+
+
+def test_followup_rate_counts_grounded_answers_only() -> None:
+    def res(i: str, *, followups: list[str], abstained: bool = False) -> AnswerResult:
+        return AnswerResult(i, True, abstained, ["a.md"], ["a.md"], [], followups=followups)
+
+    got = summarise_answers(
+        [
+            res("a", followups=["Who approved it?"]),
+            res("b", followups=[]),
+            res("c", followups=[], abstained=True),  # abstentions never offer follow-ups
+        ]
+    )
+    assert got["followup_rate"] == 0.5

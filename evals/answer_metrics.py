@@ -46,6 +46,8 @@ class AnswerResult:
     min_cited_kinds: int | None = None
     # The LLM judge's scores (--judge only): faithfulness, citation_completeness.
     judge: dict[str, float | None] | None = None
+    # P2-1: suggested next questions the answer came with (grounded answers should have some).
+    followups: list[str] = field(default_factory=list[str])
 
     @property
     def should_abstain(self) -> bool:
@@ -138,6 +140,7 @@ def summarise_answers(results: Sequence[AnswerResult]) -> dict[str, object]:
     with_points = [r for r in results if r.points_expected and not r.abstained]
     cross = [r for r in results if r.min_cited_kinds]
     judged = [r.judge for r in results if r.judge]
+    grounded = [r for r in results if not r.abstained and r.mode == "grounded"]
     coverage = [len(r.points_found) / len(r.points_expected) for r in with_points]
     return {
         "cases": len(results),
@@ -165,6 +168,9 @@ def summarise_answers(results: Sequence[AnswerResult]) -> dict[str, object]:
             round(sum(1 for r in cross if _cross_ok(r)) / len(cross), 4) if cross else None
         ),
         "cross_source_failed": [r.id for r in cross if not _cross_ok(r)],
+        "followup_rate": (
+            round(sum(1 for r in grounded if r.followups) / len(grounded), 4) if grounded else None
+        ),
         "faithfulness": _mean_of(judged, "faithfulness"),
         "citation_completeness": _mean_of(judged, "citation_completeness"),
         "cost_usd": round(sum(r.cost_usd for r in results), 6),
