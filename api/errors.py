@@ -18,6 +18,7 @@ from core.domain.errors import (
     NotFound,
     PermissionDenied,
     RateLimited,
+    ReconnectRequired,
     Unauthenticated,
     UpstreamUnavailable,
     ValidationFailed,
@@ -37,6 +38,7 @@ STATUS_BY_ERROR: dict[type[AppError], int] = {
     UpstreamUnavailable: 503,
     BudgetExceeded: 402,
     ConnectorError: 502,
+    ReconnectRequired: 409,  # before ConnectorError in the MRO walk: the user must act
 }
 
 

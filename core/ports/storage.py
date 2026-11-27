@@ -97,6 +97,14 @@ class SearchIndex(Protocol):
         filters: SearchFilters,
     ) -> list[ScoredChunk]: ...
 
+    async def recent_chunks(
+        self, ws: WorkspaceId, principals: Principals, k: int, filters: SearchFilters
+    ) -> list[ScoredChunk]:
+        """Chunks of the ``k`` most recently updated visible documents, newest first (the
+        last and first chunk of each). Serves "latest" and "what happened" questions,
+        which similarity can't rank (ADR-0031)."""
+        ...
+
     async def document_preview(
         self, ws: WorkspaceId, principals: Principals, doc_id: DocumentId, max_chunks: int
     ) -> DocumentPreview:

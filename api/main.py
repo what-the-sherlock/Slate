@@ -12,6 +12,7 @@ from api.routers import (
     discord,
     github,
     health,
+    integrations,
     mail,
     search,
     sources,
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(discord.router, prefix=API_PREFIX)
     app.include_router(mail.router, prefix=API_PREFIX)
     app.include_router(workspaces.router, prefix=API_PREFIX)
+    app.include_router(integrations.router, prefix=API_PREFIX)
     app.add_middleware(RequestIdMiddleware)
     return app
 

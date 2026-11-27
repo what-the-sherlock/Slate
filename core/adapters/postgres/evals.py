@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from core.adapters.postgres.uow import UnitOfWork
-from core.domain.ids import DocumentId, GenerationId, WorkspaceId
+from core.domain.ids import DocumentId, GenerationId, SourceId, WorkspaceId
 
 
 class PostgresEvalStore:
@@ -30,6 +30,38 @@ class PostgresEvalStore:
                 await s.execute(text("SELECT id FROM workspaces WHERE slug = :s"), {"s": slug})
             ).scalar_one()
         return WorkspaceId(UUID(str(ws)))
+
+    async def ensure_source(self, ws: WorkspaceId, connector: str, name: str) -> SourceId:
+        """A private, workspace-visible source imitating ``connector`` in the eval workspace
+        (ADR-0031), so source-kind filters can be evaluated. Idempotent by name. Refuses
+        a workspace that isn't the eval one, so it can never add a source to a real one."""
+        async with self._uow() as s:
+            allowed = (
+                await s.execute(
+                    text("SELECT allows_public FROM workspaces WHERE id = :ws"), {"ws": ws}
+                )
+            ).scalar_one_or_none()
+            if allowed is not True:
+                raise RuntimeError("ensure_source is for the eval workspace only")
+            await s.execute(
+                text(
+                    "INSERT INTO sources (workspace_id, connector, name, visibility, data_class)"
+                    " VALUES (:ws, :c, :n, CAST(:v AS text[]), 'private')"
+                    " ON CONFLICT (workspace_id, name) DO NOTHING"
+                ),
+                {"ws": ws, "c": connector, "n": name, "v": [f"workspace:{ws}"]},
+            )
+            row = (
+                await s.execute(
+                    text(
+                        "SELECT id, connector FROM sources WHERE workspace_id = :ws AND name = :n"
+                    ),
+                    {"ws": ws, "n": name},
+                )
+            ).one()
+        if row[1] != connector:
+            raise RuntimeError(f"source {name!r} exists with another connector")
+        return SourceId(row[0])
 
     async def document_ids(
         self, ws: WorkspaceId, external_ids: Sequence[str]

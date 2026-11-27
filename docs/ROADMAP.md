@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status:** M1–M4 code-complete; **M5 Discord complete** (2026-11-26, ADR-0027; verified live by the owner) after the privacy hardening (ADR-0026, migration 0006). **M6 Email** and **M7 polish code-complete** (2026-11-26, ADR-0028–0030). Remaining: owner steps (migrations 0006–0008, integration tests, secrets, demo video).
+**Status:** M0–M7 complete (2026-11-27). **M8 answer quality code-complete** (2026-11-27, ADR-0031; owner steps below). **M9 integrations framework code-complete** (2026-11-27, ADR-0032; owner steps below). M10 waits on owner decisions.
 
 **Chat redesign (2026-11-26, owner-requested, outside the milestone plan):** answer modes (general knowledge and small talk, ADR-0025), regenerate and edit by superseding (ADR-0024, migration 0005), GitHub sync retries failed items, `scripts/diagnose_sources.py`, and the redesigned Chat page (UI_DESIGN §4.3). Pending owner steps: run `alembic upgrade head` on prod, run `evals.answers` (paid) and record it in EVALS.md, and run the diagnosis script against prod for the 0-document repo.
 
@@ -16,7 +16,7 @@ Update this line and tick items as work completes. Only the current milestone is
 - [x] Alembic migration 0001: full schema from `ARCHITECTURE.md` §4 (incl. pgvector, citext) + A1–A4 (ADR-0012, ADR-0013)
 - [x] `/healthz`, `/readyz`; Next.js skeleton with `/api/*` rewrite; generated API client
 - [x] CI workflow (`ci.yml`), worker workflow (`sync.yml`); Neon test branch for integration tests; Dependabot. First green run needs the owner's push + secrets
-- [ ] ~~Vercel projects `web` and `api` deployed; spike: SSE streams through the rewrite~~ **Deferred (owner, 2026-11-24): Vercel setup waits until an MVP exists. The SSE spike must run before M3 streaming work; ADR-0010 stays Proposed until then.**
+- [x] Vercel projects `web` and `api` deployed; SSE spike through the rewrite (deferred to M3, done there: ADR-0010 Accepted)
 - [x] Spike: verify Neon's pgvector version supports `halfvec` and iterative scans (ADR-0011: Postgres 18.7, pgvector 0.8.7)
 - Done when: both apps run locally, CI is green, migrations apply to the Neon `test` branch, the pgvector spike is recorded
 
@@ -40,7 +40,7 @@ Update this line and tick items as work completes. Only the current milestone is
 - [x] Email verification and password reset by 6-digit code (SMTP); unverified accounts can't spend; 48 h sweep
 - [x] Spam protection: Turnstile, honeypot, per-IP and global sign-up limits, canonical email, disposable domains, kill switch
 - [x] Spend caps per workspace and globally, per day and month; storage quota per workspace
-- [ ] Owner: integration tests + `alembic upgrade head` on the test branch, then prod; Brevo/Gmail SMTP and Turnstile keys in Vercel; security review
+- [x] Owner: integration tests + `alembic upgrade head` on the test branch, then prod; Brevo/Gmail SMTP and Turnstile keys in Vercel; security review
 
 ### M3 — Cited chat (days 9–11)
 - [x] SSE spike through the Vercel rewrite: streams unbuffered (ADR-0010 Accepted)
@@ -54,7 +54,7 @@ Update this line and tick items as work completes. Only the current milestone is
 ### M4 — GitHub (days 12–13)
 - [x] GitHub App install with ownership check, repo picker, one source per repo (ADR-0023)
 - [x] Docs (tarball) + issues and PRs with comments; checksum skip; pruning; hourly schedule; Sync now inline; disconnect
-- [ ] Owner: create the GitHub App, set the secrets, try it on a test repo; security review
+- [x] Owner: create the GitHub App, set the secrets, try it on a test repo; security review
 - Deferred (owner decision): code indexing, webhooks, dispatch token
 - Done when: a push is searchable within the next sync
 
@@ -72,7 +72,7 @@ Update this line and tick items as work completes. Only the current milestone is
 ### M6 — Email (days 16–17)
 - [x] Live IMAP mailbox with an app password, Fernet-encrypted (ADR-0028, supersedes ADR-0015): Gmail, Yahoo, iCloud, Fastmail; Inbox + Sent read-only; 90 days / 2,000 conversations, then hourly; one document per conversation; migration 0007
 - [x] `.mbox` import (25 MB) into the same thread documents; file deleted after import
-- [ ] Owner: set `CREDENTIALS_FERNET_KEY` in Vercel (api) and GitHub Secrets; `alembic upgrade head` (0007) on test then prod; `uv run pytest -m integration`; try a Gmail app password
+- [x] Owner: set `CREDENTIALS_FERNET_KEY` in Vercel (api) and GitHub Secrets; `alembic upgrade head` (0007) on test then prod; `uv run pytest -m integration`; try a Gmail app password
 - Dropped (owner): "Load sample data". Deferred to M7: sender/date filters for email questions
 - Done when: a question about an email gets a cited answer after the next sync
 
@@ -82,7 +82,31 @@ Update this line and tick items as work completes. Only the current milestone is
 - [x] Audit follow-ups (ADR-0029)
 - [x] Live sync progress on source pages and a Recent activity history (polls only while running)
 - [x] README with diagram and a generated eval table (`scripts/eval_table.py`)
-- [ ] Owner: demo video; `APP_URL` in Vercel; migrations 0006–0008 on test, `pytest -m integration`, then prod
+- [x] Owner: demo video; `APP_URL` in Vercel; migrations 0006–0008 on test, `pytest -m integration`, then prod
+
+### M8 — Answer quality (owner-approved 2026-11-27, ADR-0031)
+- [x] Realistic evals: 14 connector-shaped documents (email, Discord, GitHub) with dates and senders, 28 cases, oracle plans for the free retrieval eval, a fixed eval clock for answer evals
+- [x] Metadata in context: kind, date (user's zone) and sender on every source; today's date in every prompt; browser time zone on `POST /chat`
+- [x] Query planner on every turn (queries, intent, period, source kinds, sender), validated, falling back to the question; user filters win; filters dropped if they hide everything
+- [x] Recent lane in `search.py` (newest visible documents) fused by weighted RRF; the similarity gate is skipped for recent and summary questions
+- [x] Multi-query fusion; 16 passages in 8k tokens with real neighbour expansion and no repeated chunks
+- [x] Prompt: partial answers, dated answers for recent questions
+- [ ] Owner: `uv run pytest -m integration` on the test branch; `evals.load`, `evals.run --embedder none|openai`, `evals.answers` (paid, ~$0.25); record the rows in EVALS.md; re-tune `CHAT_MIN_SIMILARITY`
+- Done when: the connector cases answer with dated citations, and abstention and point coverage are no worse than the 2026-11-25 run
+
+### M9 — Integrations framework (owner-approved 2026-11-27)
+- [x] Provider registry (ADR-0032): declarative specs for GitHub, Discord, email, Gmail, Notion, Linear, Google Calendar, Google Drive, Slack and HubSpot (auth kind, endpoints, scopes, PKCE, client auth, token format, account source, indexed or live)
+- [x] One OAuth 2.0 flow: signed state bound to user, workspace and provider; PKCE with a derived verifier; one web callback; code exchange and refresh behind the `OAuthProvider` port
+- [x] `connections` table (migration 0009): personal, membership-bound, encrypted tokens, status, expiry, last error, refresh lease
+- [x] Token refresh: dead grants mark `needs_reconnect` (`ReconnectRequired`, 409); transient failures keep the token
+- [x] Integrations page (UI_DESIGN §4.9): All / Connected / Needs sign-in, search, connect, reconnect, disconnect, the Google notice, callback page
+- [x] GitHub, Discord and email shown through the registry, linked to their setup (`/sources?add=…`)
+- [ ] Owner: `alembic upgrade head` (0009) on the test branch, `uv run pytest -m integration`, then prod; review UI_DESIGN §4.9
+- Done when: a provider is added by writing a spec and an adapter, with no new routes or pages (met: every OAuth provider is a spec; switching one on needs only its adapter and `available=True`)
+
+### M10 — First OAuth providers (needs owner decisions: which provider first, and its OAuth app)
+- [ ] `sources.connection_id`; an indexed OAuth source follows its connection (disconnect removes its documents)
+- [ ] The first provider end to end (sync adapter, `available=True`, evals)
 
 ## Later phases (not in scope until the owner says so)
 

@@ -29,15 +29,26 @@ const LATER: { key: ConnectorKey; name: string; description: string }[] = [
   { key: "confluence", name: "Confluence", description: "Spaces and pages" },
 ];
 
+type View = "pick" | "upload" | "github" | "discord" | "email";
+type StartView = Exclude<View, "pick">;
+const START_VIEWS: readonly StartView[] = ["upload", "github", "discord", "email"];
+
+/** Whether a ?add= value names a connector the dialog can open at (Integrations links). */
+export function isStartView(value: string): value is StartView {
+  return (START_VIEWS as readonly string[]).includes(value);
+}
+
 /** "Add a source" (UI_DESIGN §4.5): available connectors, then non-interactive "Coming later". */
 export function AddSourceDialog({
   open,
   onOpenChange,
+  initialView,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialView?: StartView;
 }) {
-  const [view, setView] = useState<"pick" | "upload" | "github" | "discord" | "email">("pick");
+  const [view, setView] = useState<View>(initialView ?? "pick");
   const github = useGitHubStatus(open);
   const discord = useDiscordStatus(open);
   // A connector backed by a server-side integration is live only when that's configured.

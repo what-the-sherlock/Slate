@@ -210,6 +210,20 @@
         "title": "AuthConfig",
         "type": "object"
       },
+      "AuthorizeOut": {
+        "properties": {
+          "authorize_url": {
+            "description": "Send the browser here to sign in",
+            "title": "Authorize Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorize_url"
+        ],
+        "title": "AuthorizeOut",
+        "type": "object"
+      },
       "BeginUploadBody": {
         "properties": {
           "filename": {
@@ -313,6 +327,28 @@
         "title": "BeginUploadResponse",
         "type": "object"
       },
+      "CallbackBody": {
+        "properties": {
+          "code": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "state"
+        ],
+        "title": "CallbackBody",
+        "type": "object"
+      },
       "ChatBody": {
         "properties": {
           "author": {
@@ -368,6 +404,23 @@
             "maxItems": 20,
             "title": "Source Ids",
             "type": "array"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9_+\\-/]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The browser's IANA time zone, e.g. Europe/London: decides what 'today' and 'last week' mean (ADR-0031). Unknown zones fall back to UTC",
+            "examples": [
+              "Asia/Kolkata"
+            ],
+            "title": "Timezone"
           },
           "updated_after": {
             "anyOf": [
@@ -629,6 +682,62 @@
           "job_id"
         ],
         "title": "ConnectedOut",
+        "type": "object"
+      },
+      "ConnectionOut": {
+        "properties": {
+          "account_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The signed-in account, e.g. an address",
+            "title": "Account Label"
+          },
+          "connected_at": {
+            "format": "date-time",
+            "title": "Connected At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The provider's error code, if the last use failed",
+            "title": "Last Error"
+          },
+          "status": {
+            "enum": [
+              "connected",
+              "needs_reconnect",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "account_label",
+          "status",
+          "last_error",
+          "connected_at"
+        ],
+        "title": "ConnectionOut",
         "type": "object"
       },
       "DiscordChannelOut": {
@@ -1243,6 +1352,105 @@
           "state"
         ],
         "title": "InstallationBody",
+        "type": "object"
+      },
+      "IntegrationOut": {
+        "properties": {
+          "auth": {
+            "enum": [
+              "oauth2",
+              "github_app",
+              "discord_bot",
+              "app_password"
+            ],
+            "title": "Auth",
+            "type": "string"
+          },
+          "connect_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For the older install flows, the web page that connects it",
+            "title": "Connect Path"
+          },
+          "connections": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionOut"
+            },
+            "title": "Connections",
+            "type": "array"
+          },
+          "id": {
+            "examples": [
+              "notion"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "mode": {
+            "description": "indexed: synced and searchable with citations; live: looked up when asked",
+            "enum": [
+              "indexed",
+              "live"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shown before the user goes to the provider",
+            "title": "Notice"
+          },
+          "sources": {
+            "description": "Sources created through the older install flows",
+            "title": "Sources",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "connected",
+              "needs_reconnect",
+              "not_connected",
+              "not_set_up",
+              "coming_soon"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "tagline": {
+            "title": "Tagline",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tagline",
+          "auth",
+          "mode",
+          "state",
+          "connect_path",
+          "notice",
+          "connections",
+          "sources"
+        ],
+        "title": "IntegrationOut",
         "type": "object"
       },
       "InviteBody": {
@@ -2186,7 +2394,8 @@
             "items": {
               "enum": [
                 "vector",
-                "keyword"
+                "keyword",
+                "recent"
               ],
               "type": "string"
             },
@@ -2234,7 +2443,8 @@
             "items": {
               "enum": [
                 "vector",
-                "keyword"
+                "keyword",
+                "recent"
               ],
               "type": "string"
             },
@@ -3090,6 +3300,161 @@
         "summary": "Liveness",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/integrations": {
+      "get": {
+        "operationId": "catalog_api_v1_integrations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/IntegrationOut"
+                  },
+                  "title": "Response Catalog Api V1 Integrations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Every integration and your connection state for each",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/integrations/connections/{connection_id}": {
+      "delete": {
+        "operationId": "disconnect_api_v1_integrations_connections__connection_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Connection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disconnect: revoke access and delete the stored tokens",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/integrations/{provider_id}/authorize": {
+      "post": {
+        "operationId": "authorize_api_v1_integrations__provider_id__authorize_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "title": "Provider Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthorizeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start connecting: the provider's sign-in URL",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/integrations/{provider_id}/callback": {
+      "post": {
+        "operationId": "callback_api_v1_integrations__provider_id__callback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "title": "Provider Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallbackBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish connecting with the code the provider sent back",
+        "tags": [
+          "integrations"
         ]
       }
     },

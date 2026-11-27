@@ -6,7 +6,14 @@ import pytest
 
 from core.domain.documents import ScoredChunk
 from core.domain.ids import ChunkId, DocumentId
-from core.domain.search import RRF_K, Lane, cap_per_document, rrf_fuse
+from core.domain.search import (
+    RRF_K,
+    Lane,
+    RankedList,
+    cap_per_document,
+    rrf_fuse,
+    rrf_fuse_lists,
+)
 
 DOC_A = DocumentId(UUID(int=1))
 DOC_B = DocumentId(UUID(int=2))
@@ -64,3 +71,29 @@ def test_invalid_parameters() -> None:
         rrf_fuse({}, k=-1)
     with pytest.raises(ValueError, match="at least 1"):
         cap_per_document([], max_per_document=0)
+
+
+def test_weighted_lists_fuse_several_queries_and_keep_each_lanes_best_rank() -> None:
+    fused = rrf_fuse_lists(
+        [
+            RankedList(Lane.KEYWORD, [hit(1), hit(2)]),
+            RankedList(Lane.KEYWORD, [hit(2)]),  # a second query's keyword list
+            RankedList(Lane.RECENT, [hit(3)], weight=2.0),
+        ]
+    )
+    by_id = {h.chunk_id: h for h in fused}
+    assert by_id[ChunkId(2)].score == pytest.approx(1 / (RRF_K + 2) + 1 / (RRF_K + 1))
+    assert by_id[ChunkId(2)].ranks == {Lane.KEYWORD: 1}
+    assert by_id[ChunkId(3)].score == pytest.approx(2 / (RRF_K + 1))
+    assert [h.chunk_id for h in fused] == [3, 2, 1]
+
+
+def test_weighted_lists_reject_negative_weights() -> None:
+    with pytest.raises(ValueError, match="weights"):
+        rrf_fuse_lists([RankedList(Lane.KEYWORD, [hit(1)], weight=-1)])
+
+
+def test_rrf_fuse_equals_unit_weight_lists() -> None:
+    lanes = {Lane.VECTOR: [hit(1), hit(2)], Lane.KEYWORD: [hit(2), hit(3)]}
+    as_lists = rrf_fuse_lists([RankedList(lane, hits) for lane, hits in lanes.items()])
+    assert rrf_fuse(lanes) == as_lists

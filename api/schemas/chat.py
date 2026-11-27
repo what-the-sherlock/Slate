@@ -34,6 +34,14 @@ class ChatBody(BaseModel):
         description="Regenerate or edit: this question (a user message id in session_id) and"
         " everything after it are replaced by the new turn (ADR-0024)",
     )
+    timezone: str | None = Field(
+        default=None,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_+\-/]+$",
+        description="The browser's IANA time zone, e.g. Europe/London: decides what 'today'"
+        " and 'last week' mean (ADR-0031). Unknown zones fall back to UTC",
+        examples=["Asia/Kolkata"],
+    )
 
 
 class FeedbackBody(BaseModel):

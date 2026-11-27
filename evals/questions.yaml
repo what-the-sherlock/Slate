@@ -351,3 +351,172 @@
   expect_mode: chat
   tags: [no-answer, chat]
   visibility: public
+
+# ---- connector-shaped data (ADR-0031): email, Discord, GitHub; dated around the eval
+# world's today, Friday 27 November 2026 (evals/cases.py EVAL_NOW). "last week" is
+# 16-22 November. `plan` is what a correct planner would produce: the free retrieval eval
+# applies it; the paid answer eval runs the real planner instead.
+- id: conn-recent-001
+  question: What are my latest emails about?
+  expected_documents: [email/beacon-renewal.md, email/interview-schedule.md, email/nordlys-escalation.md]
+  tags: [connector, recent, email]
+  visibility: private
+  plan: {intent: recent, sources: [email]}
+- id: conn-recent-002
+  question: What happened on Discord this week?
+  expected_documents: [discord/eng-deploy-freeze.md, discord/support-carrier-api.md]
+  expected_answer_points: ["deploy freeze", "KF-4031"]
+  tags: [connector, recent, discord, period]
+  visibility: private
+  plan: {intent: recent, after: 2026-11-23, before: 2026-11-27, sources: [discord]}
+- id: conn-recent-003
+  question: Which pull requests were merged this week?
+  expected_documents: [github/pr-412-uk-preclearance.md]
+  expected_answer_points: ["#412"]
+  tags: [connector, recent, github, period]
+  visibility: private
+  plan: {intent: recent, after: 2026-11-23, before: 2026-11-27, sources: [github]}
+- id: conn-period-001
+  question: Summarise the emails I got last week.
+  expected_documents: [email/acme-invoice.md, email/nordlys-escalation.md]
+  expected_answer_points: ["KF-INV-2291", "Nordlys"]
+  tags: [connector, summary, email, period]
+  visibility: private
+  plan: {intent: summary, after: 2026-11-16, before: 2026-11-22, sources: [email]}
+- id: conn-period-002
+  question: Was there an incident in mid-November?
+  expected_documents: [discord/incident-ledger-latency.md]
+  expected_answer_points: ["2.4 seconds"]
+  tags: [connector, period, discord]
+  visibility: private
+  plan: {intent: lookup, after: 2026-11-10, before: 2026-11-20}
+- id: conn-period-003
+  question: What did Ines decide about hiring back in September?
+  expected_documents: [email/hiring-budget.md]
+  expected_answer_points: ["January", "two exceptions"]
+  tags: [connector, period, sender, email]
+  visibility: private
+  plan: {intent: lookup, after: 2026-09-01, before: 2026-09-30, sender: Ines}
+- id: conn-sender-001
+  question: What did Priya say about the Acme invoice?
+  expected_documents: [email/acme-invoice.md]
+  expected_answer_points: ["14,200", "30 November"]
+  tags: [connector, sender, email]
+  visibility: private
+  plan: {intent: lookup, sender: Priya}
+- id: conn-sender-002
+  question: Has Daniel from Acme confirmed the payment?
+  expected_documents: [email/acme-invoice.md]
+  expected_answer_points: ["19 November", "SEPA"]
+  tags: [connector, sender, email]
+  visibility: private
+  plan: {intent: lookup, sender: Daniel}
+- id: conn-sender-003
+  question: What did Mei change to fix the ledger latency?
+  expected_documents: [discord/incident-ledger-latency.md]
+  expected_answer_points: ["index", "tracking_ref"]
+  tags: [connector, sender, discord]
+  visibility: private
+  plan: {intent: lookup, sender: Mei}
+- id: conn-email-001
+  question: Where and when is the company offsite?
+  expected_documents: [email/offsite-venue.md]
+  expected_answer_points: ["March 2027", "Casa do Rio"]
+  tags: [connector, single-hop, email]
+  visibility: private
+- id: conn-email-002
+  question: How much will our paging tool cost after it renews?
+  expected_documents: [email/beacon-renewal.md]
+  expected_answer_points: ["390"]
+  tags: [connector, single-hop, paraphrase, email]
+  visibility: private
+- id: conn-email-003
+  question: What compensation did we offer Nordlys Foods?
+  expected_documents: [email/nordlys-escalation.md]
+  expected_answer_points: ["10%"]
+  tags: [connector, single-hop, email]
+  visibility: private
+- id: conn-email-004
+  question: When is the final interview for the backend role?
+  expected_documents: [email/interview-schedule.md]
+  expected_answer_points: ["26 November", "14:00"]
+  tags: [connector, single-hop, email]
+  visibility: private
+- id: conn-disc-001
+  question: When does the holiday deploy freeze start and end?
+  expected_documents: [discord/eng-deploy-freeze.md]
+  expected_answer_points: ["18 December", "4 January"]
+  tags: [connector, single-hop, discord]
+  visibility: private
+- id: conn-disc-002
+  question: Can we ship hotfixes during the freeze?
+  expected_documents: [discord/eng-deploy-freeze.md]
+  expected_answer_points: ["two approvals"]
+  tags: [connector, single-hop, discord]
+  visibility: private
+- id: conn-disc-003
+  question: Where is the team lunch?
+  expected_documents: [discord/general-lunch.md]
+  expected_answer_points: ["Tasca do Zé"]
+  tags: [connector, single-hop, discord]
+  visibility: private
+- id: conn-gh-001
+  question: Why are shipping labels cut off on small thermal printers?
+  expected_documents: [github/issue-398-label-printing.md]
+  expected_answer_points: ["DPI", "2.14"]
+  tags: [connector, single-hop, paraphrase, github]
+  visibility: private
+- id: conn-gh-002
+  question: How many times are failed webhooks retried now?
+  expected_documents: [github/issue-405-webhook-retries.md]
+  expected_answer_points: ["8"]
+  tags: [connector, single-hop, github]
+  visibility: private
+- id: conn-gh-003
+  question: Has UK customs pre-clearance been merged?
+  expected_documents: [github/pr-412-uk-preclearance.md]
+  expected_answer_points: ["merged"]
+  tags: [connector, single-hop, github]
+  visibility: private
+- id: conn-multi-001
+  question: What is error KF-4031 and is anyone fixing it?
+  expected_documents: [discord/support-carrier-api.md, github/pr-419-carrier-backoff.md]
+  expected_answer_points: ["rate", "#419"]
+  tags: [connector, multi-hop, keyword]
+  visibility: private
+- id: conn-multi-002
+  question: Our paging tool's price is changing; when, and when does the on-call rotation hand over?
+  expected_documents: [email/beacon-renewal.md, engineering/oncall.md]
+  expected_answer_points: ["1 January 2027", "Monday"]
+  tags: [connector, multi-hop]
+  visibility: private
+- id: conn-multi-003
+  question: Is there code yet for the UK customs pre-clearance on the roadmap?
+  expected_documents: [product/roadmap.md, github/pr-412-uk-preclearance.md]
+  expected_answer_points: ["#412"]
+  tags: [connector, multi-hop]
+  visibility: private
+- id: conn-partial-001
+  question: How much was the Acme invoice, and who approved the discount on it?
+  expected_documents: [email/acme-invoice.md]
+  expected_answer_points: ["14,200"]
+  tags: [connector, partial, email]
+  visibility: private
+- id: conn-kw-001
+  question: KF-INV-2291
+  expected_documents: [email/acme-invoice.md]
+  tags: [connector, keyword, email]
+  visibility: private
+- id: conn-kw-002
+  question: shipments.tracking_ref
+  expected_documents: [discord/incident-ledger-latency.md]
+  tags: [connector, keyword, discord]
+  visibility: private
+- id: conn-na-001
+  question: What did Ines email about office parking?
+  tags: [connector, no-answer]
+  visibility: private
+- id: conn-na-002
+  question: What did the team decide on Discord about the holiday party?
+  tags: [connector, no-answer]
+  visibility: private

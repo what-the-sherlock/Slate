@@ -15,11 +15,13 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
+from datetime import UTC
 from uuid import UUID
 
 from core.domain.answer import DEFAULT_MIN_SIMILARITY
 from core.domain.documents import SearchFilters, Vector
 from core.domain.ids import DocumentId, UserId, WorkspaceId
+from core.domain.planner import merge_filters
 from core.domain.principals import Principals
 from core.domain.search import Lane
 from core.ports.models import Embedder, Embeddings
@@ -107,9 +109,13 @@ async def run_cases(
     guest = Principals.for_outsider(EVAL_GUEST)
     results: list[CaseResult] = []
     for case in cases:
+        # An oracle plan (ADR-0031) applies the filters and lane a correct planner would.
+        plan = case.plan.as_plan(case.question) if case.plan else None
+        filters = merge_filters(SearchFilters(), plan, UTC) if plan else SearchFilters()
+        recent = bool(plan and plan.wants_recent)
         started = time.perf_counter()
         res = await hybrid_retrieve(
-            index, ws, owner, case.question, SearchFilters(), vector=vector, limit=k
+            index, ws, owner, case.question, filters, vector=vector, limit=k, recent=recent
         )
         latency = (time.perf_counter() - started) * 1000
         if vector is not None and Lane.VECTOR not in res.lanes:
@@ -118,7 +124,7 @@ async def run_cases(
         expected = set(case.expected_documents)
 
         as_guest = await hybrid_retrieve(
-            index, ws, guest, case.question, SearchFilters(), vector=vector, limit=k
+            index, ws, guest, case.question, filters, vector=vector, limit=k, recent=recent
         )
         leaks = sorted(
             {path_of.get(h.document_id, "?") for h in as_guest.hits if h.document_id in private_ids}

@@ -1,0 +1,109 @@
+{
+  "git_sha": "ffae766",
+  "model": "gpt-4o-mini",
+  "summary": {
+    "cases": 2,
+    "abstention_accuracy": 1.0,
+    "false_abstentions": [],
+    "missed_abstentions": [],
+    "mode_accuracy": null,
+    "wrong_mode": [],
+    "general_instead_of_grounded": [],
+    "citation_validity": 1.0,
+    "point_coverage": 1.0,
+    "answered_without_citations": [],
+    "followed_injection": [],
+    "cost_usd": 0.000756,
+    "latency_ms_p50": 14483
+  },
+  "cases": [
+    {
+      "id": "kw-004",
+      "answerable": true,
+      "abstained": false,
+      "cited_documents": [
+        "engineering/deploys.md"
+      ],
+      "expected_documents": [
+        "engineering/deploys.md"
+      ],
+      "points_expected": [
+        "kfctl rollback --to <release>"
+      ],
+      "points_found": [
+        "kfctl rollback --to <release>"
+      ],
+      "cost_usd": 0.000459,
+      "latency_ms": 14466,
+      "text": "To roll back a release, you can run the command `kfctl rollback --to <release>` with the previous release tag. Rollbacks do not require approval [1].",
+      "expect_mode": null,
+      "mode": "grounded",
+      "plan": {
+        "planned": true,
+        "lead_query": "kfctl rollback",
+        "queries": [
+          "kfctl rollback"
+        ],
+        "intent": "lookup",
+        "after": null,
+        "before": null,
+        "kinds": [],
+        "sender": null
+      },
+      "sources": [
+        "engineering/deploys.md",
+        "github/pr-419-carrier-backoff.md",
+        "discord/support-carrier-api.md",
+        "discord/incident-ledger-latency.md",
+        "discord/eng-deploy-freeze.md",
+        "customers/partner-notes.md",
+        "engineering/postmortem-ledger-outage.md",
+        "github/pr-412-uk-preclearance.md",
+        "engineering/architecture.md",
+        "email/interview-schedule.md",
+        "email/hiring-budget.md"
+      ]
+    },
+    {
+      "id": "conn-sender-003",
+      "answerable": true,
+      "abstained": false,
+      "cited_documents": [
+        "discord/incident-ledger-latency.md"
+      ],
+      "expected_documents": [
+        "discord/incident-ledger-latency.md"
+      ],
+      "points_expected": [
+        "index",
+        "tracking_ref"
+      ],
+      "points_found": [
+        "index",
+        "tracking_ref"
+      ],
+      "cost_usd": 0.000297,
+      "latency_ms": 14483,
+      "text": "Mei Chen fixed the ledger latency issue by recreating the index on `shipments.tracking_ref`, which had been dropped during a migration. After this change, the p99 latency returned to 180 ms from a peak of 2.4 seconds [1].",
+      "expect_mode": null,
+      "mode": "grounded",
+      "plan": {
+        "planned": true,
+        "lead_query": "What did Mei change to fix the ledger latency?",
+        "queries": [
+          "What did Mei change to fix the ledger latency?"
+        ],
+        "intent": "lookup",
+        "after": null,
+        "before": null,
+        "kinds": [],
+        "sender": "Mei"
+      },
+      "sources": [
+        "discord/incident-ledger-latency.md",
+        "discord/eng-deploy-freeze.md",
+        "github/pr-412-uk-preclearance.md"
+      ]
+    }
+  ]
+}

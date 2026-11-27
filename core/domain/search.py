@@ -7,6 +7,10 @@ similarity and a full-text rank never need to share a scale:
 
 K = 60 is the constant from the original RRF paper (Cormack et al., 2009). It damps the
 gap between rank 1 and rank 2, so one lane can't dominate on a single strong hit.
+
+A planned question (ADR-0031) produces several ranked lists: both lanes for each of its
+queries, plus the recent lane for "latest" questions. ``rrf_fuse_lists`` fuses any
+number of lists, each with a weight (weighted RRF): ``sum of weight / (K + rank)``.
 """
 
 from __future__ import annotations
@@ -26,6 +30,16 @@ MAX_QUERY_CHARS = 500
 class Lane(StrEnum):
     VECTOR = "vector"
     KEYWORD = "keyword"
+    RECENT = "recent"  # newest documents first (ADR-0031)
+
+
+@dataclass(frozen=True, slots=True)
+class RankedList:
+    """One lane's results for one query, best first, with its RRF weight."""
+
+    lane: Lane
+    hits: Sequence[ScoredChunk]
+    weight: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,19 +62,31 @@ def rrf_fuse(lanes: Mapping[Lane, Sequence[ScoredChunk]], *, k: int = RRF_K) -> 
 
     Ties break by best single-lane rank, then by chunk id, so output is deterministic.
     """
+    return rrf_fuse_lists([RankedList(lane, hits) for lane, hits in lanes.items()], k=k)
+
+
+def rrf_fuse_lists(lists: Sequence[RankedList], *, k: int = RRF_K) -> list[FusedHit]:
+    """Weighted RRF over any number of ranked lists (several per lane are allowed).
+
+    ``ranks`` keeps each lane's best rank for a chunk. Raises ValueError on a negative
+    ``k`` or weight.
+    """
     if k < 0:
         raise ValueError("k must be non-negative")
     scores: dict[ChunkId, float] = {}
     ranks: dict[ChunkId, dict[Lane, int]] = {}
     chunks: dict[ChunkId, ScoredChunk] = {}
-    for lane, hits in lanes.items():
+    for ranked in lists:
+        if ranked.weight < 0:
+            raise ValueError("weights must be non-negative")
         seen: set[ChunkId] = set()
-        for rank, hit in enumerate(hits, start=1):
-            if hit.chunk_id in seen:  # a lane listing a chunk twice counts it once
+        for rank, hit in enumerate(ranked.hits, start=1):
+            if hit.chunk_id in seen:  # a list naming a chunk twice counts it once
                 continue
             seen.add(hit.chunk_id)
-            scores[hit.chunk_id] = scores.get(hit.chunk_id, 0.0) + 1.0 / (k + rank)
-            ranks.setdefault(hit.chunk_id, {})[lane] = rank
+            scores[hit.chunk_id] = scores.get(hit.chunk_id, 0.0) + ranked.weight / (k + rank)
+            best = ranks.setdefault(hit.chunk_id, {})
+            best[ranked.lane] = min(rank, best.get(ranked.lane, rank))
             chunks.setdefault(hit.chunk_id, hit)
     fused = [FusedHit(chunks[c], scores[c], ranks[c]) for c in scores]
     fused.sort(key=lambda h: (-h.score, min(h.ranks.values()), h.chunk_id))

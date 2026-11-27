@@ -1,5 +1,5 @@
-"""Cited chat: rewrite -> retrieve -> gate -> assemble -> stream -> validate -> persist
-(ARCHITECTURE §8, ADR-0022), with answer modes (ADR-0025).
+"""Cited chat: plan -> retrieve -> gate -> assemble -> stream -> validate -> persist
+(ARCHITECTURE §8, ADR-0022, ADR-0031), with answer modes (ADR-0025).
 
 The service yields typed events and the API turns them into the SSE contract
 (``meta``, ``sources``, ``token``, ``citation``, ``done``; ``error`` is the API's job).
@@ -11,7 +11,11 @@ Guarantees:
   prompt, and model output triggers nothing.
 * Every paid call is budget-checked first (core/domain/budget.py) and written to the
   usage ledger after. Chat is rate-limited per user, per minute and per day.
-* Modes (ADR-0025), one paid call per question either way:
+* Planning (ADR-0031): every question except small talk gets one small planner call (its
+  search queries, intent, period, source kinds and sender). The plan only narrows
+  retrieval, the user's own filters win, and a plan whose filters find nothing is
+  retried with the user's filters alone. A planner failure falls back to the question.
+* Modes (ADR-0025), one answer call per question either way:
   - small talk (rules, ``is_small_talk``) skips retrieval and gets a short reply (``chat``);
   - when the gate finds nothing relevant, the model gets the question *without* sources
     and either answers from general knowledge (``general``) or replies NO_ANSWER;
@@ -26,7 +30,7 @@ from __future__ import annotations
 import time
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from decimal import Decimal
 
 import structlog
@@ -47,9 +51,7 @@ from core.domain.answer import (
     build_messages,
     is_small_talk,
     number_sources,
-    parse_rewrite,
     plain_messages,
-    rewrite_messages,
     should_abstain_before_model,
     validate_citations,
 )
@@ -67,21 +69,35 @@ from core.domain.errors import (
     ValidationFailed,
 )
 from core.domain.ids import ChatSessionId, ChunkId, DocumentId, MessageId, WorkspaceId
-from core.domain.search import MAX_QUERY_CHARS, FusedHit
+from core.domain.planner import (
+    QueryPlan,
+    fallback_plan,
+    local_zone,
+    merge_filters,
+    parse_plan,
+    planner_messages,
+    search_queries,
+)
+from core.domain.search import FusedHit
 from core.ports.chat import ChatStore, Citation, NewMessage
 from core.ports.models import ChatModel, Tokenizer
 from core.ports.rate_limit import Limit, RateLimiter
+from core.ports.system import Clock
 from core.ports.usage import UsageEntry, UsageLedger
-from core.services.search import SearchService
+from core.services.search import SearchResults, SearchService
 
 log = structlog.get_logger(__name__)
 
 CHAT_LIMIT = Limit(budget=6, window=timedelta(minutes=1))
 CHAT_DAILY_LIMIT = Limit(budget=50, window=timedelta(days=1))
-ANSWER_MAX_TOKENS = 700
+ANSWER_MAX_TOKENS = 900  # room for a dated summary of several items
 CHAT_MAX_TOKENS = 200  # small talk is short
-REWRITE_MAX_TOKENS = 60
-SOURCE_TOKEN_BUDGET = 3000  # passages plus their neighbours, in total
+PLAN_MAX_TOKENS = 200  # one small JSON object
+# Passages plus their neighbours, in total (ADR-0031; was 3,000, which 8 chunks of ~512
+# tokens already filled, so no neighbour ever fitted). Hits get at most HIT_TOKEN_BUDGET;
+# the rest widens the best hits with their neighbours.
+SOURCE_TOKEN_BUDGET = 8000
+HIT_TOKEN_BUDGET = 6000
 CLOSEST_SHOWN = 3
 # USD per million tokens (input, output). Unknown models are priced high: fail safe.
 CHAT_PRICES: dict[str, tuple[Decimal, Decimal]] = {
@@ -89,9 +105,9 @@ CHAT_PRICES: dict[str, tuple[Decimal, Decimal]] = {
     "gpt-4.1-mini": (Decimal("0.40"), Decimal("1.60")),
 }
 UNKNOWN_PRICE = (Decimal("5"), Decimal("15"))
-# Pre-flight upper bound: system + 6 history turns + 3k of sources + question, and the
-# rewrite. The exact request is re-checked once assembled.
-ANSWER_ESTIMATE_TOKENS = (10_000, ANSWER_MAX_TOKENS + REWRITE_MAX_TOKENS)
+# Pre-flight upper bound: system + 6 history turns + 8k of sources + question, and the
+# planner. The exact request is re-checked once assembled.
+ANSWER_ESTIMATE_TOKENS = (16_000, ANSWER_MAX_TOKENS + PLAN_MAX_TOKENS)
 
 
 # ---------------------------------------------------------------- events
@@ -102,6 +118,8 @@ class Meta:
     session_id: ChatSessionId
     user_message_id: MessageId
     query: str  # the standalone query actually searched (after rewriting)
+    # The planner's decision (ADR-0031), for evals and diagnosis; None for small talk.
+    plan: QueryPlan | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +169,7 @@ class AnswerService:
         *,
         limits: SpendLimits,
         min_similarity: float = DEFAULT_MIN_SIMILARITY,
+        clock: Clock | None = None,
     ) -> None:
         self._search = search
         self._model = model
@@ -160,6 +179,7 @@ class AnswerService:
         self._tokenizer = tokenizer
         self._limits = limits
         self._min_similarity = min_similarity
+        self._clock = clock
 
     async def prepare(
         self,
@@ -205,14 +225,19 @@ class AnswerService:
         filters: SearchFilters | None = None,
         *,
         replace_from: MessageId | None = None,
+        timezone: str | None = None,
     ) -> AsyncIterator[AnswerEvent]:
         """Call ``prepare`` first. Yields Meta, SourcesFound, Token/Cited..., Done.
 
         ``replace_from`` regenerates or edits: that question and everything after it are
         superseded in the same write that stores the new question, *before* history is
-        read, so the replaced turns never reach the prompt (ADR-0024)."""
+        read, so the replaced turns never reach the prompt (ADR-0024). ``timezone`` is the
+        browser's IANA zone: it decides what "today" and "last week" mean (UTC if unknown).
+        """
         started = time.perf_counter()
         ws, user = identity.workspace_id, identity.user_id
+        zone = local_zone(timezone)
+        now = self._now().astimezone(zone)
         sid = session_id or await self._chats.create_session(ws, user, _title(question))
         user_msg = await self._chats.add_message(
             ws, user, sid, NewMessage(Role.USER, question), supersede_from=replace_from
@@ -222,35 +247,37 @@ class AnswerService:
         if is_small_talk(question):
             yield Meta(sid, user_msg, question)
             log.info("answer.routed", mode="chat")
-            async for ev in self._unsourced(identity, sid, user_msg, question, history, started):
+            async for ev in self._unsourced(
+                identity, sid, user_msg, question, history, started, now=now
+            ):
                 yield ev
             return
 
-        query = await self._rewrite(identity, question, history) if history else question
-        yield Meta(sid, user_msg, query)
+        plan = await self._plan(identity, question, history, now)
+        queries = search_queries(plan, question, first_turn=not history)
+        yield Meta(sid, user_msg, queries[0], plan)
 
-        results = await self._search.retrieve(
-            identity, query[:MAX_QUERY_CHARS], filters or SearchFilters(), limit=MAX_SOURCES
-        )
+        results = await self._retrieve(identity, queries, filters or SearchFilters(), plan, zone)
         passages = await self._assemble(identity, results.hits)
         sources = tuple(number_sources(passages))
         notices = results.notices
 
-        if should_abstain_before_model(
-            bool(passages), results.best_similarity, min_similarity=self._min_similarity
-        ):
+        # "What's new?" resembles no passage, so the similarity gate would always fire;
+        # with the recent lane, any document found is the evidence (ADR-0031).
+        best = None if plan.wants_recent else results.best_similarity
+        if should_abstain_before_model(bool(passages), best, min_similarity=self._min_similarity):
             # Nothing relevant: the model may still answer a general question, without
             # sources; a question about the user's own data still abstains (ADR-0025).
             log.info("answer.routed", mode="general", sources=len(sources))
             async for ev in self._unsourced(
                 identity, sid, user_msg, question, history, started, closest=sources,
-                notices=notices,
+                notices=notices, now=now,
             ):  # fmt: skip
                 yield ev
             return
 
         yield SourcesFound(sources)
-        messages = build_messages(question, sources, history)
+        messages = build_messages(question, sources, history, now=now)
         tokens_in = sum(self._tokenizer.count(m.content) for m in messages)
         # The real request size, not the pre-flight guess (security review).
         await self._check_budget(identity, _price(self._model.model, tokens_in, ANSWER_MAX_TOKENS))
@@ -324,12 +351,15 @@ class AnswerService:
         *,
         closest: tuple[Source, ...] | None = None,
         notices: tuple[str, ...] = (),
+        now: datetime | None = None,
     ) -> AsyncIterator[AnswerEvent]:
         """One model call without sources: small talk (``closest is None``) or the general
         fallback, which may still abstain for a question about the user's own data."""
         ws, user = identity.workspace_id, identity.user_id
         small_talk = closest is None
-        messages = plain_messages(CHAT_PROMPT if small_talk else GENERAL_PROMPT, question, history)
+        messages = plain_messages(
+            CHAT_PROMPT if small_talk else GENERAL_PROMPT, question, history, now=now
+        )
         tokens_in = sum(self._tokenizer.count(m.content) for m in messages)
         max_tokens = CHAT_MAX_TOKENS if small_talk else ANSWER_MAX_TOKENS
         await self._check_budget(identity, _price(self._model.model, tokens_in, max_tokens))
@@ -440,24 +470,32 @@ class AnswerService:
             if m.id != exclude and m.role is not Role.SYSTEM
         ][-MAX_HISTORY_TURNS:]
 
-    async def _rewrite(
-        self, identity: Identity, question: str, history: Sequence[ChatMessage]
-    ) -> str:
-        """Standalone query for a follow-up. Any failure falls back to the raw question."""
-        messages = rewrite_messages(question, history)
+    def _now(self) -> datetime:
+        return self._clock.now() if self._clock is not None else datetime.now(UTC)
+
+    async def _plan(
+        self,
+        identity: Identity,
+        question: str,
+        history: Sequence[ChatMessage],
+        now: datetime,
+    ) -> QueryPlan:
+        """The search plan for this question (ADR-0031). Any failure falls back to the
+        question alone: a failed planner degrades the answer, never fails it."""
+        messages = planner_messages(question, history, now)
         tokens_in = sum(self._tokenizer.count(m.content) for m in messages)
         parts: list[str] = []
         usage: Usage | None = None
         try:
-            async for item in self._model.stream(messages, max_tokens=REWRITE_MAX_TOKENS):
+            async for item in self._model.stream(messages, max_tokens=PLAN_MAX_TOKENS):
                 if isinstance(item, Usage):
                     usage = item
                 else:
                     parts.append(item.text)
-            return parse_rewrite("".join(parts), question)
+            return parse_plan("".join(parts), question, today=now.date())
         except (UpstreamUnavailable, RateLimited) as exc:
-            log.warning("answer.rewrite_failed", error=type(exc).__name__)
-            return question
+            log.warning("answer.plan_failed", error=type(exc).__name__)
+            return fallback_plan(question)
         finally:
             # The conversation may be about private content (fail closed, ADR-0012).
             await self._record(
@@ -467,13 +505,52 @@ class AnswerService:
                 usage or self._estimate(tokens_in, parts),
             )
 
+    async def _retrieve(
+        self,
+        identity: Identity,
+        queries: Sequence[str],
+        user_filters: SearchFilters,
+        plan: QueryPlan,
+        zone: tzinfo,
+    ) -> SearchResults:
+        """Retrieval under the plan's filters merged with the user's. If the plan's own
+        period, kind or sender hid everything, retry with the user's filters alone: a
+        guess about the question must not turn into "nothing found" (ADR-0031)."""
+        results = await self._search.retrieve(
+            identity,
+            queries,
+            merge_filters(user_filters, plan, zone),
+            limit=MAX_SOURCES,
+            recent=plan.wants_recent,
+        )
+        if not results.hits and plan.narrows:
+            log.info("answer.plan_filters_dropped")
+            results = await self._search.retrieve(
+                identity, queries, user_filters, limit=MAX_SOURCES, recent=plan.wants_recent
+            )
+        log.info(
+            "answer.planned",
+            planned=plan.planned,
+            intent=plan.intent,
+            queries=len(queries),
+            narrowed=plan.narrows,
+            hits=len(results.hits),
+        )  # never the queries themselves: they're private text
+        return results
+
     async def _assemble(self, identity: Identity, hits: Sequence[FusedHit]) -> list[Passage]:
-        """Top hits widened with neighbouring chunks (ordinal +-1) while under budget."""
-        chunks: list[ScoredChunk] = [h.chunk for h in hits][:MAX_SOURCES]
+        """Top hits, then their neighbouring chunks (ordinal +-1), under the token budget.
+
+        Hits are kept in rank order while they fit ``HIT_TOKEN_BUDGET``; the rest of
+        ``SOURCE_TOKEN_BUDGET`` widens the best hits first. A chunk already shown, as a
+        hit or a neighbour, is never repeated, so adjacent hits don't duplicate text.
+        """
+        chunks = self._fit_hits([h.chunk for h in hits][:MAX_SOURCES])
         if not chunks:
             return []
         near = await self._search.neighbours(identity, [(c.document_id, c.ordinal) for c in chunks])
         by_pos = {(n.document_id, n.ordinal): n for n in near}
+        shown = {(c.document_id, c.ordinal) for c in chunks}
         budget = SOURCE_TOKEN_BUDGET - sum(self._tokenizer.count(c.content) for c in chunks)
         passages: list[Passage] = []
         for c in chunks:
@@ -483,12 +560,13 @@ class AnswerService:
                 ((c.document_id, c.ordinal + 1), False),
             ):
                 n = by_pos.get(pos)
-                if n is None:
+                if n is None or pos in shown:
                     continue
                 cost = self._tokenizer.count(n.content)
                 if cost > budget:
                     continue
                 budget -= cost
+                shown.add(pos)
                 # A neighbour from another section keeps its own heading, or its facts
                 # would be read under the hit's section (eval prod-road-001: a Q2 item
                 # answered as "Q1 2027" because it sat in the Q1 passage unlabelled).
@@ -496,18 +574,20 @@ class AnswerService:
                 if n.heading_path and n.heading_path != c.heading_path:
                     text = f"[{n.heading_path}]\n{n.content}"
                 texts.insert(0, text) if at_start else texts.append(text)
-            passages.append(
-                Passage(
-                    chunk_id=c.chunk_id,
-                    document_id=c.document_id,
-                    title=c.title or "Untitled",
-                    heading_path=c.heading_path,
-                    content="\n\n".join(texts),
-                    data_class=c.data_class,
-                    ordinal=c.ordinal,
-                )
-            )
+            passages.append(_passage(c, "\n\n".join(texts)))
         return passages
+
+    def _fit_hits(self, chunks: Sequence[ScoredChunk]) -> list[ScoredChunk]:
+        """Hits in rank order while they fit HIT_TOKEN_BUDGET (the best one always)."""
+        kept: list[ScoredChunk] = []
+        used = 0
+        for c in chunks:
+            cost = self._tokenizer.count(c.content)
+            if kept and used + cost > HIT_TOKEN_BUDGET:
+                continue
+            kept.append(c)
+            used += cost
+        return kept
 
     async def _abstain(
         self,
@@ -571,6 +651,21 @@ def _usage_json(usage: Usage | None, model: str, mode: AnswerMode) -> dict[str, 
         "cost_usd": str(cost),
         "mode": mode,
     }
+
+
+def _passage(c: ScoredChunk, content: str) -> Passage:
+    return Passage(
+        chunk_id=c.chunk_id,
+        document_id=c.document_id,
+        title=c.title or "Untitled",
+        heading_path=c.heading_path,
+        content=content,
+        data_class=c.data_class,
+        ordinal=c.ordinal,
+        connector=c.connector,
+        updated_at=c.updated_at,
+        author=c.author,
+    )
 
 
 def _title(question: str) -> str:

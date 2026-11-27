@@ -42,18 +42,27 @@ from core.config import get_settings
 from core.domain.auth import Identity, Role
 from core.domain.budget import SpendLimits
 from core.domain.ids import ChatSessionId, DocumentId, MessageId, SessionId, UserId, WorkspaceId
+from core.domain.planner import QueryPlan
 from core.domain.principals import Principals
 from core.ports.chat import ChatSessionInfo, Citation, NewMessage, StoredMessage
 from core.ports.rate_limit import Limit
-from core.services.answer import AnswerService, Cited, Done, Token
+from core.services.answer import AnswerService, Cited, Done, Meta, SourcesFound, Token
 from core.services.search import SearchService
 from evals.answer_metrics import AnswerResult, points_found, summarise_answers
-from evals.cases import EXTERNAL_PREFIX, check_references, load_cases, load_corpus
+from evals.cases import (
+    EVAL_NOW,
+    EVAL_TIMEZONE,
+    EXTERNAL_PREFIX,
+    check_references,
+    load_cases,
+    load_corpus,
+)
 from evals.harness import EVAL_OWNER
 from evals.load import EVAL_WORKSPACE_NAME, EVAL_WORKSPACE_SLUG
 from evals.run import RESULTS, git_sha
 
-PER_CASE_ESTIMATE_USD = Decimal("0.002")
+# Plan + answer with up to 8k tokens of sources (ADR-0031): ~$0.002, rounded up to be safe.
+PER_CASE_ESTIMATE_USD = Decimal("0.003")
 
 
 class _Unlimited:
@@ -124,6 +133,28 @@ class _MemoryChats:
         return None
 
 
+def plan_summary(plan: QueryPlan, lead: str) -> dict[str, object]:
+    """The planner's decision as JSON, for diagnosing answers (synthetic questions only)."""
+    return {
+        "planned": plan.planned,
+        "lead_query": lead,
+        "queries": list(plan.queries),
+        "intent": plan.intent,
+        "after": plan.after.isoformat() if plan.after else None,
+        "before": plan.before.isoformat() if plan.before else None,
+        "kinds": list(plan.kinds),
+        "sender": plan.sender,
+    }
+
+
+class _FixedClock:
+    """Answer evals run in the eval world's present, so "last week" means the same
+    documents whatever day the run happens."""
+
+    def now(self) -> datetime:
+        return EVAL_NOW
+
+
 async def run(limit: int | None, only: set[str] | None = None) -> int:
     settings = get_settings()
     key = settings.openai_api_key.get_secret_value().strip() if settings.openai_api_key else ""
@@ -173,6 +204,7 @@ async def run(limit: int | None, only: set[str] | None = None) -> int:
         answers = AnswerService(
             search, model, _MemoryChats(), ledger, _Unlimited(), TiktokenTokenizer(),
             limits=limits, min_similarity=settings.chat_min_similarity,
+            clock=_FixedClock(),  # the eval world's today (ADR-0031)
         )  # fmt: skip
         who = Identity(
             user_id=EVAL_OWNER,
@@ -192,8 +224,16 @@ async def run(limit: int | None, only: set[str] | None = None) -> int:
             question, _ = await answers.prepare(who, case.question, None)
             cited: list[DocumentId] = []
             text, done = "", None
-            async for event in answers.answer(who, question, None):
-                if isinstance(event, Cited):
+            plan: dict[str, object] | None = None
+            seen: list[str] = []
+            async for event in answers.answer(who, question, None, timezone=EVAL_TIMEZONE):
+                if isinstance(event, Meta) and event.plan is not None:
+                    plan = plan_summary(event.plan, event.query)
+                elif isinstance(event, SourcesFound):
+                    seen = [
+                        path_of.get(s.passage.document_id, s.passage.title) for s in event.sources
+                    ]
+                elif isinstance(event, Cited):
                     cited.append(event.document_id)
                 elif isinstance(event, Done):
                     done = event
@@ -214,6 +254,8 @@ async def run(limit: int | None, only: set[str] | None = None) -> int:
                     text=text,
                     expect_mode=case.expect_mode,
                     mode=done.mode if done else "grounded",
+                    plan=plan,
+                    sources=list(dict.fromkeys(seen)),
                 )
             )
             print(f"  {case.id:<12} {'ABSTAINED' if results[-1].abstained else 'answered'}")

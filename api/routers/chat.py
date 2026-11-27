@@ -145,7 +145,12 @@ async def chat(
     async def events() -> AsyncIterator[dict[str, str]]:
         try:
             async for event in answers.answer(
-                identity, question, session, filters, replace_from=replace_from
+                identity,
+                question,
+                session,
+                filters,
+                replace_from=replace_from,
+                timezone=body.timezone,
             ):
                 yield _sse(event)
         except Exception as exc:  # the stream has started: report in-band, never crash

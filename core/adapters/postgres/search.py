@@ -42,7 +42,10 @@ from core.domain.search import MAX_QUERY_CHARS
 DEFAULT_EF_SEARCH = 100
 MAX_K = 200
 
-_COLUMNS = "c.id, c.document_id, c.ordinal, c.content, c.heading_path, d.title, c.data_class"
+_COLUMNS = (
+    "c.id, c.document_id, c.ordinal, c.content, c.heading_path, d.title, c.data_class,"
+    " COALESCE(d.source_updated_at, d.created_at) AS doc_date, d.author, d.uri, src.connector"
+)
 # A source being deleted disappears from search at once, before cleanup removes its rows.
 _VISIBLE = (
     "c.workspace_id = :ws AND c.acl && CAST(:p AS text[]) AND d.deleted_at IS NULL"
@@ -61,6 +64,9 @@ def _filters_sql(f: SearchFilters, params: dict[str, Any]) -> str:
     if f.source_ids:
         parts.append("d.source_id = ANY(CAST(:src AS uuid[]))")
         params["src"] = list(f.source_ids)
+    if f.connectors:
+        parts.append("src.connector = ANY(CAST(:conn AS text[]))")
+        params["conn"] = list(f.connectors)
     if f.updated_after is not None:
         parts.append("d.source_updated_at >= :after")
         params["after"] = f.updated_after
@@ -177,6 +183,37 @@ class PostgresSearchIndex:
             rows = (await s.execute(text(sql), params)).mappings().all()
         return [_scored(r, float(r["rank"])) for r in rows]
 
+    async def recent_chunks(
+        self, ws: WorkspaceId, principals: Principals, k: int, filters: SearchFilters
+    ) -> list[ScoredChunk]:
+        """The ``k`` most recently updated visible documents, newest first: for each, its
+        last chunk (where a thread's newest messages are) and its first (title and
+        context). The recent lane of ADR-0031; same visibility rule as the other lanes,
+        applied to the documents before the limit and to their chunks again."""
+        k = _check_k(k)
+        params: dict[str, Any] = {"ws": ws, "p": principals.as_list(), "k": k}
+        doc_filters = _filters_sql(filters, params)
+        sql = (
+            "WITH recent AS ("  # noqa: S608 (constant fragments only; values are bound)
+            "  SELECT d.id, COALESCE(d.source_updated_at, d.created_at) AS doc_at FROM documents d"
+            f"{_JOIN_SOURCE}"
+            "  WHERE d.workspace_id = :ws AND d.acl && CAST(:p AS text[])"
+            "    AND d.deleted_at IS NULL AND src.status <> 'deleting'"
+            f"{doc_filters}"
+            "  ORDER BY doc_at DESC, d.id LIMIT :k)"
+            f" SELECT {_COLUMNS} FROM recent r"
+            " JOIN documents d ON d.id = r.id"
+            f"{_JOIN_SOURCE}"
+            " JOIN chunks c ON c.document_id = d.id"
+            f" WHERE {_VISIBLE} AND (c.ordinal = 0 OR c.ordinal ="
+            "   (SELECT max(c2.ordinal) FROM chunks c2 WHERE c2.document_id = d.id))"
+            " ORDER BY r.doc_at DESC, d.id, c.ordinal DESC"
+        )
+        async with self._uow() as s:
+            rows = (await s.execute(text(sql), params)).mappings().all()
+        n = len(rows)
+        return [_scored(r, float(n - i)) for i, r in enumerate(rows)]  # rank order
+
     async def document_preview(
         self, ws: WorkspaceId, principals: Principals, doc_id: DocumentId, max_chunks: int
     ) -> DocumentPreview:
@@ -253,4 +290,8 @@ def _scored(r: Any, score: float) -> ScoredChunk:  # reason: RowMapping values a
         heading_path=r["heading_path"],
         title=r["title"],
         data_class=str(r["data_class"]),
+        updated_at=r["doc_date"],
+        author=r["author"],
+        uri=r["uri"],
+        connector=r["connector"],
     )

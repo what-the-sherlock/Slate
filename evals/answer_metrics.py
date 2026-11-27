@@ -36,6 +36,9 @@ class AnswerResult:
     text: str = ""
     expect_mode: str | None = None  # "general" | "chat" (ADR-0025)
     mode: str = "grounded"
+    # Diagnosis (ADR-0031): what the planner decided and which sources the model saw.
+    plan: dict[str, object] | None = None
+    sources: list[str] = field(default_factory=list[str])
 
     @property
     def should_abstain(self) -> bool:

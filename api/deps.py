@@ -22,6 +22,7 @@ from core.adapters.factories import (
     github_service,
     github_sync,
     ingest_service,
+    integration_service,
     mail_service,
     mail_sync,
     s3_blob_store,
@@ -49,6 +50,7 @@ from core.services.discord import SYNC_DISCORD, DiscordService
 from core.services.github import CONNECTOR as GITHUB
 from core.services.github import SYNC_GITHUB, GitHubService
 from core.services.inline import InlineRunner
+from core.services.integrations import IntegrationService
 from core.services.mail import IMAP, MBOX, SYNC_MAIL, MailService, MboxActions
 from core.services.search import SearchService
 from core.services.source_actions import ConnectorEntry, SourceActions
@@ -74,6 +76,7 @@ class Container:
     discord: DiscordService | None = None
     mail: MailService | None = None
     workspaces: WorkspaceService | None = None
+    integrations: IntegrationService | None = None  # ADR-0032
     # Sync now / disconnect for any connected source; built from the fields above when the
     # caller doesn't pass one (tests).
     actions: SourceActions | None = None
@@ -107,6 +110,7 @@ def get_container() -> Container:
     uow = make_uow(create_session_factory(engine))
     github, discord = github_service(settings, uow), discord_service(settings, uow)
     mail = mail_service(settings, uow)
+    ready = {"github": github.available, "discord": discord.available, "email": mail.available}
     return Container(
         settings=settings,
         health=PostgresHealthProbe(uow),
@@ -121,6 +125,7 @@ def get_container() -> Container:
         github=github,
         discord=discord,
         mail=mail,
+        integrations=integration_service(settings, uow, ready),
         workspaces=WorkspaceService(
             PostgresWorkspaceStore(uow),
             PostgresSessionStore(uow),

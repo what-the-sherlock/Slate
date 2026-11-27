@@ -28,8 +28,9 @@ from core.domain.search import (
     MAX_QUERY_CHARS,
     FusedHit,
     Lane,
+    RankedList,
     cap_per_document,
-    rrf_fuse,
+    rrf_fuse_lists,
 )
 from core.ports.models import Embedder
 from core.ports.rate_limit import Limit, RateLimiter
@@ -39,6 +40,11 @@ from core.ports.usage import GenerationStore, UsageEntry, UsageLedger
 log = structlog.get_logger(__name__)
 
 CANDIDATES_PER_LANE = 50
+# The recent lane (ADR-0031): the newest documents, weighted above one similarity list so
+# "what's new" questions lead with new items, yet below the sum of both lanes for a query,
+# so a recent document that also matches the question wins.
+RECENT_DOCUMENTS = 20
+RECENT_WEIGHT = 1.5
 MAX_LIMIT = 50
 MAX_AUTHOR_CHARS = 200
 MAX_SOURCE_FILTERS = 20
@@ -73,51 +79,72 @@ async def hybrid_retrieve(
     index: SearchIndex,
     ws: WorkspaceId,
     principals: Principals,
-    query: str,
+    query: str | Sequence[str],
     filters: SearchFilters,
     *,
     vector: VectorLane | None,
     candidates: int = CANDIDATES_PER_LANE,
     max_per_document: int = MAX_CHUNKS_PER_DOCUMENT,
     limit: int = 10,
+    recent: bool = False,
 ) -> SearchResults:
-    """The retrieval core shared by SearchService and the eval harness, so evals measure
-    exactly what users get: keyword || (embed -> vector), then RRF and the per-doc cap.
+    """The retrieval core shared by SearchService, chat and the eval harness, so evals
+    measure exactly what users get: for each query, keyword || (embed -> vector); plus the
+    recent lane when ``recent``; then weighted RRF and the per-document cap (ADR-0031).
 
     An embedder outage degrades to keyword-only with a notice instead of failing.
     """
+    queries = (query,) if isinstance(query, str) else tuple(query)
+    if not queries:
+        raise ValueError("at least one query")
 
-    async def vector_lane() -> tuple[list[ScoredChunk] | None, str | None]:
+    async def vector_lane(q: str) -> tuple[list[ScoredChunk] | None, str | None]:
         if vector is None:
             return None, None
         try:
-            qv = await vector.embedder.embed_query(query)
+            qv = await vector.embedder.embed_query(q)
         except (UpstreamUnavailable, RateLimited) as exc:
             log.warning("search.vector_lane_unavailable", error=type(exc).__name__)
             return None, "Meaning-based search is unavailable right now; showing keyword matches."
-        return (
-            await index.vector_search(ws, principals, qv, vector.generation, candidates, filters),
-            None,
-        )
+        return await index.vector_search(
+            ws, principals, qv, vector.generation, candidates, filters
+        ), None
 
-    # Structured concurrency: if one lane fails, the other is cancelled and awaited,
+    # Structured concurrency: if one lane fails, the others are cancelled and awaited,
     # so no task outlives the request.
     async with asyncio.TaskGroup() as tg:
-        keyword = tg.create_task(index.keyword_search(ws, principals, query, candidates, filters))
-        vec = tg.create_task(vector_lane())
-    vector_hits, notice = vec.result()
-    lanes: dict[Lane, list[ScoredChunk]] = {Lane.KEYWORD: keyword.result()}
-    if vector_hits is not None:
-        lanes[Lane.VECTOR] = vector_hits
-    hits = cap_per_document(rrf_fuse(lanes), max_per_document=max_per_document)[:limit]
+        keyword = [
+            tg.create_task(index.keyword_search(ws, principals, q, candidates, filters))
+            for q in queries
+        ]
+        vec = [tg.create_task(vector_lane(q)) for q in queries]
+        newest = (
+            tg.create_task(index.recent_chunks(ws, principals, RECENT_DOCUMENTS, filters))
+            if recent
+            else None
+        )
+    lists = [RankedList(Lane.KEYWORD, t.result()) for t in keyword]
+    vector_lists = [hits for hits, _ in (t.result() for t in vec) if hits is not None]
+    lists += [RankedList(Lane.VECTOR, hits) for hits in vector_lists]
+    if newest is not None:
+        lists.append(RankedList(Lane.RECENT, newest.result(), RECENT_WEIGHT))
+    notices = tuple(dict.fromkeys(n for _, n in (t.result() for t in vec) if n))
+    fused = rrf_fuse_lists(lists)
+    hits = cap_per_document(fused, max_per_document=max_per_document)[:limit]
+    lanes = tuple(dict.fromkeys(rl.lane for rl in lists))
     log.info(
         "search",
         lanes=[str(lane) for lane in lanes],
-        candidates={str(k): len(v) for k, v in lanes.items()},
+        queries=len(queries),
+        candidates=sum(len(rl.hits) for rl in lists),
         returned=len(hits),
     )  # never log the query text: it can contain private content
-    best = max((h.score for h in vector_hits), default=None) if vector_hits is not None else None
-    return SearchResults(hits, tuple(lanes), (notice,) if notice else (), best_similarity=best)
+    best = (
+        max((h.score for hits in vector_lists for h in hits), default=None)
+        if vector_lists
+        else None
+    )
+    return SearchResults(hits, lanes, notices, best_similarity=best)
 
 
 class SearchService:
@@ -172,10 +199,18 @@ class SearchService:
         return await self.retrieve(identity, q, f, limit=limit)
 
     async def retrieve(
-        self, identity: Identity, q: str, f: SearchFilters, *, limit: int
+        self,
+        identity: Identity,
+        q: str | Sequence[str],
+        f: SearchFilters,
+        *,
+        limit: int,
+        recent: bool = False,
     ) -> SearchResults:
-        """Validated query -> hybrid retrieval, with spend checked and recorded. Shared by
-        search and chat (no rate limit here: each caller applies its own)."""
+        """Validated query (or a plan's queries) -> hybrid retrieval, with spend checked and
+        recorded. Shared by search and chat (no rate limit here: each caller applies its
+        own)."""
+        queries = (q,) if isinstance(q, str) else tuple(q)
         plan, notice = await self._vector_plan(
             identity.workspace_id,
             privileged=identity.is_platform_admin and identity.role is Role.OWNER,
@@ -184,15 +219,17 @@ class SearchService:
             self._index,
             identity.workspace_id,
             identity.principals,
-            q,
+            queries,
             f,
             vector=plan,
             candidates=self._candidates,
             max_per_document=self._per_doc,
             limit=limit,
+            recent=recent,
         )
         if plan is not None and Lane.VECTOR in res.lanes:
-            await self._record_query_embedding(identity.workspace_id, q)
+            for query in queries:
+                await self._record_query_embedding(identity.workspace_id, query)
         return replace(res, notices=(notice, *res.notices)) if notice else res
 
     async def neighbours(

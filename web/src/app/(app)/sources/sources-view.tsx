@@ -14,7 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { errorMessage } from "@/lib/api/client";
 import { useActivity, useMe, useSources, type Source } from "@/lib/api/hooks";
 import { absoluteTime, formatCount, relativeTime } from "@/lib/format";
-import { AddSourceDialog } from "./add-source-dialog";
+import { AddSourceDialog, isStartView } from "./add-source-dialog";
 
 const VISIBILITY = {
   only_me: { icon: Lock, label: "Only me" },
@@ -31,7 +31,9 @@ export function SourcesView() {
   // Home's "Add source" links here with ?add=1: the URL itself opens the dialog.
   const params = useSearchParams();
   const router = useRouter();
-  const wantsAdd = canAdd && params.get("add") === "1";
+  // Integrations links to a connector directly: ?add=github|discord|email (ADR-0032).
+  const addParam = params.get("add");
+  const wantsAdd = canAdd && addParam !== null && (addParam === "1" || isStartView(addParam));
   const dialogOpen = adding || wantsAdd;
   const setDialogOpen = (next: boolean) => {
     setAdding(next);
@@ -98,7 +100,11 @@ export function SourcesView() {
         )}
       </div>
       {canAdd ? (
-        <AddSourceDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+        <AddSourceDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          initialView={addParam && isStartView(addParam) ? addParam : undefined}
+        />
       ) : null}
     </>
   );

@@ -27,6 +27,7 @@ export const keys = {
   members: ["members"] as const,
   invites: ["invites"] as const,
   activity: ["activity"] as const,
+  integrations: ["integrations"] as const,
 };
 
 /** The signed-in user, or null when signed out (401 is an answer, not an error). */
@@ -225,5 +226,14 @@ export function useActivity() {
     queryFn: async () => unwrap(await api.GET("/api/v1/runs", { params: { query: { limit: 15 } } })),
     refetchInterval: (query) => (query.state.data?.some((r) => r.status === "running") ? 5000 : false),
     refetchIntervalInBackground: false,
+  });
+}
+
+/** Every integration and this user's state for each (ADR-0032). */
+export function useIntegrations() {
+  return useQuery({
+    queryKey: keys.integrations,
+    queryFn: async () => unwrap(await api.GET("/api/v1/integrations")),
+    staleTime: 30_000,
   });
 }

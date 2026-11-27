@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -16,8 +17,8 @@ from core.domain.answer import (
 )
 from core.domain.auth import Identity, Role
 from core.domain.budget import SpendLimits
-from core.domain.chat import ChatMessage
-from core.domain.documents import DocumentUpsert, NewChunk
+from core.domain.chat import ChatDelta, ChatMessage, Usage
+from core.domain.documents import DocumentUpsert, NewChunk, SearchFilters
 from core.domain.errors import (
     BudgetExceeded,
     NotFound,
@@ -51,6 +52,11 @@ OTHER = UserId(uuid4())
 SOURCE = SourceId(uuid4())
 GEN = GenerationId(1)
 LEAVE = "Everyone gets 25 days of paid leave per year."
+NOW = datetime(2026, 11, 27, 9, 0, tzinfo=UTC)
+
+
+def is_planner(messages: Sequence[ChatMessage]) -> bool:
+    return messages[0].content.startswith("You plan searches")
 
 
 def identity(user: UserId = OWNER, *, outsider: bool = False) -> Identity:
@@ -75,6 +81,7 @@ class Env:
         vector: bool = False,
         min_similarity: float = 0.3,
         spent: Decimal = Decimal(0),
+        now: datetime = NOW,
     ) -> None:
         self.index = InMemoryIndex()
         self.embedder = FakeEmbedder()
@@ -98,24 +105,50 @@ class Env:
             WordTokenizer(),
             limits=limits,
             min_similarity=min_similarity,
+            clock=FakeClock(now),
         )
 
-    async def doc(self, ext: str, chunks: Sequence[str], acl: tuple[str, ...] = (PUBLIC,)) -> None:
+    async def doc(
+        self,
+        ext: str,
+        chunks: Sequence[str],
+        acl: tuple[str, ...] = (PUBLIC,),
+        *,
+        source: SourceId = SOURCE,
+        author: str | None = None,
+        updated: datetime | None = None,
+    ) -> None:
         vecs = (await self.embedder.embed_documents(list(chunks))).vectors
         await self.index.write_document(
             WS,
-            DocumentUpsert(SOURCE, ext, f"upload://{ext}", ext.title(), "text/plain", ext, acl),
+            DocumentUpsert(
+                source,
+                ext,
+                f"upload://{ext}",
+                ext.title(),
+                "text/plain",
+                ext,
+                acl,
+                author=author,
+                source_updated_at=updated,
+            ),
             [NewChunk(i, c, len(c.split())) for i, c in enumerate(chunks)],
             {GEN: vecs},
             data_class="private",
         )
 
     async def ask(
-        self, question: str, who: Identity | None = None, session: object = None
+        self,
+        question: str,
+        who: Identity | None = None,
+        session: object = None,
+        *,
+        filters: SearchFilters | None = None,
+        timezone: str | None = None,
     ) -> list[AnswerEvent]:
         who = who or identity()
         q, sid = await self.svc.prepare(who, question, session)  # type: ignore[arg-type]
-        return [e async for e in self.svc.answer(who, q, sid)]
+        return [e async for e in self.svc.answer(who, q, sid, filters, timezone=timezone)]
 
 
 def done(events: list[AnswerEvent]) -> Done:
@@ -208,9 +241,10 @@ async def test_nothing_retrieved_about_your_data_abstains_after_one_general_call
     d = done(events)
     assert d.abstained
     assert text(events) == ""
-    assert len(env.model.requests) == 1
-    assert env.model.requests[0][0].content == GENERAL_PROMPT  # no sources sent
-    assert "<sources>" not in env.model.requests[0][-1].content
+    planner, general = env.model.requests  # the plan, then one general call
+    assert planner[0].content.startswith("You plan searches")
+    assert general[0].content.startswith(GENERAL_PROMPT)  # no sources sent
+    assert "<sources>" not in general[-1].content
 
 
 async def test_nothing_retrieved_general_question_gets_a_labelled_general_answer() -> None:
@@ -227,7 +261,7 @@ async def test_nothing_retrieved_general_question_gets_a_labelled_general_answer
     stored = await env.chats.messages(WS, OWNER, meta.session_id, limit=10)
     assert stored[1].mode == "general"
     assert "[1]" not in stored[1].content  # no sources, so no citation survives
-    assert [e.kind for e in env.ledger.entries] == ["chat"]  # one paid call
+    assert [e.kind for e in env.ledger.entries] == ["rewrite", "chat"]  # plan + answer
 
 
 async def test_a_distant_best_match_falls_back_to_the_general_prompt() -> None:
@@ -237,7 +271,7 @@ async def test_a_distant_best_match_falls_back_to_the_general_prompt() -> None:
     d = done(events)
     assert d.abstained
     assert d.closest  # closest matches are still offered
-    assert env.model.requests[0][0].content == GENERAL_PROMPT
+    assert env.model.requests[-1][0].content.startswith(GENERAL_PROMPT)
 
 
 async def test_small_talk_skips_retrieval_and_replies_in_chat_mode() -> None:
@@ -248,7 +282,8 @@ async def test_small_talk_skips_retrieval_and_replies_in_chat_mode() -> None:
     assert d.mode == "chat"
     assert not d.abstained
     assert not [e for e in events if isinstance(e, SourcesFound)]
-    assert env.model.requests[0][0].content == CHAT_PROMPT
+    assert len(env.model.requests) == 1  # no planner for small talk
+    assert env.model.requests[0][0].content.startswith(CHAT_PROMPT)
     assert text(events) == "Hi! I can answer questions from your sources."
 
 
@@ -292,7 +327,8 @@ async def test_injected_instructions_stay_inside_the_data_block() -> None:
     await env.doc("evil", [evil])
     await env.ask("leave policy")
     system, *_, user = env.model.requests[-1]
-    assert system.content == SYSTEM_PROMPT  # untouched by retrieved text
+    assert system.content.startswith(SYSTEM_PROMPT)  # untouched by retrieved text
+    assert "Ignore previous" not in system.content
     assert "Ignore previous instructions" in user.content
     assert user.content.index("<sources>") < user.content.index("Ignore previous")
 
@@ -310,10 +346,10 @@ async def test_another_users_chat_cannot_be_continued() -> None:
 # ---------------------------------------------------------------- follow-ups
 
 
-async def test_follow_ups_are_rewritten_with_history_and_send_the_history() -> None:
+async def test_follow_ups_are_planned_with_history_and_send_the_history() -> None:
     def reply(messages: Sequence[ChatMessage]) -> str:
-        if "standalone search query" in messages[0].content:
-            return "paid leave days"
+        if is_planner(messages):
+            return '{"queries": ["paid leave days"]}'
         return "Leave is 25 days [1]."
 
     env = Env(reply)
@@ -478,3 +514,148 @@ async def test_replace_from_must_be_a_live_question_in_your_own_chat() -> None:
     answer_id = (await env.chats.messages(WS, OWNER, first.session_id, limit=50))[1].id
     with pytest.raises(NotFound):  # an answer can't be the anchor; only a question can
         await env.svc.prepare(identity(), "x", first.session_id, answer_id)
+
+
+# ---------------------------------------------------------------- planning (ADR-0031)
+
+EMAIL = SourceId(uuid4())
+
+
+def planned(plan: str, answer: str = "Done [1].") -> object:
+    def reply(messages: Sequence[ChatMessage]) -> str:
+        return plan if is_planner(messages) else answer
+
+    return reply
+
+
+async def mail_env(plan: str, answer: str = "Done [1].") -> Env:
+    env = Env(planned(plan, answer))
+    env.index.connectors[EMAIL] = "imap"
+    await env.doc(
+        "invoice", ["Acme invoice 42 is paid."], source=EMAIL, author="Priya Shah",
+        updated=datetime(2026, 11, 20, 8, 0, tzinfo=UTC),
+    )  # fmt: skip
+    await env.doc(
+        "offsite", ["The offsite moves to March."], source=EMAIL, author="Sam Lee",
+        updated=datetime(2026, 10, 2, 8, 0, tzinfo=UTC),
+    )  # fmt: skip
+    await env.doc("handbook", [LEAVE], updated=datetime(2026, 1, 5, tzinfo=UTC))
+    return env
+
+
+def answer_prompt(env: Env) -> str:
+    return next(r for r in reversed(env.model.requests) if not is_planner(r))[-1].content
+
+
+async def test_every_question_is_planned_with_todays_date_in_the_users_zone() -> None:
+    env = await mail_env('{"queries": ["acme invoice"]}')
+    await env.ask("is the acme invoice paid?", timezone="Asia/Kolkata")
+    planner = env.model.requests[0]
+    assert is_planner(planner)
+    assert "Today is Friday 27 November 2026 (IST)" in planner[0].content
+    answer = next(r for r in env.model.requests if not is_planner(r))
+    assert answer[0].content.endswith("Today is Friday 27 November 2026 (IST).")
+
+
+async def test_sources_show_kind_date_and_sender_to_the_model() -> None:
+    env = await mail_env('{"queries": ["acme invoice"]}')
+    await env.ask("acme invoice", timezone="Asia/Kolkata")
+    assert 'kind="email" date="2026-11-20 13:30" from="Priya Shah"' in answer_prompt(env)
+
+
+async def test_the_plans_period_kind_and_sender_narrow_retrieval() -> None:
+    plan = (
+        '{"queries": ["invoice"], "after": "2026-11-16", "before": "2026-11-22",'
+        ' "sources": ["email"], "sender": "priya"}'
+    )
+    env = await mail_env(plan)
+    events = await env.ask("what did priya email last week about the invoice?")
+    found = next(e for e in events if isinstance(e, SourcesFound))
+    assert [s.passage.title for s in found.sources] == ["Invoice"]
+
+
+async def test_a_plan_whose_filters_hide_everything_is_retried_without_them() -> None:
+    env = await mail_env('{"queries": ["offsite"], "sender": "nobody-like-this"}')
+    events = await env.ask("when is the offsite?")
+    found = next(e for e in events if isinstance(e, SourcesFound))
+    assert found.sources[0].passage.title == "Offsite"
+
+
+async def test_the_users_filters_are_never_dropped_by_the_retry() -> None:
+    env = await mail_env('{"queries": ["offsite"]}', answer=NO_ANSWER)
+    only_uploads = SearchFilters(source_ids=(SOURCE,))
+    events = await env.ask("when is the offsite?", filters=only_uploads)
+    assert not any(
+        s.passage.title == "Offsite"
+        for e in events
+        if isinstance(e, SourcesFound)
+        for s in e.sources
+    )
+
+
+async def test_recent_questions_use_the_recent_lane_and_skip_the_similarity_gate() -> None:
+    env = await mail_env('{"queries": ["latest emails"], "intent": "recent"}')
+    events = await env.ask("what are my latest emails?")
+    found = next(e for e in events if isinstance(e, SourcesFound))
+    titles = [s.passage.title for s in found.sources]
+    assert titles[:2] == ["Invoice", "Offsite"]  # newest first, though no word matches
+    assert done(events).mode == "grounded"
+
+
+async def test_an_unusable_plan_falls_back_to_the_question() -> None:
+    env = Env(planned("I think you should search for leave!", "Leave is 25 days [1]."))
+    await env.doc("handbook", [LEAVE])
+    events = await env.ask("paid leave")
+    assert isinstance(events[0], Meta)
+    assert events[0].query == "paid leave"
+    assert done(events).citations == (1,)
+
+
+class PlannerDown(FakeChatModel):
+    """The planner's calls fail; answer calls work."""
+
+    async def stream(
+        self, messages: Sequence[ChatMessage], *, max_tokens: int
+    ) -> AsyncIterator[ChatDelta | Usage]:
+        if is_planner(messages):
+            self.requests.append(list(messages))
+            raise UpstreamUnavailable("planner down")
+        async for item in super().stream(messages, max_tokens=max_tokens):
+            yield item
+
+
+async def test_a_planner_outage_never_fails_the_answer() -> None:
+    env = Env()
+    await env.doc("handbook", [LEAVE])
+    model = PlannerDown("Leave is 25 days [1].")
+    env.svc = AnswerService(
+        env.search, model, env.chats, env.ledger, InMemoryRateLimiter(FakeClock()),
+        WordTokenizer(), limits=SpendLimits.monthly_only(Decimal(5)), min_similarity=0.3,
+    )  # fmt: skip
+    events = await env.ask("paid leave")
+    assert isinstance(events[0], Meta)
+    assert events[0].query == "paid leave"  # the question alone
+    assert done(events).citations == (1,)
+    assert [e.kind for e in env.ledger.entries] == ["rewrite", "chat"]  # the try is ledgered
+
+
+# ---------------------------------------------------------------- context assembly
+
+
+async def test_adjacent_hits_are_not_repeated_as_each_others_neighbours() -> None:
+    env = Env()
+    await env.doc("handbook", ["paid leave intro.", "paid leave 25 days.", "paid leave rolls."])
+    await env.ask("paid leave")
+    sent = answer_prompt(env)
+    for part in ("paid leave intro.", "paid leave 25 days.", "paid leave rolls."):
+        assert sent.count(part) == 1
+
+
+async def test_hits_that_overflow_the_budget_are_left_out_but_the_best_stays() -> None:
+    env = Env()
+    huge = "leave " * 7000  # alone over the hit budget
+    await env.doc("big", [huge])
+    await env.doc("small", ["leave is 25 days"])
+    events = await env.ask("leave")
+    found = next(e for e in events if isinstance(e, SourcesFound))
+    assert [s.passage.title for s in found.sources] == ["Big"]  # best hit always kept

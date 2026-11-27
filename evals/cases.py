@@ -8,16 +8,56 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from core.domain.planner import QueryPlan
+
 ROOT = Path(__file__).resolve().parent
 QUESTIONS = ROOT / "questions.yaml"
 CORPUS = ROOT / "corpus"
 EXTERNAL_PREFIX = "evals:"
+# The eval world's "now" (ADR-0031): questions like "last week" are about the dated
+# connector documents, so answer evals pin the clock here and stay stable over time.
+EVAL_NOW = datetime(2026, 11, 27, 12, 0, tzinfo=UTC)
+EVAL_TIMEZONE = "UTC"
+CorpusKind = Literal["file", "email", "github", "discord"]
+# The connector each corpus kind is loaded as, so source-kind filters work in evals.
+CONNECTOR_BY_KIND: dict[CorpusKind, str] = {
+    "file": "upload",
+    "email": "imap",
+    "github": "github",
+    "discord": "discord",
+}
+
+
+class OraclePlan(BaseModel):
+    """The plan a perfect planner would make for a case. The free retrieval eval applies
+    it, so the recent lane and filters are measured without paying for the planner; the
+    paid answer eval ignores it and measures the real planner."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    intent: Literal["lookup", "recent", "summary"] = "lookup"
+    after: date | None = None
+    before: date | None = None
+    sources: tuple[Literal["email", "github", "discord", "file"], ...] = ()
+    sender: str | None = None
+
+    def as_plan(self, question: str) -> QueryPlan:
+        return QueryPlan(
+            queries=(question,),
+            intent=self.intent,
+            after=self.after,
+            before=self.before,
+            kinds=self.sources,
+            sender=self.sender,
+            planned=True,
+        )
 
 
 class Case(BaseModel):
@@ -32,6 +72,7 @@ class Case(BaseModel):
     # A question no source answers but Slate should still answer (ADR-0025): "general"
     # (general knowledge, labelled) or "chat" (small talk). None: no-answer cases abstain.
     expect_mode: Literal["general", "chat"] | None = None
+    plan: OraclePlan | None = None
 
     @property
     def answerable(self) -> bool:
@@ -54,6 +95,11 @@ class CorpusDoc:
     visibility: Literal["public", "private"]
     body: bytes  # Markdown without the front matter
     checksum: str
+    # Connector-shaped documents (ADR-0031): what kind of source they imitate, who wrote
+    # them and when, so dates, senders and source kinds can be evaluated.
+    kind: CorpusKind = "file"
+    author: str | None = None
+    updated_at: datetime | None = None
 
     @property
     def external_id(self) -> str:
@@ -66,16 +112,49 @@ def load_corpus(root: Path = CORPUS) -> list[CorpusDoc]:
         rel = file.relative_to(root).as_posix()
         meta, body = _front_matter(file.read_text(encoding="utf-8"), rel)
         data = body.encode()
+        kind = meta.get("kind", "file")
+        if kind not in CONNECTOR_BY_KIND:
+            raise ValueError(f"{rel}: unknown kind {kind!r}")
+        visibility = "private" if meta.get("visibility") == "private" else "public"
+        if kind != "file" and visibility != "private":
+            raise ValueError(f"{rel}: connector documents are always private (ADR-0026)")
         docs.append(
             CorpusDoc(
                 path=rel,
                 title=meta["title"],
-                visibility="private" if meta.get("visibility") == "private" else "public",
+                visibility=visibility,
                 body=data,
-                checksum=hashlib.sha256(data).hexdigest(),
+                checksum=_checksum(data, meta),
+                kind=kind,
+                author=meta.get("author"),
+                updated_at=_when(meta.get("date"), rel),
             )
         )
     return docs
+
+
+_METADATA_KEYS = ("kind", "author", "date")
+
+
+def _checksum(data: bytes, meta: dict[str, str]) -> str:
+    """The body's SHA-256; for documents with metadata, the metadata too, since it's
+    indexed (changing a date must re-load). Plain files keep their old checksums, so the
+    existing corpus isn't re-embedded."""
+    h = hashlib.sha256(data)
+    extra = [f"{k}={meta[k]}" for k in _METADATA_KEYS if k in meta]
+    if extra:
+        h.update(("\x00" + "\x00".join(extra)).encode())
+    return h.hexdigest()
+
+
+def _when(raw: str | None, rel: str) -> datetime | None:
+    if raw is None:
+        return None
+    try:
+        when = datetime.fromisoformat(raw)
+    except ValueError as e:
+        raise ValueError(f"{rel}: date must be ISO 8601") from e
+    return when if when.tzinfo else when.replace(tzinfo=UTC)
 
 
 def check_references(cases: list[Case], corpus: list[CorpusDoc]) -> None:

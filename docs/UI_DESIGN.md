@@ -658,6 +658,19 @@ The landing page after sign-in (`/home`), and the reference implementation of th
 - **Row 2:** "Recent sources" (2/3 width) lists the five most recently synced, each with logo tile, name, document count, time and status pill, plus "View all ›". Empty: a dashed `--bg-subtle` call to action, "Add your first source" with "Upload files" (or "Nothing shared with you yet" for viewers). "Get started" (1/3) has three steps: Connect a source (ticked once one exists), Search everything (M2) and Ask with citations (M3), the last two tagged "Soon".
 - **States:** skeletons in place of each figure and row while loading; an inline danger alert with Retry if the list fails.
 
+### 4.9 Integrations (M9, ADR-0032; drafted from the owner's reference, 2026-11-27)
+
+One place to connect accounts. Sidebar item "Integrations" (`blocks` icon) after Sources.
+
+- **Header:** `page` title "Integrations", description "Connect your accounts so Slate can search them. Only you can see what you connect."
+- **Toolbar:** filter tabs on the left (All, Connected, Needs sign-in; `role="tablist"`; the active tab is filled `--fg` with `--bg` text; Connected and Needs sign-in show a tabular count when non-zero), search on the right (288 px, leading search icon, "Search integrations", matches name and description).
+- **List:** two columns at `md` and up (40 px column gap), one on phone. Each row is 1 px `--border-subtle` underlined, padding 16 0: a 48 px logo tile, the name `ui`/500, then one line of `caption` `--fg-subtle` that names the signed-in account ("ada@kestrel.example", "Kestrel Freight", "2 sources") or the provider's one-line description. On the right: a mode label ("Searchable" or "Live lookup", `data` `--fg-subtle`, hidden on phone), the status pill, and one action button, a fixed 96 px wide so rows line up.
+- **States** (§3.3 pills): Connected `success`; Needs sign-in `warning`, with a `primary` Reconnect; Not connected: no pill, `secondary` "+ Connect"; Not set up (this server has no OAuth app for it) `outline`, no action; Coming soon `outline`, no action. The older flows (GitHub, Discord, email) link to their setup dialog (`/sources?add=github`), "Add more" once connected.
+- **Before leaving for the provider:** a provider with a notice (Google) opens a 480 px dialog: title "Connect Gmail", the notice as the description, a `shield-check` line "Read-only. Only you can search what you connect.", then Cancel and `primary` "Continue to sign in". Others go straight to the provider. The button shows a spinner while the sign-in URL is fetched.
+- **Disconnect:** a 480 px confirm, "Disconnect Notion?", "Slate revokes its access and deletes the stored sign-in for Kestrel Freight. You can connect it again later.", Cancel and `danger` "Disconnect". Toast "Notion disconnected".
+- **Callback page** (`/integrations/callback`): "Finishing the sign-in…" with a spinner, then back to Integrations with the toast "Connected ada@kestrel.example". Failures are an inline danger alert with "Back to Integrations": "Nothing was connected" (cancelled at the provider), "This sign-in link has expired" (no pending sign-in in this tab), or "Couldn't finish connecting" plus the server's message.
+- **Loading:** 8 skeleton rows of the real size. **Empty filter results:** one centred `caption` line ("Nothing needs signing in again.", "You haven't connected anything yet.", "No integrations match "x"."). **Viewers** see the list without actions.
+
 ## 5. Thinking orbs
 
 - Package: `thinking-orbs` (MIT, zero dependencies, 2D canvas, SSR-safe, pauses offscreen and in hidden tabs, renders a static frame under reduced motion). Wrap it once in `web/src/components/thinking-orb.tsx` (a client component), so the rest of the app never imports the package directly and it can be swapped.

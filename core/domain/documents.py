@@ -63,11 +63,21 @@ class ScoredChunk:
     # The chunk's data class (ADR-0012), so answers know what they're built from.
     # Missing means private: fail closed.
     data_class: str = "private"
+    # Document metadata the answer prompt shows (ADR-0031): when it was last updated or
+    # sent (the upload time when the source gives none), who wrote it, where it lives,
+    # and which connector it came from.
+    updated_at: datetime | None = None
+    author: str | None = None
+    uri: str | None = None
+    connector: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class SearchFilters:
     source_ids: tuple[SourceId, ...] = ()
+    # Connector names (``sources.connector``), e.g. ("imap", "gmail_mbox") for email. Set
+    # by the query planner when a question names a kind of source (ADR-0031).
+    connectors: tuple[str, ...] = ()
     updated_after: datetime | None = None
     updated_before: datetime | None = None
     # Who wrote it: matched case-insensitively against the document's author (for email,

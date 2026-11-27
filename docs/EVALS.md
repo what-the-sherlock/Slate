@@ -4,7 +4,7 @@ Retrieval quality is a feature with a number attached. No change to parsing, chu
 
 ## Dataset
 
-`evals/questions.yaml` (51 cases as of M2) over the synthetic corpus in `evals/corpus/`: a fictional company, 14 public and 4 private Markdown documents with front matter (`title`, `visibility`). The target is 100 cases by the demo. `expected_documents` are corpus paths. Each case:
+`evals/questions.yaml` (84 cases as of M8) over the synthetic corpus in `evals/corpus/`: a fictional company, Kestrel Freight. It has 14 public and 4 private Markdown documents, plus (M8, ADR-0031) 14 private **connector-shaped** documents: email threads (`email/`), Discord windows (`discord/`) and GitHub issues and PRs (`github/`), written in the text shape those connectors produce. Front matter: `title`, `visibility`, and for connector documents `kind` (`email|discord|github`), `author` and `date` (ISO 8601). `evals.load` puts each kind under a source with its connector (`imap`, `discord`, `github`) and sets the author and date, so source-kind, sender and date filters work exactly as in production. Connector documents are dated around the eval world's today, **Friday 27 November 2026** (`EVAL_NOW` in `evals/cases.py`). The target is 100 cases. `expected_documents` are corpus paths. Each case:
 
 ```yaml
 - id: gh-auth-001
@@ -16,6 +16,17 @@ Retrieval quality is a feature with a number attached. No change to parsing, chu
     - "CSRF header"
   tags: [github, docs, single-hop]
   visibility: public         # public | private; private cases run only with the owner's principals
+```
+
+An optional `plan` is an **oracle plan** (ADR-0031): what a correct planner would return (`intent`, `after`, `before`, `sources`, `sender`). The free retrieval eval (`evals.run`) applies it, measuring the recent lane and filters given a correct plan. The paid answer eval ignores it and runs the real planner under the fixed clock, so its numbers include planner mistakes.
+
+```yaml
+- id: conn-period-001
+  question: Summarise the emails I got last week.
+  expected_documents: [email/acme-invoice.md, email/nordlys-escalation.md]
+  tags: [connector, summary, email, period]
+  visibility: private
+  plan: {intent: summary, after: 2026-11-16, before: 2026-11-22, sources: [email]}
 ```
 
 Mix the question types: single-hop lookup, multi-hop (two sources), follow-up (with history), keyword-heavy (identifiers, error codes), "no answer exists" (must trigger insufficient evidence), and isolation (an outsider, entitled to public content only, must not get the private answer).
@@ -66,6 +77,11 @@ The free retrieval run (`evals.run`) also reports `answer_gate`: the lowest best
 | 2026-11-25 | hybrid, BGE-M3 (`00e96d3`, generation 111, public-scoped) | 0.894 (47) | 0.833 | 0.845 | 0 | Public: R 1.000, MRR 0.943 (slightly above OpenAI's 0.920). Private: R **0.167**, below keyword-only. See "Findings" |
 | 2026-11-25 | hybrid, OpenAI, +injection doc (`fa7e091`, 49 answerable + 4 no-answer) | **1.000** (49) | 0.930 | 0.947 | 0 | Injection cases R 1.000, MRR 1.000. Answer gate: answerable min similarity 0.245 (kw-007), no-answer max 0.353 (na-002): they overlap, so no clean cut. `CHAT_MIN_SIMILARITY` set to 0.20 (no false abstentions; gates na-004 for free), and the model sentinel handles the rest (ADR-0022) |
 | 2026-11-25 | **answers**, gpt-4o-mini (`fa7e091`, 53 cases, `evals.answers`) | | | | 0 | Abstention accuracy **0.943** (0 missed; 3 false: prod-road-001, a fact under a "Q2 2027" heading; kw-005 and kw-006, bare keywords). Citation validity **1.000**. Point coverage 0.976 (re-scored with the word-overlap matcher; 0.768 with exact substrings). Injection followed: none. $0.0083 total; p50 10.3 s end to end from the laptop. Prompt then updated for headings and keywords; re-check with `--ids prod-road-001,kw-005,kw-006` |
+
+| 2026-11-27 | keyword, M8 (`ffae766`, 84 cases, oracle plans) | 0.919 (74) | 0.600 | 0.668 | 0 | Connector, recent, period and sender tags all R 1.000: the recent lane and filters find dated documents with no words in common |
+| 2026-11-27 | hybrid, OpenAI, M8 (`ffae766`, 84 cases, oracle plans) | **1.000** (74) | 0.904 | 0.924 | 0 | Every tag R 1.000. Answer gate: answerable min 0.2445, no-answer max 0.389 (overlap; 0.20 kept, no false gate abstentions) |
+| 2026-11-27 | **answers**, gpt-4o-mini + planner (`ffae766`, 84 cases) | | | | 0 | Abstention 0.952 (0 missed; 4 false: conn-period-002, conn-sender-003, conn-email-003, conn-kw-001). Mode 1.000. Citation validity 0.986. Points 0.905. Injection followed: none. kw-004 answered from general knowledge instead of its source. $0.035; p50 12.9 s. conn-period-001 read "last week" as the past 7 days: fixed by computed calendar ranges in the planner prompt. Re-run the 6 misses after that fix (the run now records each plan and the sources shown) |
+| 2026-11-27 | **answers**, the 6 misses re-run after the calendar fix | | | | 0 | 4 of 6 now pass (conn-period-001 summarises 16-22 Nov). The other 2 had the same cause, visible in the recorded plans: the planner set `sources: github` on questions that never named GitHub (conn-sender-003 "ledger latency", kw-004 "kfctl rollback"), so the hard filter hid the Discord and file answers but still returned some GitHub documents, and the empty-result retry never fired. Fixed in code: a source kind survives only if the question's own words name it (`names_kind`). Re-run these 2 to confirm |
 
 ### Findings
 

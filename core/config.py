@@ -94,6 +94,18 @@ class Settings(BaseSettings):
     # Must match a redirect registered on the Discord application, e.g.
     # https://<web host>/sources/discord/callback (http://localhost:3000/... in dev).
     discord_redirect_uri: str | None = None
+    # Integrations (ADR-0032): this deployment's OAuth app per provider family. Each
+    # registers one redirect URI, <APP_URL>/integrations/callback. Unset: "Not set up".
+    google_oauth_client_id: str | None = None  # Gmail, Google Calendar, Google Drive
+    google_oauth_client_secret: SecretStr | None = None
+    notion_oauth_client_id: str | None = None
+    notion_oauth_client_secret: SecretStr | None = None
+    linear_oauth_client_id: str | None = None
+    linear_oauth_client_secret: SecretStr | None = None
+    slack_oauth_client_id: str | None = None
+    slack_oauth_client_secret: SecretStr | None = None
+    hubspot_oauth_client_id: str | None = None
+    hubspot_oauth_client_secret: SecretStr | None = None
 
     sentry_dsn: SecretStr | None = None
 
@@ -154,6 +166,33 @@ class Settings(BaseSettings):
     @property
     def mail_configured(self) -> bool:
         return bool(self.smtp_host and self.mail_from)
+
+    @property
+    def oauth_clients(self) -> dict[str, tuple[str, str]]:
+        """Provider family -> (client id, client secret), for the families fully set."""
+        pairs = {
+            "google": (self.google_oauth_client_id, self.google_oauth_client_secret),
+            "notion": (self.notion_oauth_client_id, self.notion_oauth_client_secret),
+            "linear": (self.linear_oauth_client_id, self.linear_oauth_client_secret),
+            "slack": (self.slack_oauth_client_id, self.slack_oauth_client_secret),
+            "hubspot": (self.hubspot_oauth_client_id, self.hubspot_oauth_client_secret),
+        }
+        return {
+            family: (cid.strip(), secret.get_secret_value().strip())
+            for family, (cid, secret) in pairs.items()
+            if cid and cid.strip() and secret and secret.get_secret_value().strip()
+        }
+
+    @property
+    def integrations_redirect_uri(self) -> str | None:
+        """<APP_URL>/integrations/callback; https only outside dev (a code sent over http
+        could be read on the way)."""
+        if not self.app_url:
+            return None
+        base = self.app_url.strip().rstrip("/")
+        if self.env is not Env.DEV and not base.startswith("https://"):
+            return None
+        return f"{base}/integrations/callback"
 
     @property
     def turnstile_configured(self) -> bool:

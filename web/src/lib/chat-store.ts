@@ -54,6 +54,15 @@ interface Deps {
 
 type Running = { controller: AbortController; reason?: "user" | "timeout" };
 
+/** The browser's IANA zone, so the server knows what "today" and "last week" mean (ADR-0031). */
+export function browserTimeZone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
 export function createChatStore({ stream = streamChat, now = Date.now, newKey = () => crypto.randomUUID(), tickMs = 1000 }: Deps = {}) {
   const threads = new Map<string, Thread>();
   const aliases = new Map<string, string>();
@@ -126,7 +135,7 @@ export function createChatStore({ stream = streamChat, now = Date.now, newKey = 
 
     try {
       await stream(
-        { question: q, session_id: thread.sessionId, source_ids: opts.sourceIds ?? [], updated_after: opts.updatedAfter ?? null, author: opts.author || null, replace_from: replaceFrom ?? null },
+        { question: q, session_id: thread.sessionId, source_ids: opts.sourceIds ?? [], updated_after: opts.updatedAfter ?? null, author: opts.author || null, replace_from: replaceFrom ?? null, timezone: browserTimeZone() },
         (event) => {
           if (event.type === "meta") {
             gotMeta = true;

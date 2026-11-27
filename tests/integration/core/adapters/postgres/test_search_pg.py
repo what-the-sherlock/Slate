@@ -350,3 +350,51 @@ async def test_author_filter_matches_substrings_and_escapes_wildcards(
     )
     # The filter never widens access: the outsider still sees nothing private.
     assert await index.keyword_search(world.ws, world.guest_p(), "paid leave", 10, by_priya) == []
+
+
+# ---------------------------------------------------------------- ADR-0031
+
+
+async def test_hits_carry_date_author_uri_and_connector(uow: UnitOfWork, world: World) -> None:
+    index = PostgresSearchIndex(uow)
+    [hit] = await index.keyword_search(
+        world.ws, world.owner_p(), "ERR_BUDGET_42", 5, SearchFilters()
+    )
+    assert hit.updated_at == datetime(2026, 6, 1, tzinfo=UTC)
+    assert (hit.uri, hit.connector) == ("upload://salaries", "upload")
+    # No source date: the row's creation time stands in, so every hit has a date.
+    team = await index.keyword_search(world.ws, world.owner_p(), "standup", 5, SearchFilters())
+    assert team[0].updated_at is not None
+
+
+async def test_connector_filter_is_applied_in_sql(uow: UnitOfWork, world: World) -> None:
+    index = PostgresSearchIndex(uow)
+    uploads = SearchFilters(connectors=("upload",))
+    email = SearchFilters(connectors=("imap", "gmail_mbox"))
+    assert await index.keyword_search(world.ws, world.owner_p(), "paid leave", 10, uploads)
+    assert await index.keyword_search(world.ws, world.owner_p(), "paid leave", 10, email) == []
+
+
+async def test_recent_lane_is_newest_first_and_access_checked(
+    uow: UnitOfWork, world: World
+) -> None:
+    index = PostgresSearchIndex(uow)
+    owner = await index.recent_chunks(world.ws, world.owner_p(), 10, SearchFilters())
+    # "team" has no source date, so its creation time (now) makes it the newest.
+    assert [h.title for h in owner] == ["Team", "Salaries", "Handbook"]
+    assert [h.score for h in owner] == sorted((h.score for h in owner), reverse=True)
+    guest = await index.recent_chunks(world.ws, world.guest_p(), 10, SearchFilters())
+    assert [h.title for h in guest] == ["Handbook"]  # private and team rows never appear
+    # The other workspace's public "Leak" document never reaches this workspace (the exact
+    # list above has no Leak); asked about its own workspace, that workspace gets only it.
+    other = await index.recent_chunks(world.other_ws, world.owner_p(), 10, SearchFilters())
+    assert [h.title for h in other] == ["Leak"]
+
+
+async def test_recent_lane_honours_filters_and_k(uow: UnitOfWork, world: World) -> None:
+    index = PostgresSearchIndex(uow)
+    before = SearchFilters(updated_before=datetime(2026, 3, 1, tzinfo=UTC))
+    assert titles(await index.recent_chunks(world.ws, world.owner_p(), 10, before)) == {"Handbook"}
+    assert len(await index.recent_chunks(world.ws, world.owner_p(), 1, SearchFilters())) == 1
+    with pytest.raises(ValueError, match="k must be"):
+        await index.recent_chunks(world.ws, world.owner_p(), 0, SearchFilters())

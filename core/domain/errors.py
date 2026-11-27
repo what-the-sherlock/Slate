@@ -77,3 +77,14 @@ class ConnectorError(AppError):
         super().__init__(detail, extra={"connector": connector})
         self.retryable = retryable
         self.connector = connector
+
+
+class ReconnectRequired(ConnectorError):
+    """A connection's grant is gone for good (revoked, expired): the user must sign in
+    again. Never retried (ADR-0032)."""
+
+    code = "reconnect-required"
+    title = "Reconnect needed"
+
+    def __init__(self, detail: str, *, connector: str) -> None:
+        super().__init__(detail, retryable=False, connector=connector)

@@ -27,7 +27,7 @@ from core.config import get_settings
 from core.domain.data_class import DataClass
 from core.domain.documents import DocumentUpsert
 from core.domain.principals import PUBLIC, workspace_principal
-from evals.cases import check_references, load_cases, load_corpus
+from evals.cases import CONNECTOR_BY_KIND, check_references, load_cases, load_corpus
 
 EVAL_WORKSPACE_SLUG = "slate-evals"
 EVAL_WORKSPACE_NAME = "Slate evals"
@@ -43,14 +43,19 @@ async def load() -> None:
         ingest = ingest_service(settings, uow)
         if ingest is None:
             raise SystemExit("evals.load needs OPENAI_API_KEY and the storage settings (AWS_*)")
-        ws = await PostgresEvalStore(uow).ensure_workspace(EVAL_WORKSPACE_SLUG, EVAL_WORKSPACE_NAME)
+        store = PostgresEvalStore(uow)
+        ws = await store.ensure_workspace(EVAL_WORKSPACE_SLUG, EVAL_WORKSPACE_NAME)
         sources = PostgresSourceStore(uow)
         parser = FormatParser()
         changed = 0
-        for doc in corpus:
+        for n, doc in enumerate(corpus, start=1):
             public = doc.visibility == "public"
             data_class = DataClass.PUBLIC if public else DataClass.PRIVATE
-            source = await sources.upload_source(ws, data_class)
+            if doc.kind == "file":
+                source = await sources.upload_source(ws, data_class)
+            else:  # connector-shaped documents (ADR-0031): always private
+                connector = CONNECTOR_BY_KIND[doc.kind]
+                source = await store.ensure_source(ws, connector, f"Eval {doc.kind}")
             acl = (PUBLIC, workspace_principal(ws)) if public else (workspace_principal(ws),)
             parsed = parser.parse(doc.body, "text/markdown")
             result = await ingest.index_document(
@@ -63,12 +68,17 @@ async def load() -> None:
                     mime="text/markdown",
                     checksum=doc.checksum,
                     acl=acl,
+                    author=doc.author,
+                    source_updated_at=doc.updated_at,
                     metadata={"corpus_path": doc.path},
                 ),
                 parsed.sections,
                 data_class=data_class.value,
             )
             changed += int(result.changed)
+            # Progress, so a slow link to Neon isn't mistaken for a hang (paths only).
+            state = "indexed" if result.changed else "unchanged"
+            print(f"  [{n}/{len(corpus)}] {doc.path}: {state}", flush=True)
         print(f"eval corpus: {len(corpus)} documents, {changed} new or changed")
     finally:
         await engine.dispose()

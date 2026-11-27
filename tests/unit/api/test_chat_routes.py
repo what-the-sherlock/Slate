@@ -150,3 +150,24 @@ async def test_feedback_on_an_answer(
     assert client.post(url, json={"rating": 3}, headers=csrf(client)).status_code == 422
     missing = f"/api/v1/messages/{uuid4()}/feedback"
     assert client.post(missing, json={"rating": 1}, headers=csrf(client)).status_code == 404
+
+
+async def test_the_browsers_time_zone_reaches_the_prompts(
+    client: TestClient, mailer: FakeMailer, index: InMemoryIndex, chat_model: FakeChatModel
+) -> None:
+    headers = sign_up(client, mailer)
+    await seed(client, index)
+    body = {"question": "How much paid leave?", "timezone": "Asia/Kolkata"}
+    assert client.post("/api/v1/chat", json=body, headers=headers).status_code == 200
+    systems = [r[0].content for r in chat_model.requests]
+    assert systems
+    assert all("(IST)" in s for s in systems)  # the planner and the answer
+
+
+def test_a_malformed_time_zone_is_refused_before_streaming(
+    client: TestClient, mailer: FakeMailer
+) -> None:
+    headers = sign_up(client, mailer)
+    for tz in ("../../etc/passwd", "x" * 65, "Europe/London; DROP"):
+        body = {"question": "hi", "timezone": tz}
+        assert client.post("/api/v1/chat", json=body, headers=headers).status_code == 422

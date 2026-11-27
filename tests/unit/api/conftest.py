@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import replace
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -11,11 +13,14 @@ from api.deps import Container, get_container
 from api.main import create_app
 from core.config import Settings
 from core.domain.budget import SpendLimits
+from core.domain.integrations import REGISTRY
+from core.ports.integrations import ClientCredentials
 from core.services.answer import AnswerService
 from core.services.auth import AuthPolicy, AuthService
 from core.services.catalog import CatalogService
 from core.services.discord import DiscordService
 from core.services.github import GitHubService
+from core.services.integrations import IntegrationService
 from core.services.mail import MailService, MboxActions
 from core.services.search import SearchService
 from core.services.source_actions import ConnectorEntry, SourceActions
@@ -35,6 +40,7 @@ from tests.fakes.chat import InMemoryChatStore
 from tests.fakes.credentials import InMemoryCredentials
 from tests.fakes.discord import FakeDiscord
 from tests.fakes.github import FakeGitHub
+from tests.fakes.integrations import FakeOAuth, InMemoryConnections
 from tests.fakes.jobs import FakeJobQueue
 from tests.fakes.mailbox import FakeMailbox
 from tests.fakes.models import FakeChatModel, FakeEmbedder, WordTokenizer
@@ -247,6 +253,7 @@ def app(
     search: SearchService,
     answers: AnswerService,
     chats: InMemoryChatStore,
+    integrations: IntegrationService,
 ) -> FastAPI:
     application = create_app()
     container = Container(
@@ -263,6 +270,7 @@ def app(
         discord=discord,
         mail=mail,
         workspaces=workspaces,
+        integrations=integrations,
         actions=SourceActions(
             source_store,
             {
@@ -275,6 +283,37 @@ def app(
     )
     application.dependency_overrides[get_container] = lambda: container
     return application
+
+
+@pytest.fixture
+def fake_oauth() -> FakeOAuth:
+    return FakeOAuth()
+
+
+@pytest.fixture
+def connections() -> InMemoryConnections:
+    return InMemoryConnections()
+
+
+@pytest.fixture
+def integrations(
+    fake_oauth: FakeOAuth, connections: InMemoryConnections, source_store: InMemorySources
+) -> IntegrationService:
+    """Linear made connectable (as a provider becomes once its adapter exists)."""
+    clock = FakeClock(datetime.now(UTC))
+    registry = tuple(replace(p, available=True) if p.id == "linear" else p for p in REGISTRY)
+    return IntegrationService(
+        connections,
+        fake_oauth,
+        source_store,
+        InMemoryRateLimiter(clock),
+        clock,
+        secret=b"i" * 32,
+        clients={"linear": ClientCredentials("lin-id", "lin-secret")},
+        redirect_uri="https://slate.test/integrations/callback",
+        legacy_ready={"github": True, "discord": True, "email": True},
+        registry=registry,
+    )
 
 
 @pytest.fixture

@@ -45,6 +45,9 @@ class InMemoryIndex:
         self._by_key: dict[tuple[object, str], DocumentId] = {}
         self._chunks: list[_StoredChunk] = []
         self.data_classes: dict[DocumentId, str] = {}
+        # source id -> connector name, for the connector filter and prompt metadata
+        # (sources not listed are uploads)
+        self.connectors: dict[object, str] = {}
         self._next_chunk = 0
 
     # ---- helpers for InMemorySources (GitHub sync: checksums and pruning)
@@ -183,6 +186,8 @@ class InMemoryIndex:
             doc = self._docs[c.document_id][1]
             if f.source_ids and doc.source_id not in f.source_ids:
                 continue
+            if f.connectors and self._connector(doc) not in f.connectors:
+                continue
             updated = doc.source_updated_at
             if f.updated_after and (updated is None or updated < f.updated_after):
                 continue
@@ -193,7 +198,11 @@ class InMemoryIndex:
             out.append(c)
         return out
 
+    def _connector(self, doc: Document) -> str:
+        return self.connectors.get(doc.source_id, "upload")
+
     def _scored(self, c: _StoredChunk, score: float) -> ScoredChunk:
+        doc = self._docs[c.document_id][1]
         return ScoredChunk(
             chunk_id=c.id,
             document_id=c.document_id,
@@ -201,9 +210,32 @@ class InMemoryIndex:
             content=c.chunk.content,
             score=score,
             heading_path=c.chunk.heading_path,
-            title=self._docs[c.document_id][1].title,
+            title=doc.title,
             data_class=self.data_classes.get(c.document_id, "private"),
+            updated_at=doc.source_updated_at,
+            author=doc.author,
+            uri=doc.uri,
+            connector=self._connector(doc),
         )
+
+    async def recent_chunks(
+        self, ws: WorkspaceId, principals: Principals, k: int, filters: SearchFilters
+    ) -> list[ScoredChunk]:
+        visible = self._visible(ws, principals, filters)
+        epoch = datetime.min.replace(tzinfo=UTC)
+        by_doc: dict[DocumentId, list[_StoredChunk]] = {}
+        for c in visible:
+            by_doc.setdefault(c.document_id, []).append(c)
+        newest = sorted(
+            by_doc,
+            key=lambda d: (self._docs[d][1].source_updated_at or epoch, str(d)),
+            reverse=True,
+        )[:k]
+        out: list[_StoredChunk] = []
+        for d in newest:
+            ordered = sorted(by_doc[d], key=lambda c: c.chunk.ordinal)
+            out += [ordered[-1]] + ([ordered[0]] if len(ordered) > 1 else [])
+        return [self._scored(c, float(len(out) - i)) for i, c in enumerate(out)]
 
     async def vector_search(
         self,

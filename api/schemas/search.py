@@ -29,14 +29,16 @@ class SearchHitOut(BaseModel):
     content: str
     ordinal: int
     score: float = Field(description="Reciprocal rank fusion score; only the order matters")
-    matched_by: list[Literal["vector", "keyword"]] = Field(
+    matched_by: list[Literal["vector", "keyword", "recent"]] = Field(
         description="Which retrieval lanes found this passage"
     )
 
 
 class SearchOut(BaseModel):
     hits: list[SearchHitOut]
-    lanes: list[Literal["vector", "keyword"]] = Field(description="Lanes that actually ran")
+    lanes: list[Literal["vector", "keyword", "recent"]] = Field(
+        description="Lanes that actually ran"
+    )
     notices: list[str] = Field(description="Honest degradations to show the user")
 
 

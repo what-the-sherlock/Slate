@@ -228,6 +228,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every integration and your connection state for each */
+        get: operations["catalog_api_v1_integrations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/connections/{connection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Disconnect: revoke access and delete the stored tokens */
+        delete: operations["disconnect_api_v1_integrations_connections__connection_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/{provider_id}/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start connecting: the provider's sign-in URL */
+        post: operations["authorize_api_v1_integrations__provider_id__authorize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/{provider_id}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finish connecting with the code the provider sent back */
+        post: operations["callback_api_v1_integrations__provider_id__callback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/invites/accept": {
         parameters: {
             query?: never;
@@ -865,6 +933,14 @@ export interface components {
              */
             turnstile_site_key: string | null;
         };
+        /** AuthorizeOut */
+        AuthorizeOut: {
+            /**
+             * Authorize Url
+             * @description Send the browser here to sign in
+             */
+            authorize_url: string;
+        };
         /** BeginUploadBody */
         BeginUploadBody: {
             /**
@@ -905,6 +981,13 @@ export interface components {
             /** Upload Token */
             upload_token?: string | null;
         };
+        /** CallbackBody */
+        CallbackBody: {
+            /** Code */
+            code: string;
+            /** State */
+            state: string;
+        };
         /** ChatBody */
         ChatBody: {
             /**
@@ -926,6 +1009,12 @@ export interface components {
             session_id?: string | null;
             /** Source Ids */
             source_ids?: string[];
+            /**
+             * Timezone
+             * @description The browser's IANA time zone, e.g. Europe/London: decides what 'today' and 'last week' mean (ADR-0031). Unknown zones fall back to UTC
+             * @example Asia/Kolkata
+             */
+            timezone?: string | null;
             /**
              * Updated After
              * @description Only sources updated since
@@ -1024,6 +1113,34 @@ export interface components {
              * Format: uuid
              */
             source_id: string;
+        };
+        /** ConnectionOut */
+        ConnectionOut: {
+            /**
+             * Account Label
+             * @description The signed-in account, e.g. an address
+             */
+            account_label: string | null;
+            /**
+             * Connected At
+             * Format: date-time
+             */
+            connected_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Last Error
+             * @description The provider's error code, if the last use failed
+             */
+            last_error: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "connected" | "needs_reconnect" | "error";
         };
         /** DiscordChannelOut */
         DiscordChannelOut: {
@@ -1281,6 +1398,51 @@ export interface components {
             installation_id: number;
             /** State */
             state: string;
+        };
+        /** IntegrationOut */
+        IntegrationOut: {
+            /**
+             * Auth
+             * @enum {string}
+             */
+            auth: "oauth2" | "github_app" | "discord_bot" | "app_password";
+            /**
+             * Connect Path
+             * @description For the older install flows, the web page that connects it
+             */
+            connect_path: string | null;
+            /** Connections */
+            connections: components["schemas"]["ConnectionOut"][];
+            /**
+             * Id
+             * @example notion
+             */
+            id: string;
+            /**
+             * Mode
+             * @description indexed: synced and searchable with citations; live: looked up when asked
+             * @enum {string}
+             */
+            mode: "indexed" | "live";
+            /** Name */
+            name: string;
+            /**
+             * Notice
+             * @description Shown before the user goes to the provider
+             */
+            notice: string | null;
+            /**
+             * Sources
+             * @description Sources created through the older install flows
+             */
+            sources: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "connected" | "needs_reconnect" | "not_connected" | "not_set_up" | "coming_soon";
+            /** Tagline */
+            tagline: string;
         };
         /** InviteBody */
         InviteBody: {
@@ -1690,7 +1852,7 @@ export interface components {
              * Matched By
              * @description Which retrieval lanes found this passage
              */
-            matched_by: ("vector" | "keyword")[];
+            matched_by: ("vector" | "keyword" | "recent")[];
             /** Ordinal */
             ordinal: number;
             /**
@@ -1709,7 +1871,7 @@ export interface components {
              * Lanes
              * @description Lanes that actually ran
              */
-            lanes: ("vector" | "keyword")[];
+            lanes: ("vector" | "keyword" | "recent")[];
             /**
              * Notices
              * @description Honest degradations to show the user
@@ -2258,6 +2420,121 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    catalog_api_v1_integrations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationOut"][];
+                };
+            };
+        };
+    };
+    disconnect_api_v1_integrations_connections__connection_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    authorize_api_v1_integrations__provider_id__authorize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthorizeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    callback_api_v1_integrations__provider_id__callback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallbackBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

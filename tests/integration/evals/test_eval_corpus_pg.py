@@ -27,7 +27,7 @@ from core.domain.documents import DocumentUpsert
 from core.domain.ids import GenerationId, WorkspaceId
 from core.domain.principals import PUBLIC, workspace_principal
 from core.services.search import VectorLane
-from evals.cases import EXTERNAL_PREFIX, load_cases, load_corpus
+from evals.cases import CONNECTOR_BY_KIND, EXTERNAL_PREFIX, load_cases, load_corpus
 from evals.harness import run_cases
 from tests.fakes.models import FakeEmbedder
 
@@ -65,16 +65,24 @@ async def loaded(uow: UnitOfWork) -> AsyncIterator[tuple[WorkspaceId, Generation
         dc = DataClass.PUBLIC if public else DataClass.PRIVATE
         chunks = chunk_sections(parser.parse(d.body, "text/markdown").sections, tok.count)
         vectors = (await emb.embed_documents([embedding_text(d.title, c) for c in chunks])).vectors
+        # As evals.load does: connector-shaped documents under their connector (ADR-0031).
+        source = (
+            await sources.upload_source(ws, dc)
+            if d.kind == "file"
+            else await store.ensure_source(ws, CONNECTOR_BY_KIND[d.kind], f"Eval {d.kind}")
+        )
         await docs.write_document(
             ws,
             DocumentUpsert(
-                await sources.upload_source(ws, dc),
+                source,
                 d.external_id,
                 d.external_id,
                 d.title,
                 "text/markdown",
                 d.checksum,
                 (PUBLIC, workspace_principal(ws)) if public else (workspace_principal(ws),),
+                author=d.author,
+                source_updated_at=d.updated_at,
             ),
             chunks,
             {gen: vectors},
@@ -111,3 +119,6 @@ async def test_eval_suite_runs_and_never_leaks(
                 print("  miss", c.id, c.recall, c.top_documents[:3])
         # Exact identifiers must be found by the keyword lane alone.
         assert by_tag["keyword"]["recall@10"] >= 0.9
+        # Given a correct plan, "latest" and period questions find their documents
+        # through the recent lane and filters, with no word in common (ADR-0031).
+        assert by_tag["recent"]["recall@10"] == 1.0

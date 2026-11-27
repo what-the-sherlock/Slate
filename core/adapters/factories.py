@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+from collections.abc import Mapping
 from decimal import Decimal
 from urllib.parse import urlsplit
 
@@ -18,6 +19,7 @@ from core.adapters.email.smtp import SmtpEmailSender
 from core.adapters.github.app import GitHubApp
 from core.adapters.mail.imap import ImapMailbox
 from core.adapters.mail.parse import parse_mbox
+from core.adapters.oauth.client import HttpOAuthProvider
 from core.adapters.openai.chat import DEFAULT_MODEL as DEFAULT_CHAT_MODEL
 from core.adapters.openai.chat import OpenAIChatModel
 from core.adapters.openai.embedder import OpenAIEmbedder
@@ -29,6 +31,7 @@ from core.adapters.postgres.auth import (
     PostgresSessionStore,
 )
 from core.adapters.postgres.chat import PostgresChatStore
+from core.adapters.postgres.connections import PostgresConnectionStore
 from core.adapters.postgres.credentials import PostgresCredentialStore, make_fernet
 from core.adapters.postgres.documents import PostgresDocumentStore
 from core.adapters.postgres.jobs import PostgresJobQueue
@@ -49,6 +52,7 @@ from core.domain.emails import OutgoingEmail
 from core.domain.errors import UpstreamUnavailable
 from core.ports.auth import HumanVerifier
 from core.ports.email import EmailSender
+from core.ports.integrations import ClientCredentials
 from core.ports.storage import BlobStore
 from core.services.answer import AnswerService
 from core.services.auth import AuthPolicy, AuthService
@@ -56,6 +60,7 @@ from core.services.discord import DiscordService
 from core.services.discord_sync import DiscordSync
 from core.services.github import GitHubService, GitHubSync
 from core.services.ingest import IngestService
+from core.services.integrations import IntegrationService
 from core.services.mail import MailService, MailSync, MboxImport
 from core.services.search import SearchService
 
@@ -386,4 +391,32 @@ def auth_service(settings: Settings, uow: UnitOfWork) -> AuthService:
             setup_token_required=settings.env is not Env.DEV,  # any reachable env
             signups_enabled=settings.signups_enabled and ready,
         ),
+    )
+
+
+def _integrations_key(settings: Settings) -> bytes:
+    """Signs OAuth state and derives PKCE verifiers (ADR-0032); its own label."""
+    if settings.session_secret is None:
+        return secrets.token_bytes(32)
+    root = settings.session_secret.get_secret_value().encode()
+    return hmac.new(root, b"slate/integrations/v1", hashlib.sha256).digest()
+
+
+def integration_service(
+    settings: Settings, uow: UnitOfWork, legacy_ready: Mapping[str, bool]
+) -> IntegrationService:
+    key = settings.credentials_fernet_key
+    return IntegrationService(
+        PostgresConnectionStore(uow, make_fernet(key.get_secret_value() if key else None)),
+        HttpOAuthProvider(),
+        PostgresSourceStore(uow),
+        PostgresRateLimiter(uow),
+        SystemClock(),
+        secret=_integrations_key(settings),
+        clients={
+            family: ClientCredentials(cid, secret)
+            for family, (cid, secret) in settings.oauth_clients.items()
+        },
+        redirect_uri=settings.integrations_redirect_uri,
+        legacy_ready=legacy_ready,
     )

@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Activity, ChevronsLeft, House, LogOut, Menu, MessageSquare, Plug, Search, SquarePen, Users, X, type LucideIcon } from "lucide-react";
+import { Activity, Blocks, ChevronsLeft, House, LogOut, Menu, MessageSquare, Plug, Search, SquarePen, Users, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -18,6 +18,7 @@ const NAV: readonly NavItem[] = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/search", label: "Search", icon: Search },
   { href: "/sources", label: "Sources", icon: Plug },
+  { href: "/integrations", label: "Integrations", icon: Blocks },
   { href: "/settings/members", label: "Members", icon: Users },
 ];
 
