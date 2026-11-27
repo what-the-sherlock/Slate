@@ -55,3 +55,6 @@ class CallbackBody(BaseModel):
 
 class SyncConnectionOut(BaseModel):
     source_id: UUID = Field(description="The source being synced; open it to follow progress")
+    status: Literal["done", "background"] = Field(
+        description="done: synced now; background: the worker finishes it (big or busy)"
+    )

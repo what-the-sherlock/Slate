@@ -23,6 +23,7 @@ from api.schemas.integrations import (
 from api.security import CurrentIdentity, MutatingIdentity
 from core.domain.errors import UpstreamUnavailable
 from core.ports.integrations import Connection
+from core.services.inline import InlineOutcome
 from core.services.integrations import IntegrationService, IntegrationView
 
 router = APIRouter(tags=["integrations"])
@@ -109,7 +110,7 @@ async def disconnect(
 
 @router.post(
     "/integrations/connections/{connection_id}/sync",
-    summary="Sync a connected account now (also finishes a setup that failed after sign-in)",
+    summary="Sync a connected account now: up to ~90 s here, the rest in the background",
     response_model=SyncConnectionOut,
 )
 async def sync_connection(
@@ -119,5 +120,9 @@ async def sync_connection(
 ) -> SyncConnectionOut:
     if container.connected is None:
         raise UpstreamUnavailable("Syncing isn't configured on this server.")
-    source_id = await container.connected.sync_connection(identity, connection_id)
-    return SyncConnectionOut(source_id=source_id)
+    # Find (or repair) the source, then sync it like any source: inline for ~90 s, then the
+    # worker continues from the checkpoint. A fresh connection has content within minutes.
+    source_id = await container.connected.source_for(identity, connection_id)
+    _, outcome = await container.source_actions.sync_now(identity, source_id)
+    status = "done" if outcome is InlineOutcome.DONE else "background"
+    return SyncConnectionOut(source_id=source_id, status=status)

@@ -7,6 +7,8 @@ import { savePending } from "@/lib/integrations";
 import { IntegrationsCallback } from "./integrations-callback";
 
 const replace = vi.fn();
+const toastSuccess = vi.fn();
+vi.mock("sonner", () => ({ toast: { success: (m: string) => toastSuccess(m), error: vi.fn() } }));
 let search = "code=abc&state=s.t";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace, push: vi.fn() }),
@@ -23,7 +25,10 @@ function mockApi(response: () => Response) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (req: Request) => {
-      bodies.push({ path: new URL(req.url).pathname, body: await req.clone().json() });
+      const raw = await req.clone().text();
+      const path = new URL(req.url).pathname;
+      bodies.push({ path, body: raw ? JSON.parse(raw) : null });
+      if (path.endsWith("/sync")) return json({ source_id: "s1", status: "done" });
       return response();
     }),
   );
@@ -55,7 +60,12 @@ describe("IntegrationsCallback", () => {
     );
     renderPage();
     await vi.waitFor(() => expect(replace).toHaveBeenCalledWith("/integrations"));
-    expect(calls).toEqual([{ path: "/api/v1/integrations/linear/callback", body: { code: "abc", state: "s.t" } }]);
+    expect(calls).toEqual([
+      { path: "/api/v1/integrations/linear/callback", body: { code: "abc", state: "s.t" } },
+      // then the first sync, right away, so the new account isn't empty for an hour
+      { path: "/api/v1/integrations/connections/c1/sync", body: null },
+    ]);
+    expect(toastSuccess).toHaveBeenCalledWith("Connected and synced Kestrel.");
     expect(replace).toHaveBeenNthCalledWith(1, "/integrations/callback", { scroll: false });
   });
 

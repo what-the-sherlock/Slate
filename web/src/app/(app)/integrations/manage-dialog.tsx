@@ -39,12 +39,12 @@ export function ManageDialog({
   async function syncNow(c: Connection) {
     setBusy(`sync:${c.id}`);
     try {
-      unwrap(
+      const res = unwrap(
         await api.POST("/api/v1/integrations/connections/{connection_id}/sync", {
           params: { path: { connection_id: c.id } },
         }),
       );
-      toast.success("Sync started. New items appear within a few minutes.");
+      toast.success(res.status === "done" ? "Synced" : "Synced what fit; the rest continues in the background.");
       void client.invalidateQueries({ queryKey: keys.integrations });
       void client.invalidateQueries({ queryKey: keys.sources });
     } catch (err) {

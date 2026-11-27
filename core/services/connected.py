@@ -140,17 +140,22 @@ class ConnectedSources:
             log.warning("connected.setup_failed", provider=connection.provider, error=e.code)
             return None
 
-    async def sync_connection(self, identity: Identity, connection_id: UUID) -> SourceId:
-        """ "Sync now" from Integrations: also finishes a setup that failed after sign-in."""
+    async def source_for(self, identity: Identity, connection_id: UUID) -> SourceId:
+        """The source one of your connections syncs into, created if it's missing (a setup
+        that failed after sign-in). Callers then sync it like any source: "Sync now" through
+        SourceActions runs it inline for ~90 s, then the worker finishes."""
         connection = await self._connections.get(
             identity.workspace_id, identity.user_id, connection_id
         )
         if connection is None or connection.provider not in self._connectors:
             raise NotFound("This connection doesn't exist.")
-        source = await self._ensure_source(connection)
-        await self._sync_now_checks(identity, source)
-        await self._enqueue(source, f"manual:{int(self._clock.now().timestamp())}")
-        return source.id
+        return (await self._ensure_source(connection)).id
+
+    async def sync_connection(self, identity: Identity, connection_id: UUID) -> SourceId:
+        """Queue a sync for one of your connections (no inline run)."""
+        source_id = await self.source_for(identity, connection_id)
+        await self.sync_now(identity, source_id)
+        return source_id
 
     async def sync_now(self, identity: Identity, source_id: SourceId) -> JobId:
         """ "Sync now" on the source page (SourceActions)."""

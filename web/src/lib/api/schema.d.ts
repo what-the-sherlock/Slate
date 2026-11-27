@@ -271,7 +271,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Sync a connected account now (also finishes a setup that failed after sign-in) */
+        /** Sync a connected account now: up to ~90 s here, the rest in the background */
         post: operations["sync_connection_api_v1_integrations_connections__connection_id__sync_post"];
         delete?: never;
         options?: never;
@@ -2006,6 +2006,12 @@ export interface components {
              * @description The source being synced; open it to follow progress
              */
             source_id: string;
+            /**
+             * Status
+             * @description done: synced now; background: the worker finishes it (big or busy)
+             * @enum {string}
+             */
+            status: "done" | "background";
         };
         /** SyncOut */
         SyncOut: {

@@ -12,7 +12,7 @@ import { api, errorMessage, unwrap } from "@/lib/api/client";
 import { keys } from "@/lib/api/hooks";
 import { clearPending, parseCallback, peekPending, type Callback } from "@/lib/integrations";
 
-type Phase = { kind: "working" } | { kind: "error"; title: string; message: string };
+type Phase = { kind: "working" } | { kind: "syncing"; who: string } | { kind: "error"; title: string; message: string };
 
 function initialPhase(cb: Callback): Phase {
   if (cb.kind === "denied") {
@@ -54,8 +54,23 @@ export function IntegrationsCallback() {
             body: { code: cb.code, state: cb.state },
           }),
         );
+        const who = conn.account_label ?? "your account";
+        // The first sync runs now (up to ~90 s), so the account isn't empty for an hour.
+        setPhase({ kind: "syncing", who });
+        let message = `Connected ${who}. The first sync continues in the background.`;
+        try {
+          const res = unwrap(
+            await api.POST("/api/v1/integrations/connections/{connection_id}/sync", {
+              params: { path: { connection_id: conn.id } },
+            }),
+          );
+          if (res.status === "done") message = `Connected and synced ${who}.`;
+        } catch {
+          // Connected either way: the hourly sync picks it up, and Manage shows its state.
+        }
         void client.invalidateQueries({ queryKey: keys.integrations });
-        toast.success(conn.account_label ? `Connected ${conn.account_label}` : "Connected");
+        void client.invalidateQueries({ queryKey: keys.sources });
+        toast.success(message);
         router.replace("/integrations");
       } catch (err) {
         setPhase({ kind: "error", title: "Couldn't finish connecting", message: errorMessage(err) });
@@ -70,6 +85,11 @@ export function IntegrationsCallback() {
         {phase.kind === "working" ? (
           <p role="status" className="flex items-center gap-2 text-caption text-fg-muted">
             <Spinner className="size-4" /> Finishing the sign-in…
+          </p>
+        ) : phase.kind === "syncing" ? (
+          <p role="status" className="flex items-center gap-2 text-caption text-fg-muted">
+            <Spinner className="size-4" /> Connected {phase.who}. Syncing your first items, which takes
+            up to a minute and a half…
           </p>
         ) : (
           <div role="alert" className="flex gap-3 rounded-lg border border-danger-border bg-danger-subtle px-4 py-4">

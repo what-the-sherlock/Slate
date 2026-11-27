@@ -2699,10 +2699,20 @@
             "format": "uuid",
             "title": "Source Id",
             "type": "string"
+          },
+          "status": {
+            "description": "done: synced now; background: the worker finishes it (big or busy)",
+            "enum": [
+              "done",
+              "background"
+            ],
+            "title": "Status",
+            "type": "string"
           }
         },
         "required": [
-          "source_id"
+          "source_id",
+          "status"
         ],
         "title": "SyncConnectionOut",
         "type": "object"
@@ -3437,7 +3447,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Sync a connected account now (also finishes a setup that failed after sign-in)",
+        "summary": "Sync a connected account now: up to ~90 s here, the rest in the background",
         "tags": [
           "integrations"
         ]
