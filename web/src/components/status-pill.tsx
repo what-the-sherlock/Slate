@@ -33,6 +33,9 @@ const SOURCE_STATUS: Record<string, { variant: PillVariant; label: string }> = {
   synced: { variant: "success", label: "Synced" },
   syncing: { variant: "accent", label: "Syncing" },
   queued: { variant: "neutral", label: "Queued" },
+  retrying: { variant: "warning", label: "Retrying" },
+  waiting_for_worker: { variant: "warning", label: "Waiting for worker" },
+  empty: { variant: "warning", label: "Nothing indexed" },
   failed: { variant: "danger", label: "Failed" },
   never: { variant: "outline", label: "Never synced" },
   paused: { variant: "outline", label: "Paused" },
@@ -46,7 +49,7 @@ export function SourceStatusPill({ status }: { status: string }) {
       <Check className="size-3" aria-hidden="true" />
     ) : status === "syncing" ? (
       <Spinner className="size-2.5" />
-    ) : status === "failed" ? (
+    ) : status === "failed" || status === "waiting_for_worker" || status === "empty" ? (
       <CircleAlert className="size-3" aria-hidden="true" />
     ) : null;
   return (

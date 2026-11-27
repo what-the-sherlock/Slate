@@ -71,4 +71,10 @@ class CatalogService:
     def _redact(s: SourceSummary) -> SourceSummary:
         if s.connector not in PER_UPLOADER_CONNECTORS:
             return s
-        return replace(s, pending_jobs=0, last_run_status=None, last_run_error=None)
+        # Per-uploader sources (uploads): other people's processing isn't shown.
+        return replace(
+            s, pending_jobs=0, last_run_status=None, last_run_error=None, run_started_at=None,
+            run_skipped={}, jobs_running=0, running_since=None, jobs_waiting=0,
+            oldest_waiting_due=None, retry_error=None, dead_error=None, dead_at=None,
+            last_ok_run_at=None,
+        )  # fmt: skip

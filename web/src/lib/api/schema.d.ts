@@ -889,6 +889,11 @@ export interface components {
             docs_failed: number;
             /** Docs Seen */
             docs_seen: number;
+            /**
+             * Docs Skipped
+             * @default 0
+             */
+            docs_skipped: number;
             /** Error Summary */
             error_summary: string | null;
             /** Errors */
@@ -902,6 +907,12 @@ export interface components {
             id: string;
             /** Kind */
             kind: string;
+            /** Skipped */
+            skipped?: {
+                [key: string]: number;
+            };
+            /** Skipped Summary */
+            skipped_summary?: string | null;
             /**
              * Source Id
              * Format: uuid
@@ -1823,6 +1834,11 @@ export interface components {
             docs_failed: number;
             /** Docs Seen */
             docs_seen: number;
+            /**
+             * Docs Skipped
+             * @default 0
+             */
+            docs_skipped: number;
             /** Error Summary */
             error_summary: string | null;
             /** Errors */
@@ -1836,6 +1852,12 @@ export interface components {
             id: string;
             /** Kind */
             kind: string;
+            /** Skipped */
+            skipped?: {
+                [key: string]: number;
+            };
+            /** Skipped Summary */
+            skipped_summary?: string | null;
             /** Started At */
             started_at: string | null;
             /** Status */
@@ -1942,6 +1964,12 @@ export interface components {
         };
         /** SourceOut */
         SourceOut: {
+            /**
+             * Busy
+             * @description Work is moving (counts as processing)
+             * @default false
+             */
+            busy: boolean;
             /** Connector */
             connector: string;
             /**
@@ -1951,6 +1979,12 @@ export interface components {
             data_class: "public" | "private";
             /** Documents */
             documents: number;
+            /**
+             * Healthy
+             * @description False: something needs attention
+             * @default true
+             */
+            healthy: boolean;
             /**
              * Id
              * Format: uuid
@@ -1969,10 +2003,20 @@ export interface components {
              */
             shareable: boolean;
             /**
+             * Skipped Summary
+             * @description What the last run left out and why, e.g. '30 PDFs (not supported yet)'
+             */
+            skipped_summary?: string | null;
+            /**
              * Status
              * @enum {string}
              */
-            status: "synced" | "syncing" | "queued" | "failed" | "never" | "paused" | "partial";
+            status: "synced" | "syncing" | "queued" | "retrying" | "waiting_for_worker" | "failed" | "partial" | "empty" | "never" | "paused";
+            /**
+             * Status Reason
+             * @description Why the source is in this state and what to do, if anything
+             */
+            status_reason?: string | null;
             /**
              * Visibility
              * @enum {string}
@@ -2001,6 +2045,11 @@ export interface components {
         /** SyncConnectionOut */
         SyncConnectionOut: {
             /**
+             * Reason
+             * @description Why it's partial or failed
+             */
+            reason?: string | null;
+            /**
              * Source Id
              * Format: uuid
              * @description The source being synced; open it to follow progress
@@ -2008,10 +2057,10 @@ export interface components {
             source_id: string;
             /**
              * Status
-             * @description done: synced now; background: the worker finishes it (big or busy)
+             * @description done: synced now; partial: part synced, see reason; failed: it didn't work, see reason; background: the worker finishes it (big or busy)
              * @enum {string}
              */
-            status: "done" | "background";
+            status: "done" | "partial" | "failed" | "background";
         };
         /** SyncOut */
         SyncOut: {
@@ -2021,10 +2070,21 @@ export interface components {
              */
             job_id: string;
             /**
-             * Status
-             * @description done: synced now; queued: the worker finishes it
+             * Reason
+             * @description Why it's partial or failed
              */
-            status: string;
+            reason?: string | null;
+            /**
+             * Skipped Summary
+             * @description What the sync left out and why, e.g. '12 code files (...)'
+             */
+            skipped_summary?: string | null;
+            /**
+             * Status
+             * @description done: synced now; partial: part synced, see reason; failed: it didn't work, see reason; background: the worker does it
+             * @enum {string}
+             */
+            status: "done" | "partial" | "failed" | "background";
         };
         /** TokenEvent */
         TokenEvent: {

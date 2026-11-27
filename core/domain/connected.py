@@ -57,6 +57,9 @@ class Page:
     # Delete every document whose external id starts with one of these (e.g. a Slack
     # channel the user left: all of its day documents).
     deleted_prefixes: tuple[str, ...] = ()
+    # Items on this page that weren't turned into documents, and why:
+    # {"reason[:kind]": count} (core.domain.skips; P0-4).
+    skipped: Mapping[str, int] = field(default_factory=dict[str, int])
 
 
 def document_checksum(doc: FetchedDocument) -> str:

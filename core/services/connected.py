@@ -41,7 +41,6 @@ from core.domain.errors import (
     AppError,
     BudgetExceeded,
     Conflict,
-    ConnectorError,
     NotFound,
     PermissionDenied,
     RateLimited,
@@ -52,6 +51,7 @@ from core.domain.ids import JobId, RunId, SourceId
 from core.domain.integrations import ConnectionStatus, ProviderSpec
 from core.domain.jobs import Job
 from core.domain.principals import user_principal
+from core.domain.skips import SkipReason, Skips
 from core.ports.connected import ConnectionAccess, SourceConnector
 from core.ports.integrations import Connection, ConnectionStore
 from core.ports.jobs import JobQueue
@@ -59,6 +59,7 @@ from core.ports.rate_limit import Limit, RateLimiter
 from core.ports.sources import SourceRecord, SourceStore
 from core.ports.system import Clock
 from core.services.ingest import IngestService, Stage
+from core.services.sync_run import RunBoundary
 
 log = structlog.get_logger(__name__)
 
@@ -90,6 +91,12 @@ class _Run:
     # The last checkpoint committed (after a fully indexed page). Whatever stops the run,
     # this is what's kept, so a stop never rewinds progress (and never skips a page).
     committed: dict[str, object] = field(default_factory=dict[str, object])
+    skips: Skips = field(default_factory=Skips)  # the run boundary's tally (P0-4)
+
+
+def _kind(doc: FetchedDocument) -> str | None:
+    kind = doc.metadata.get("kind")
+    return kind if isinstance(kind, str) else None
 
 
 class ConnectedSources:
@@ -206,51 +213,21 @@ class ConnectedSources:
         kind = "incremental" if cp else "full"
         state = _Run(source, await self._sources.create_run(source.id, kind), {}, committed=cp)
         out_of_time = (lambda: False) if deadline is None else (lambda: time.monotonic() > deadline)
-        status, summary, retry = "succeeded", None, None
-        try:
-            state.existing = await self._sources.document_checksums(source.id, "")
-            await self._pages(connector, source.connection_id, state, out_of_time)
-        except _Stop:
-            status, summary = "partial", "Still syncing: the rest continues in the background."
-            await self._enqueue(source, f"cont:{state.run}")
-        except BudgetExceeded as e:
-            status, summary = "partial", e.detail
-        except RateLimited as e:
-            status, summary, retry = "partial", e.detail, e
-        except ReconnectRequired:
-            name = self._name(source.connector)
-            status, summary = "failed", f"Sign in to {name} again to keep this source up to date."
-            await self._sources.record_error(
-                state.run, external_id=None, stage="fetch", message=summary, retryable=False
-            )
-        except (ConnectorError, UpstreamUnavailable, NotFound, PermissionDenied) as e:
-            status, summary = "failed", e.detail
-            await self._sources.record_error(
-                state.run, external_id=None, stage="fetch", message=e.detail, retryable=e.retryable
-            )
-        except Exception as e:  # job boundary: record the failure honestly, then re-raise
-            status, summary = "failed", f"Sync stopped ({type(e).__name__})."
-            log.error(
-                "connected.sync_crashed", provider=source.connector, error_type=type(e).__name__
-            )
-            raise
-        finally:
-            t = state.tally
-            await self._sources.save_checkpoint(
-                source.id, checkpoint_json(state.committed), synced=status == "succeeded"
-            )
-            if t.failed and status == "succeeded":
-                status, summary = "partial", f"{t.failed} item(s) couldn't be indexed."
-            await self._sources.finish_run(
-                state.run, status=status, seen=t.seen, changed=t.changed, failed=t.failed,
-                error_summary=summary,
-            )  # fmt: skip
-            log.info(
-                "connected.synced", provider=source.connector, status=status, seen=t.seen,
-                changed=t.changed, deleted=t.deleted,
-            )  # fmt: skip
-        if retry is not None:
-            raise retry
+        async with RunBoundary(
+            self._sources, source.id, state.run, event="connected.synced",
+            counts=lambda: state.tally, checkpoint=lambda: checkpoint_json(state.committed),
+            log_fields=lambda: {"provider": source.connector, "deleted": state.tally.deleted},
+        ) as boundary:  # fmt: skip
+            state.skips = boundary.skips
+            try:
+                state.existing = await self._sources.document_checksums(source.id, "")
+                await self._pages(connector, source.connection_id, state, out_of_time)
+            except _Stop:
+                boundary.partial("Still syncing: the rest continues in the background.")
+                await self._enqueue(source, f"cont:{state.run}")
+            except ReconnectRequired:
+                name = self._name(source.connector)
+                await boundary.fail(f"Sign in to {name} again to keep this source up to date.")
 
     async def _pages(
         self,
@@ -268,6 +245,7 @@ class ConnectedSources:
             token = await self._access.access_token(connection_id)
             page = await connector.pull(token, state.committed, now=self._clock.now())
             complete = True
+            state.skips.merge(page.skipped)
             for doc in page.documents:
                 complete = await self._index(doc, state) and complete
             if page.deleted:
@@ -297,11 +275,15 @@ class ConnectedSources:
         in a way worth retrying. BudgetExceeded propagates (the run stops, resumable)."""
         assert self._ingest is not None  # _job_source checks availability
         t = state.tally
+        if not doc.sections:
+            # Counted, not silently dropped (P0-4); not "seen", as nothing was indexable.
+            state.skips.add(SkipReason.EMPTY_TEXT, _kind(doc))
+            return True
         t.seen += 1
         if t.seen % PROGRESS_EVERY == 0:
             await self._sources.progress(state.run, seen=t.seen, changed=t.changed, failed=t.failed)
         digest = document_checksum(doc)
-        if not doc.sections or state.existing.get(doc.external_id) == digest:
+        if state.existing.get(doc.external_id) == digest:
             return True
         source, stage = state.source, Stage("chunk")
         try:

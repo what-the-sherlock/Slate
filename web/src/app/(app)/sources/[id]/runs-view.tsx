@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, History } from "lucide-react";
+import { ArrowLeft, CircleAlert, History } from "lucide-react";
 import Link from "next/link";
 import { connectorName, LogoTile } from "@/components/brand";
 import { EmptyState } from "@/components/empty-state";
@@ -27,6 +27,7 @@ const RUN_KIND: Record<string, string> = {
   upload: "Upload",
   prune: "Cleanup",
   webhook: "Webhook",
+  import: "Import",
 };
 
 /** Source detail (UI_DESIGN §4.5): header, stats and run history with errors. */
@@ -70,6 +71,23 @@ export function RunsView({ sourceId }: { sourceId: string }) {
         </EmptyState>
       ) : (
         <>
+          {source && (!source.healthy || source.skipped_summary) && (source.status_reason ?? source.skipped_summary) ? (
+            // The source's real state and what to do (P0-2), and what wasn't indexed (P0-4).
+            <div
+              role={source.healthy ? "status" : "alert"}
+              className={`flex gap-2 border-b px-4 py-3 text-caption sm:px-8 ${
+                source.healthy ? "border-border bg-subtle text-fg-muted" : "border-danger-border bg-danger-subtle text-fg-body"
+              }`}
+            >
+              <CircleAlert className={`mt-0.5 size-4 shrink-0 ${source.healthy ? "text-fg-subtle" : "text-danger"}`} aria-hidden="true" />
+              <p>
+                {source.status_reason ? <span className="block">{source.status_reason}</span> : null}
+                {source.skipped_summary && source.status !== "empty" ? (
+                  <span className="block">Not indexed in the last sync: {source.skipped_summary}.</span>
+                ) : null}
+              </p>
+            </div>
+          ) : null}
           {source ? (
             <PanelRow cols={4}>
               <Kpi label="Documents" value={formatCount(source.documents)} />
@@ -114,12 +132,16 @@ export function RunsView({ sourceId }: { sourceId: string }) {
                       <span className="text-fg-subtle tabular-nums" aria-live={run.status === "running" ? "polite" : undefined}>
                         {run.status === "running" ? `${run.docs_seen} checked · ` : ""}
                         {run.docs_changed} changed · {run.docs_failed} failed
+                        {run.docs_skipped ? ` · ${run.docs_skipped} skipped` : ""}
                       </span>
                       <time className="ml-auto text-fg-subtle" dateTime={run.started_at ?? undefined} title={absoluteTime(run.started_at)}>
                         {relativeTime(run.started_at)}
                       </time>
                     </div>
                     {run.error_summary ? <p className="mt-1.5 text-caption text-fg-muted">{run.error_summary}</p> : null}
+                    {run.skipped_summary ? (
+                      <p className="mt-1 text-caption text-fg-subtle">Skipped: {run.skipped_summary}</p>
+                    ) : null}
                     {run.errors.length ? (
                       <ul className="mt-2 flex flex-col gap-1.5">
                         {run.errors.map((e, i) => (

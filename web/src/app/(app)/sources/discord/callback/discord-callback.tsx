@@ -11,11 +11,12 @@ import { Pill, type PillVariant } from "@/components/status-pill";
 import { Button, Spinner } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiProblem, errorMessage, unwrap } from "@/lib/api/client";
+import type { SyncReply } from "@/lib/sync-result";
 import { keys, type DiscordChannel, type DiscordServer } from "@/lib/api/hooks";
 import { clearGrant, groupChannels, loadGrant, MAX_CHANNELS, parseCallback, pickable, saveGrant, toggleAll } from "@/lib/discord";
 import { cn } from "@/lib/utils";
 
-type SyncState = "syncing" | "done" | "background" | "failed";
+type SyncState = "syncing" | SyncReply["status"];
 type Phase =
   | { kind: "verifying" }
   | { kind: "error"; title: string; message: string; restart: boolean }
@@ -25,6 +26,7 @@ type Phase =
 const SYNC_PILL: Record<SyncState, { variant: PillVariant; label: string }> = {
   syncing: { variant: "accent", label: "Syncing" },
   done: { variant: "success", label: "Synced" },
+  partial: { variant: "warning", label: "Partly synced" },
   background: { variant: "neutral", label: "Continues in background" },
   failed: { variant: "danger", label: "Couldn't sync" },
 };
@@ -75,7 +77,8 @@ export function DiscordCallback() {
       try {
         // The first sync runs right away (up to ~90 s), then hands over to the worker.
         const res = unwrap(await api.POST("/api/v1/sources/{source_id}/sync", { params: { path: { source_id: done.source_id } } }));
-        state = res.status === "done" ? "done" : "background";
+        state = res.status; // the run's real outcome (P0-2)
+        detail = res.reason ?? undefined;
       } catch (err) {
         state = "failed";
         detail = errorMessage(err);
@@ -317,7 +320,9 @@ function SyncProgress({ phase }: { phase: Extract<Phase, { kind: "syncing" }> })
         <Pill variant={st.variant} icon={phase.state === "syncing" ? <Spinner className="size-2.5" /> : undefined}>
           {st.label}
         </Pill>
-        {phase.detail ? <p className="w-full text-caption text-danger">{phase.detail}</p> : null}
+        {phase.detail ? (
+          <p className={`w-full text-caption ${phase.state === "failed" ? "text-danger" : "text-fg-muted"}`}>{phase.detail}</p>
+        ) : null}
       </div>
       <p className="text-caption text-fg-muted" aria-live="polite">
         {finished

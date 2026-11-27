@@ -2,7 +2,9 @@
 (``drive.readonly``; see ADR-0033 for why not ``drive.file``).
 
 Indexed: Google Docs (exported as plain text) and plain-text or Markdown files, not in the
-trash, newest-modified first. PDFs, Sheets and Slides come later.
+trash, newest-modified first. Every other file is listed too, and counted on the run as
+skipped with its type (P0-4), so a Drive of PDFs explains itself. PDFs, Sheets and Slides
+come later (P1-1).
 
 Passes:
 * **Incremental** (hourly): files modified after the last pass's high-water mark.
@@ -22,13 +24,25 @@ from core.adapters.oauth.api import ProviderApi
 from core.adapters.oauth.jsonutil import iso, obj, objs, safe_id, strs, text, when
 from core.domain.connected import FetchedDocument, Page, cap_sections, clean_title
 from core.domain.documents import Section
+from core.domain.skips import SkipReason, Skips
 
 API = "https://www.googleapis.com/drive/v3/files"
 GOOGLE_DOC = "application/vnd.google-apps.document"
 TEXT_TYPES = ("text/plain", "text/markdown")
+NOT_FILES = ("application/vnd.google-apps.folder", "application/vnd.google-apps.shortcut")
+_KINDS = {
+    "application/pdf": "pdf",
+    "application/vnd.google-apps.spreadsheet": "sheet",
+    "application/vnd.google-apps.presentation": "slides",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "slides",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "word",
+    "application/msword": "word",
+}
 PER_PULL = 20
 MAX_FILE_BYTES = 2 * 1024 * 1024
-MAX_FULL_FILES = 500
+MAX_FULL_FILES = 500  # readable files per full pass
+MAX_LISTED = 5000  # files of any type listed per full pass (a Drive of photos ends too)
 FULL_EVERY = timedelta(days=7)
 FULL_WINDOW = timedelta(days=365)
 FIELDS = (
@@ -47,9 +61,11 @@ class DriveConnector:
         last_full = when(cp.get("last_full"))
         full = cp.get("mode") == "full" or last_full is None or now - last_full >= FULL_EVERY
         since = (now - FULL_WINDOW) if full else (when(cp.get("since")) or now - FULL_WINDOW)
-        types = " or ".join(f"mimeType='{t}'" for t in (GOOGLE_DOC, *TEXT_TYPES))
+        # Every file, not only the readable types: what Slate can't read is counted and
+        # explained (P0-4) instead of silently missing. Folders and shortcuts aren't files.
+        not_files = " and ".join(f"mimeType != '{t}'" for t in NOT_FILES)
         params: dict[str, Any] = {
-            "q": f"trashed=false and ({types}) and modifiedTime > '{_rfc3339(since)}'",
+            "q": f"trashed=false and {not_files} and modifiedTime > '{_rfc3339(since)}'",
             "orderBy": "modifiedTime desc",
             "pageSize": PER_PULL,
             "fields": FIELDS,
@@ -60,26 +76,43 @@ class DriveConnector:
         seen = [s for s in strs(cp.get("seen")) if s] if full else []
         newest = when(cp.get("newest"))
         docs: list[FetchedDocument] = []
-        for f in objs(listing.get("files")):
+        skips = Skips()
+        files = objs(listing.get("files"))
+        listed = _count(cp.get("listed")) + len(files) if full else 0
+        for f in files:
             ext = f"gdrive:{f.get('id')}"
-            seen.append(ext)  # still exists even if it can't be read now
             modified = when(f.get("modifiedTime"))
             if modified and (newest is None or modified > newest):
                 newest = modified
+            skip = unreadable_reason(f)
+            if skip is None or skip[0] is not SkipReason.UNSUPPORTED_TYPE:
+                seen.append(ext)  # a readable type still exists even if it can't be read now
+            if skip is not None:
+                skips.add(*skip)
+                continue
             body = await self._content(token, f)
-            doc = drive_document(f, body) if body is not None else None
-            if doc is not None:
+            if body is None:
+                skips.add(SkipReason.UNREADABLE, "file")
+                continue
+            doc = drive_document(f, body)
+            if doc is None:
+                skips.add(SkipReason.EMPTY_TEXT, "file")
+            else:
                 docs.append(doc)
         next_token = text(listing.get("nextPageToken"))
-        if next_token and (not full or len(seen) < MAX_FULL_FILES):
+        capped = bool(next_token) and full and (len(seen) >= MAX_FULL_FILES or listed >= MAX_LISTED)
+        if capped:
+            skips.add(SkipReason.CAP_REACHED)  # how many more is unknown: flagged once
+        if next_token and not capped:
             next_cp = {
                 **cp,
                 "mode": "full" if full else "incremental",
                 "page_token": next_token,
                 "newest": iso(newest),
                 "seen": seen,
+                "listed": listed,
             }
-            return Page(tuple(docs), checkpoint=next_cp, done=False)
+            return Page(tuple(docs), checkpoint=next_cp, done=False, skipped=skips.as_json())
         done_cp: dict[str, object] = {
             "mode": "incremental",
             "since": iso(newest) or cp.get("since"),
@@ -87,7 +120,9 @@ class DriveConnector:
         }
         # A full pass that hit the file cap hasn't seen everything: prune nothing then.
         keep = tuple(seen) if full and not next_token else None
-        return Page(tuple(docs), checkpoint=done_cp, done=True, keep_only=keep)
+        return Page(
+            tuple(docs), checkpoint=done_cp, done=True, keep_only=keep, skipped=skips.as_json()
+        )
 
     async def _content(self, token: str, f: Mapping[str, Any]) -> str | None:
         file_id = safe_id(str(f.get("id") or ""))
@@ -97,16 +132,42 @@ class DriveConnector:
                 token, f"{API}/{file_id}/export", params={"mimeType": "text/plain"},
                 max_bytes=MAX_FILE_BYTES, allow_404=True,
             )  # fmt: skip
-        try:
-            size = int(str(f.get("size") or 0))
-        except ValueError:
-            size = 0
-        if mime in TEXT_TYPES and size <= MAX_FILE_BYTES:
+        if mime in TEXT_TYPES and _size(f) <= MAX_FILE_BYTES:
             return await self._api.get_text(
                 token, f"{API}/{file_id}", params={"alt": "media"}, max_bytes=MAX_FILE_BYTES,
                 allow_404=True,
             )  # fmt: skip
         return None
+
+
+def _count(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def _size(f: Mapping[str, Any]) -> int:
+    try:
+        return int(str(f.get("size") or 0))
+    except ValueError:
+        return 0
+
+
+def unreadable_reason(f: Mapping[str, Any]) -> tuple[SkipReason, str] | None:
+    """Why a listed file won't be read (pure), or None when Slate reads it."""
+    mime = str(f.get("mimeType") or "")
+    if mime == GOOGLE_DOC:
+        return None
+    if mime in TEXT_TYPES:
+        return (SkipReason.TOO_LARGE, "file") if _size(f) > MAX_FILE_BYTES else None
+    return SkipReason.UNSUPPORTED_TYPE, _kind_of(mime)
+
+
+def _kind_of(mime: str) -> str:
+    if mime in _KINDS:
+        return _KINDS[mime]
+    for prefix in ("image/", "video/", "audio/"):
+        if mime.startswith(prefix):
+            return "video" if prefix == "audio/" else prefix[:-1]
+    return "file"
 
 
 def _rfc3339(moment: datetime) -> str:

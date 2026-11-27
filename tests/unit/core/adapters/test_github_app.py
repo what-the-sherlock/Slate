@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from core.adapters.github.app import GitHubApp, app_jwt
 from core.domain.errors import NotFound, PermissionDenied, RateLimited
+from core.domain.github import RepoFile, TreeSkips
 
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 PEM = KEY.private_bytes(
@@ -175,8 +176,12 @@ async def test_doc_files_keeps_docs_only_and_skips_links_and_huge_files() -> Non
         symlink="docs/evil.md",
     )
     app, _ = make(lambda r: httpx.Response(200, content=body))
-    files = {f.path: f.data async for f in app.doc_files(1, "o/r", "main")}
+    items = [f async for f in app.doc_files(1, "o/r", "main")]
+    files = {f.path: f.data for f in items if isinstance(f, RepoFile)}
     assert files == {"README.md": b"# Hi", "docs/guide.md": b"guide"}
+    assert items[-1] == TreeSkips(  # what was left out, and why (P0-4); links aren't files
+        {"excluded_path": 1, "too_large:file": 1, "unsupported_type:code": 1}
+    )
 
 
 async def test_missing_repo_and_lost_access_are_typed() -> None:
@@ -217,6 +222,40 @@ async def test_issues_paginate_and_mark_prs() -> None:
     assert got[0].labels == ("bug",)
 
 
+async def test_head_commit_asks_for_the_sha_and_keeps_auth() -> None:
+    # Regression (P0-0): a caller's headers= collided with _get's own and raised TypeError,
+    # which broke every GitHub sync before any file was read.
+    app, seen = make(lambda r: httpx.Response(200, text="abc123\n"))
+    assert await app.head_commit(1, "o/r", "main") == "abc123"
+    req = seen[-1]
+    assert req.url.path == "/repos/o/r/commits/main"
+    assert req.headers["accept"] == "application/vnd.github.sha"  # the caller's override wins
+    assert req.headers["authorization"] == "Bearer ghs_inst"  # but never over the token
+    assert req.headers["x-github-api-version"] == "2022-11-28"
+
+
+async def test_get_requests_carry_github_headers() -> None:
+    repo = {"id": 1, "full_name": "o/r", "private": True, "default_branch": "main", "html_url": "u"}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/tarball/main"):
+            return httpx.Response(200, content=_tarball({"README.md": b"# Hi"}))
+        if req.url.path.endswith("/issues"):
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json=repo)
+
+    app, seen = make(handler)
+    await app.repo(1, "o/r")
+    _ = [i async for i in app.issues(1, "o/r", None, limit=10)]
+    _ = [f async for f in app.doc_files(1, "o/r", "main")]
+    calls = [r for r in seen if not r.url.path.endswith("/access_tokens")]
+    assert len(calls) == 3
+    for req in calls:
+        assert req.headers["accept"] == "application/vnd.github+json"
+        assert req.headers["x-github-api-version"] == "2022-11-28"
+        assert req.headers["authorization"] == "Bearer ghs_inst"
+
+
 async def test_invalid_repo_names_never_reach_github() -> None:
     app, seen = make(lambda r: httpx.Response(200))
     with pytest.raises(ValueError, match="invalid"):
@@ -242,7 +281,22 @@ async def test_a_tarball_with_too_many_entries_is_cut_off(monkeypatch: pytest.Mo
     monkeypatch.setattr(mod, "MAX_TAR_MEMBERS", 3)
     body = _tarball({f"docs/{i}.md": b"x" for i in range(10)})
     app, _ = make(lambda r: httpx.Response(200, content=body))
-    assert len([f async for f in app.doc_files(1, "o/r", "main")]) == 3
+    items = [f async for f in app.doc_files(1, "o/r", "main")]
+    assert len([f for f in items if isinstance(f, RepoFile)]) == 3
+    assert items[-1] == TreeSkips({"cap_reached": 1})
+
+
+async def test_doc_files_over_the_file_cap_are_counted_not_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.adapters.github.app as mod
+
+    monkeypatch.setattr(mod, "MAX_DOC_FILES", 2)
+    body = _tarball({f"docs/{i}.md": b"x" for i in range(5)})
+    app, _ = make(lambda r: httpx.Response(200, content=body))
+    items = [f async for f in app.doc_files(1, "o/r", "main")]
+    assert len([f for f in items if isinstance(f, RepoFile)]) == 2
+    assert items[-1] == TreeSkips({"cap_reached:file": 3})
 
 
 @pytest.mark.parametrize(

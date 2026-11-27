@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -15,7 +15,8 @@ from core.domain.data_class import DataClass, classify
 from core.domain.errors import Conflict
 from core.domain.ids import DocumentId, RunId, SourceId, UserId, WorkspaceId
 from core.domain.principals import PUBLIC, workspace_principal
-from core.ports.sources import ExistingUpload, SourceRecord
+from core.domain.skips import Skips
+from core.ports.sources import ExistingUpload, LastRun, SourceRecord
 
 _SOURCE_COLS = (
     "id, workspace_id, connector, name, visibility, data_class, status, config, checkpoint,"
@@ -127,13 +128,17 @@ class PostgresSourceStore:
         changed: int,
         failed: int,
         error_summary: str | None = None,
+        skipped: Mapping[str, int] | None = None,
     ) -> None:
+        skips = Skips()
+        skips.merge(skipped or {})  # validated and bounded again at the storage edge
         async with self._uow() as s:
             await s.execute(
                 text(
                     "UPDATE ingestion_runs SET status = :st, finished_at = now(),"
                     " docs_seen = :seen, docs_changed = :ch, docs_failed = :f,"
-                    " error_summary = :err WHERE id = :id"
+                    " error_summary = :err, docs_skipped = :ns,"
+                    " skipped = CAST(:sk AS jsonb) WHERE id = :id"
                 ),
                 {
                     "st": status,
@@ -141,6 +146,8 @@ class PostgresSourceStore:
                     "ch": changed,
                     "f": failed,
                     "err": error_summary,
+                    "ns": skips.total,
+                    "sk": json.dumps(skips.as_json()),
                     "id": run_id,
                 },
             )
@@ -152,6 +159,39 @@ class PostgresSourceStore:
                     ),
                     {"id": run_id},
                 )
+
+    async def last_run(self, source_id: SourceId) -> LastRun | None:
+        async with self._uow() as s:
+            r = (
+                (
+                    await s.execute(
+                        text(
+                            "SELECT status, error_summary, skipped FROM ingestion_runs"
+                            " WHERE source_id = :s ORDER BY created_at DESC LIMIT 1"
+                        ),
+                        {"s": source_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if r is None:
+            return None
+        return LastRun(r["status"], r["error_summary"], dict(r["skipped"] or {}))
+
+    async def worker_overdue(self, ws: WorkspaceId) -> bool:
+        async with self._uow() as s:
+            row = (
+                await s.execute(
+                    text(
+                        "SELECT 1 FROM jobs WHERE workspace_id = :ws"
+                        " AND status IN ('queued', 'failed') AND attempts < max_attempts"
+                        " AND run_after < now() - interval '2 hours' LIMIT 1"
+                    ),
+                    {"ws": ws},
+                )
+            ).first()
+        return row is not None
 
     async def progress(self, run_id: RunId, *, seen: int, changed: int, failed: int) -> None:
         async with self._uow() as s:

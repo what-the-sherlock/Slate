@@ -304,11 +304,19 @@ async def test_drive_exports_google_docs_and_skips_other_types_and_big_files() -
          "modifiedTime": "2026-11-26T10:00:00Z"},
         {"id": "d2", "name": "notes.txt", "mimeType": "text/plain", "size": str(50 * 1024 * 1024),
          "modifiedTime": "2026-11-25T10:00:00Z"},
+        {"id": "p1", "name": "spec.pdf", "mimeType": "application/pdf",
+         "modifiedTime": "2026-11-24T10:00:00Z"},
+        {"id": "s1", "name": "Budget", "mimeType": "application/vnd.google-apps.spreadsheet",
+         "modifiedTime": "2026-11-24T10:00:00Z"},
+        {"id": "e1", "name": "empty", "mimeType": "application/vnd.google-apps.document",
+         "modifiedTime": "2026-11-23T10:00:00Z"},
     ]  # fmt: skip
 
     def route(r: httpx.Request) -> httpx.Response:
         if r.url.path.endswith("/d1/export"):
             return httpx.Response(200, content=b"\xef\xbb\xbfLaunch in March.")
+        if r.url.path.endswith("/e1/export"):
+            return httpx.Response(200, content=b"  \n")
         return ok({"files": files})
 
     client, seen = transport(route)
@@ -316,9 +324,31 @@ async def test_drive_exports_google_docs_and_skips_other_types_and_big_files() -
     [doc] = page.documents
     assert doc.title == "Plan"
     assert doc.sections[0].text == "Launch in March."
-    assert page.keep_only == ("gdrive:d1", "gdrive:d2")  # the big file still exists
-    assert not any("d2" in r.url.path for r in seen)  # never downloaded
-    assert "modifiedTime > '2025-11-27T12:00:00+00:00'" in seen[0].url.params["q"]
+    # The big text file still exists; PDFs and Sheets are never indexed, so never pruned.
+    assert page.keep_only == ("gdrive:d1", "gdrive:d2", "gdrive:e1")
+    assert not any(x in r.url.path for r in seen for x in ("d2", "p1", "s1"))  # not downloaded
+    q = seen[0].url.params["q"]
+    assert "modifiedTime > '2025-11-27T12:00:00+00:00'" in q
+    assert "mimeType != 'application/vnd.google-apps.folder'" in q  # every file is listed
+    assert page.skipped == {  # nothing vanishes without a reason (P0-4)
+        "empty_text:file": 1, "too_large:file": 1, "unsupported_type:pdf": 1,
+        "unsupported_type:sheet": 1,
+    }  # fmt: skip
+
+
+async def test_drive_full_pass_stops_at_the_listing_cap_and_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.adapters.google.drive as drive
+
+    monkeypatch.setattr(drive, "MAX_LISTED", 2)
+    photos = [{"id": f"i{n}", "name": "p.jpg", "mimeType": "image/jpeg",
+               "modifiedTime": "2026-11-26T10:00:00Z"} for n in range(2)]  # fmt: skip
+    client, _ = transport(lambda r: ok({"files": photos, "nextPageToken": "more"}))
+    page = await DriveConnector(client, sleep=0).pull("tok", {}, now=NOW)
+    assert page.done
+    assert page.keep_only is None  # it didn't see everything: prune nothing
+    assert page.skipped == {"cap_reached": 1, "unsupported_type:image": 2}
 
 
 # ---------------------------------------------------------------- Slack

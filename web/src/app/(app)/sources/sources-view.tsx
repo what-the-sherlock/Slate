@@ -39,7 +39,8 @@ export function SourcesView() {
     setAdding(next);
     if (!next && wantsAdd) router.replace("/sources");
   };
-  const syncing = sources.data?.filter((s) => s.status === "syncing" || s.status === "queued").length ?? 0;
+  // Only work that is actually moving: a job no worker picks up isn't "processing" (P0-2).
+  const syncing = sources.data?.filter((s) => s.busy).length ?? 0;
 
   return (
     <>
@@ -146,12 +147,12 @@ function SourcesTable({ rows }: { rows: Source[] }) {
                   </Pill>
                 </td>
                 <td className={TD}>
-                  {s.last_error ? (
+                  {s.status_reason ?? s.last_error ? (
                     <Tooltip>
                       <TooltipTrigger className="relative z-10">
                         <SourceStatusPill status={s.status} />
                       </TooltipTrigger>
-                      <TooltipContent>{s.last_error}</TooltipContent>
+                      <TooltipContent>{s.status_reason ?? s.last_error}</TooltipContent>
                     </Tooltip>
                   ) : (
                     <SourceStatusPill status={s.status} />

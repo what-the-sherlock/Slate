@@ -13,6 +13,8 @@ function source(over: Partial<Source>): Source {
     documents: 0,
     last_error: null,
     last_synced_at: null,
+    busy: ["syncing", "queued", "retrying"].includes(over.status ?? "synced"),
+    healthy: ["synced", "syncing", "queued", "paused"].includes(over.status ?? "synced"),
     ...over,
   } as Source;
 }
@@ -20,6 +22,12 @@ function source(over: Partial<Source>): Source {
 describe("summarise", () => {
   it("is all zeros with no last sync for an empty workspace", () => {
     expect(summarise([])).toEqual({ count: 0, documents: 0, processing: 0, failed: 0, lastSynced: null });
+  });
+
+  it("counts work no worker picks up as needing attention, not processing (P0-2)", () => {
+    const s = summarise([source({ status: "waiting_for_worker" }), source({ status: "empty" })]);
+    expect(s.processing).toBe(0);
+    expect(s.failed).toBe(2);
   });
 
   it("totals documents, counts queued + syncing as processing, and picks the latest sync", () => {

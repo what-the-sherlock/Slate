@@ -99,7 +99,7 @@ sources(id, workspace_id, connector, name, config jsonb, credential_id, created_
         data_class DEFAULT 'private',             -- ADR-0012: public only if 'public' ∈ visibility; gmail always private
         schedule_interval interval, status, checkpoint jsonb, last_synced_at, created_at,
         connection_id → connections ON DELETE CASCADE)   -- 0010, ADR-0033: OAuth-connected sources
-ingestion_runs(id, source_id, kind, status, started_at, finished_at, docs_seen, docs_changed, docs_failed, error_summary)
+ingestion_runs(id, source_id, kind, status, started_at, finished_at, docs_seen, docs_changed, docs_failed, docs_skipped, skipped jsonb, error_summary)
 ingestion_errors(id, run_id, external_id, stage, message, retryable bool, created_at)
 
 -- content
@@ -252,8 +252,10 @@ sequenceDiagram
 - **Chunk:** about 512 tokens (`tiktoken` `cl100k_base`), split on section boundaries first, with a 64-token overlap only inside long sections. Each chunk gets a title + heading-path prefix *for embedding*; the stored content stays clean.
 - **Embed:** batches of up to 96 inputs. Record cost and data class to `usage_ledger`. The budget guard runs before the first paid call. The first embedding registers the `present` generation and its HNSW index.
 - **Backfill (new generations):** `python -m worker backfill` builds a `future` generation from stored chunks: keyset-paged over chunks with no vector in it, `ON CONFLICT DO NOTHING`, capped per run, so it is idempotent and resumable. A free-tier embedder (BGE-M3 on Workers AI) only builds `public`-scoped generations (ADR-0012, ADR-0020). Search keeps serving `present`; evals measure the `future` one before a flip.
-- **Inline path:** uploads up to 1 MB are processed inside the `complete` request by claiming that exact job (`claim_by_id`); retryable failures fall back to the worker.
+- **Inline path:** uploads up to 1 MB are processed inside the `complete` request by claiming that exact job (`claim_by_id`); retryable failures fall back to the worker. A crash is reported as `failed` (the worker still retries it), never as "continuing in the background".
 - **Prune:** `prune_source` compares `SlimList` IDs with stored IDs and soft-deletes missing documents (`deleted_at`). A nightly job hard-deletes after 7 days.
+- **Run boundary (ADR-0034):** every sync engine runs inside `RunBoundary` (`core/services/sync_run.py`), which records the run's real outcome however the body exits: success, typed failure, unexpected crash (failed + re-raised for retry, type name only), rate limit (partial + backoff), or cancellation (partial, "interrupted"). `last_synced_at` moves only when the pass completed. Items seen but not indexed are counted by reason in `ingestion_runs.skipped` (`core/domain/skips.py`), so "0 documents" always has an explanation.
+- **Status badge (ADR-0034):** `core/domain/source_status.py` turns raw job and run facts into one badge with a reason (`synced`, `syncing`, `queued`, `retrying`, `waiting_for_worker`, `failed`, `partial`, `empty`, `never`, `paused`). A runnable job overdue by over 2 h means no worker handles that kind. "Sync now" answers from the run it produced, not the job.
 - **Failure policy:** errors are per document, so one bad file never fails a run. Job retries use exponential backoff with jitter. After `max_attempts` a job is `dead` and shown in the admin UI. A job whose heartbeat is older than 10 min is reclaimed.
 
 ## 8. Question → answer

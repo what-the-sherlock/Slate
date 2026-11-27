@@ -4,7 +4,17 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
 from core.domain.errors import NotFound, RateLimited
-from core.domain.github import Comment, Issue, Recheck, Repo, RepoFile, UserAccess
+from core.domain.github import (
+    Comment,
+    Issue,
+    Recheck,
+    Repo,
+    RepoFile,
+    TreeSkips,
+    UserAccess,
+    doc_path_skip,
+)
+from core.domain.skips import SkipReason, Skips
 
 
 @dataclass
@@ -30,6 +40,7 @@ class FakeGitHub:
         self.rate_limited = False
         self.revoked: set[str] = set()
         self.rechecks = 0
+        self.crash_on_file: str | None = None
 
     @property
     def configured(self) -> bool:
@@ -95,11 +106,18 @@ class FakeGitHub:
 
     async def doc_files(
         self, installation_id: int, full_name: str, ref: str
-    ) -> AsyncIterator[RepoFile]:
+    ) -> AsyncIterator[RepoFile | TreeSkips]:
         repo = self._get(installation_id, full_name)
         self.tarball_downloads += 1
+        skips = Skips()
         for path, data in sorted(repo.files.items()):
+            if (reason := doc_path_skip(path)) is not None:
+                skips.add(reason, "code" if reason is SkipReason.UNSUPPORTED_TYPE else None)
+                continue
+            if self.crash_on_file == path:
+                raise KeyError("simulated bug")  # an unexpected crash mid-sync (P0-1)
             yield RepoFile(path, data)
+        yield TreeSkips(skips.as_json())
 
     async def issues(
         self, installation_id: int, full_name: str, since: str | None, limit: int

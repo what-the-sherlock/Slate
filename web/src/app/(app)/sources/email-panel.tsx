@@ -7,6 +7,7 @@ import { useId, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { api, errorMessage, unwrap } from "@/lib/api/client";
+import { toastSync } from "@/lib/sync-result";
 import { keys, useMailStatus, type MailProvider } from "@/lib/api/hooks";
 import { guessProvider, looksLikeAddress, normaliseAppPassword } from "@/lib/mail";
 
@@ -50,9 +51,9 @@ export function EmailPanel({ onBack, onImport }: { onBack: () => void; onImport:
       // The first sync runs right away (up to ~90 s); big mailboxes continue in the background.
       try {
         const res = unwrap(await api.POST("/api/v1/sources/{source_id}/sync", { params: { path: { source_id: done.source_id } } }));
-        toast.success(res.status === "done" ? "Mailbox synced" : "Mailbox connected. Syncing continues in the background.");
-      } catch {
-        toast.message("Mailbox connected. The first sync starts within the hour.");
+        toastSync(res, "your mailbox");
+      } catch (err) {
+        toast.error(`Mailbox connected, but the first sync failed: ${errorMessage(err)}`);
       }
       router.push(`/sources/${done.source_id}`);
     } catch (err) {

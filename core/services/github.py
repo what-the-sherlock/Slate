@@ -35,6 +35,7 @@ from core.domain.errors import (
     AppError,
     BudgetExceeded,
     Conflict,
+    ConnectorError,
     NotFound,
     PermissionDenied,
     RateLimited,
@@ -45,8 +46,10 @@ from core.domain.github import (
     CREDENTIAL_KIND,
     INSTALL_STATE_PURPOSE,
     MAX_ISSUES_PER_SYNC,
+    GitHubSourceConfig,
     Repo,
     SyncCheckpoint,
+    TreeSkips,
     checksum,
     file_external_id,
     is_valid_repo_name,
@@ -58,6 +61,7 @@ from core.domain.ids import JobId, RunId, SourceId
 from core.domain.jobs import Job, JobStatus
 from core.domain.principals import user_principal
 from core.domain.signed_tokens import sign, verify
+from core.domain.skips import SkipReason
 from core.ports.credentials import CredentialStore
 from core.ports.github import GitHubApi
 from core.ports.jobs import JobQueue
@@ -65,6 +69,7 @@ from core.ports.rate_limit import Limit, RateLimiter
 from core.ports.sources import SourceRecord, SourceStore
 from core.ports.system import Clock, Parser
 from core.services.ingest import IngestService, Stage
+from core.services.sync_run import RunBoundary
 
 log = structlog.get_logger(__name__)
 
@@ -78,6 +83,7 @@ PROGRESS_EVERY = 10  # items between live progress updates on a running run
 INSTALL_LIMIT = Limit(budget=10, window=timedelta(hours=1))
 SYNC_NOW_LIMIT = Limit(budget=1, window=timedelta(minutes=5))
 INLINE_SYNC_BUDGET_S = 90.0  # inside the inline runner's 120 s
+BAD_CONFIG = "This repository's settings are incomplete. Disconnect it and connect it again."
 EXPIRED_LINK = "This GitHub link has expired. Connect GitHub again."
 REVERIFY = (
     "Slate couldn't confirm you still have access to this repository. Connect GitHub "
@@ -381,67 +387,37 @@ class GitHubSync:
         run = await self._sources.create_run(
             source.id, "full" if cp.commit is None else "incremental"
         )
-        tally, status, summary = _Tally(), "succeeded", None
+        tally = _Tally()
         out_of_time = (lambda: False) if deadline is None else (lambda: time.monotonic() > deadline)
-        retry: RateLimited | None = None
-        try:
-            installation = int(str(source.config["installation_id"]))
-            name = str(source.config["full_name"])
+        async with RunBoundary(
+            self._sources, source.id, run, event="github.synced",
+            counts=lambda: tally, checkpoint=lambda: cp.as_json(),
+            rate_limited_summary="GitHub's rate limit was reached; syncing resumes later.",
+            log_fields=lambda: {"pruned": tally.pruned},
+        ) as boundary:  # fmt: skip
+            config = GitHubSourceConfig.parse(source.config)
+            if config is None:
+                raise ConnectorError(BAD_CONFIG, retryable=False, connector=CONNECTOR)
+            installation, name = config.installation_id, config.full_name
             await self._recheck(source, installation, name, tally)
             repo = await self._gh.repo(installation, name)
             done = not out_of_time()
             if done:
-                cp, done = await self._docs(source, run, repo, installation, cp, tally, out_of_time)
+                cp, done = await self._docs(
+                    source, boundary, repo, installation, cp, tally, out_of_time
+                )
             if done:
                 cp, done = await self._issues(
                     source, run, repo, installation, cp, tally, out_of_time
                 )
             if not done:
-                status, summary = "partial", "Still syncing: the rest continues in the background."
+                boundary.partial("Still syncing: the rest continues in the background.")
                 await self._jobs.enqueue(
                     source.workspace_id,
                     SYNC_GITHUB,
                     {"source_id": str(source.id)},
                     f"{SYNC_GITHUB}:{source.id}:cont:{run}",
                 )
-        except BudgetExceeded as e:
-            status, summary = "partial", e.detail
-        except RateLimited as e:
-            status, summary, retry = (
-                "partial",
-                "GitHub's rate limit was reached; syncing resumes later.",
-                e,
-            )
-        except (NotFound, PermissionDenied) as e:
-            status, summary = "failed", e.detail
-            await self._sources.record_error(
-                run, external_id=None, stage="fetch", message=e.detail, retryable=False
-            )
-        except UpstreamUnavailable as e:
-            status, summary = "failed", e.detail
-        finally:
-            await self._sources.save_checkpoint(
-                source.id, cp.as_json(), synced=status == "succeeded"
-            )
-            if tally.failed and status == "succeeded":
-                status, summary = "partial", f"{tally.failed} item(s) couldn't be indexed."
-            await self._sources.finish_run(
-                run,
-                status=status,
-                seen=tally.seen,
-                changed=tally.changed,
-                failed=tally.failed,
-                error_summary=summary,
-            )
-            log.info(
-                "github.synced",
-                status=status,
-                seen=tally.seen,
-                changed=tally.changed,
-                pruned=tally.pruned,
-            )
-        if retry is not None:
-            raise retry  # the queue backs off and runs the job again
 
     async def _recheck(
         self, source: SourceRecord, installation: int, name: str, tally: _Tally
@@ -477,7 +453,7 @@ class GitHubSync:
     async def _docs(
         self,
         source: SourceRecord,
-        run: RunId,
+        boundary: RunBoundary,
         repo: Repo,
         installation: int,
         cp: SyncCheckpoint,
@@ -492,11 +468,18 @@ class GitHubSync:
         existing = await self._sources.document_checksums(source.id, "file:")
         present: set[str] = set()
         failed_before = tally.failed
+        run = boundary.run
         async for f in self._gh.doc_files(installation, repo.full_name, head):
+            if isinstance(f, TreeSkips):
+                boundary.skips.merge(f.counts)
+                continue
             if out_of_time():
                 return cp, False
             ext = file_external_id(f.path)
-            present.add(ext)
+            present.add(ext)  # an empty doc is still present: don't prune it
+            if not f.data.strip():
+                boundary.skips.add(SkipReason.EMPTY_TEXT, "file")
+                continue
             tally.seen += 1
             digest = checksum(f.data)
             if existing.get(ext) == digest:

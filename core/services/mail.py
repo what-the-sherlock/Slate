@@ -73,6 +73,7 @@ from core.ports.sources import SourceRecord, SourceStore
 from core.ports.storage import BlobStore
 from core.ports.system import Clock
 from core.services.ingest import IngestService, Stage
+from core.services.sync_run import RunBoundary
 
 log = structlog.get_logger(__name__)
 
@@ -346,62 +347,34 @@ class MailSync:
         cp = MailCheckpoint.from_json(source.checkpoint)
         run = await self._sources.create_run(source.id, "full" if cp.first_sync else "incremental")
         out_of_time = (lambda: False) if deadline is None else (lambda: time.monotonic() > deadline)
-        status, summary, retry = "succeeded", None, None
         indexer = _Indexer(self._ingest, self._sources, source, run, {})
-        try:
-            secret = (
-                await self._credentials.secret(source.workspace_id, source.credential_id)
-                if source.credential_id is not None
-                else None
-            )
-            if secret is None:
-                raise PermissionDenied(RECONNECT)
-            provider = Provider(str(source.config.get("provider")))
-            address = str(source.config.get("address", ""))
-            indexer.existing = await self._sources.document_checksums(source.id, "thread:")
-            async with self._mailbox.session(provider, address, secret) as session:
-                cp = await self._sync(session, source, cp, indexer, out_of_time)
-        except _OutOfTime:
-            status, summary = "partial", "Still syncing: the rest continues in the background."
-            await self._jobs.enqueue(
-                source.workspace_id, SYNC_MAIL, {"source_id": str(source.id)},
-                f"{SYNC_MAIL}:{source.id}:cont:{run}",
-            )  # fmt: skip
-        except BudgetExceeded as e:
-            status, summary = "partial", e.detail
-        except RateLimited as e:
-            status, summary, retry = "partial", e.detail, e
-        except (PermissionDenied, NotFound, ValidationFailed) as e:
-            status, summary = "failed", e.detail
-            await self._sources.record_error(
-                run, external_id=None, stage="fetch", message=e.detail, retryable=False
-            )
-        except UpstreamUnavailable as e:
-            status, summary = "failed", e.detail
-        except ValueError:  # unknown provider in a stored config
-            status, summary = "failed", RECONNECT
-        except Exception as e:  # job boundary: record the failure honestly, then re-raise
-            status, summary = "failed", f"Sync stopped ({type(e).__name__})."
-            log.error("mail.sync_crashed", error_type=type(e).__name__)
-            raise
-        finally:
-            t = indexer.tally
-            await self._sources.save_checkpoint(
-                source.id, cp.as_json(), synced=status == "succeeded"
-            )
-            if t.failed and status == "succeeded":
-                status, summary = "partial", f"{t.failed} conversation(s) couldn't be indexed."
-            await self._sources.finish_run(
-                run,
-                status=status,
-                seen=t.seen,
-                changed=t.changed,
-                failed=t.failed,
-                error_summary=summary,
-            )
-            log.info("mail.synced", status=status, seen=t.seen, changed=t.changed)
-        if retry is not None:
-            raise retry
+        async with RunBoundary(
+            self._sources, source.id, run, event="mail.synced",
+            counts=lambda: indexer.tally, checkpoint=lambda: cp.as_json(),
+            failed_noun="conversation(s)",
+        ) as boundary:  # fmt: skip
+            try:
+                secret = (
+                    await self._credentials.secret(source.workspace_id, source.credential_id)
+                    if source.credential_id is not None
+                    else None
+                )
+                if secret is None:
+                    raise PermissionDenied(RECONNECT)
+                try:
+                    provider = Provider(str(source.config.get("provider")))
+                except ValueError:  # unknown provider in a stored config
+                    raise PermissionDenied(RECONNECT) from None
+                address = str(source.config.get("address", ""))
+                indexer.existing = await self._sources.document_checksums(source.id, "thread:")
+                async with self._mailbox.session(provider, address, secret) as session:
+                    cp = await self._sync(session, source, cp, indexer, out_of_time)
+            except _OutOfTime:
+                boundary.partial("Still syncing: the rest continues in the background.")
+                await self._jobs.enqueue(
+                    source.workspace_id, SYNC_MAIL, {"source_id": str(source.id)},
+                    f"{SYNC_MAIL}:{source.id}:cont:{run}",
+                )  # fmt: skip
 
     async def _sync(
         self,
@@ -532,47 +505,35 @@ class MboxImport:
             raise ValidationFailed("Malformed job payload.")
         run = await self._sources.create_run(source.id, "import")
         indexer = _Indexer(self._ingest, self._sources, source, run, {})
-        status, summary = "succeeded", None
-        try:
-            size = await self._blobs.size_of(key)
-            if size is None:
-                raise ValidationFailed("The uploaded file is missing from storage.")
-            if size > MAX_MBOX_BYTES:  # byte cap before downloading anything
-                raise ValidationFailed("The stored file is larger than 25 MB.")
-            data = await self._blobs.get(key)
-            if len(data) > MAX_MBOX_BYTES:
-                raise ValidationFailed("The stored file is larger than 25 MB.")
-            if hashlib.sha256(data).hexdigest() != sha:
-                raise ValidationFailed("The uploaded file changed after it was checked.")
-            mails = self._parse(data)
-            if not mails:
-                raise ValidationFailed("No emails found in this file. Export Mail as .mbox.")
-            threads = group_threads(mails)
-            indexer.existing = await self._sources.document_checksums(source.id, "thread:")
-            for k in reversed(newest_threads(threads, MAX_BACKFILL_THREADS)):
-                await indexer.thread(k, threads[k])
-        except BudgetExceeded as e:
-            status, summary = "partial", e.detail + " Import the file again later to finish."
-        except AppError as e:
-            status, summary = "failed", e.detail
-            await self._sources.record_error(
-                run, external_id=None, stage="parse", message=e.detail, retryable=False
-            )
-        finally:
-            t = indexer.tally
-            if t.failed and status == "succeeded":
-                status, summary = "partial", f"{t.failed} conversation(s) couldn't be indexed."
-            await self._sources.finish_run(
-                run,
-                status=status,
-                seen=t.seen,
-                changed=t.changed,
-                failed=t.failed,
-                error_summary=summary,
-            )
+        async with RunBoundary(
+            self._sources, source.id, run, event="mail.imported",
+            counts=lambda: indexer.tally, checkpoint=None, failed_noun="conversation(s)",
+        ) as boundary:  # fmt: skip
+            try:
+                size = await self._blobs.size_of(key)
+                if size is None:
+                    raise ValidationFailed("The uploaded file is missing from storage.")
+                if size > MAX_MBOX_BYTES:  # byte cap before downloading anything
+                    raise ValidationFailed("The stored file is larger than 25 MB.")
+                data = await self._blobs.get(key)
+                if len(data) > MAX_MBOX_BYTES:
+                    raise ValidationFailed("The stored file is larger than 25 MB.")
+                if hashlib.sha256(data).hexdigest() != sha:
+                    raise ValidationFailed("The uploaded file changed after it was checked.")
+                mails = self._parse(data)
+                if not mails:
+                    raise ValidationFailed("No emails found in this file. Export Mail as .mbox.")
+                threads = group_threads(mails)
+                indexer.existing = await self._sources.document_checksums(source.id, "thread:")
+                for k in reversed(newest_threads(threads, MAX_BACKFILL_THREADS)):
+                    await indexer.thread(k, threads[k])
+            except BudgetExceeded as e:
+                boundary.partial(e.detail + " Import the file again later to finish.")
+            except AppError as e:
+                await boundary.fail(e.detail, stage="parse")
+        status = boundary.status
         if status != "partial":
             await self._blobs.delete(key)  # raw mail isn't kept once it's indexed (or rejected)
-        log.info("mail.imported", status=status, seen=indexer.tally.seen)
 
 
 async def mbox_source(sources: SourceStore, identity: Identity) -> SourceId:

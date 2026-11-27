@@ -11,8 +11,13 @@ import { Button, Spinner } from "@/components/ui/button";
 import { api, errorMessage, unwrap } from "@/lib/api/client";
 import { keys } from "@/lib/api/hooks";
 import { clearPending, parseCallback, peekPending, type Callback } from "@/lib/integrations";
+import { syncMessage, type SyncReply } from "@/lib/sync-result";
 
-type Phase = { kind: "working" } | { kind: "syncing"; who: string } | { kind: "error"; title: string; message: string };
+type Phase =
+  | { kind: "working" }
+  | { kind: "syncing"; who: string }
+  | { kind: "error"; title: string; message: string }
+  | { kind: "sync_failed"; who: string; reason: string; connectionId: string; sourceId: string | null };
 
 function initialPhase(cb: Callback): Phase {
   if (cb.kind === "denied") {
@@ -56,27 +61,41 @@ export function IntegrationsCallback() {
         );
         const who = conn.account_label ?? "your account";
         // The first sync runs now (up to ~90 s), so the account isn't empty for an hour.
-        setPhase({ kind: "syncing", who });
-        let message = `Connected ${who}. The first sync continues in the background.`;
-        try {
-          const res = unwrap(
-            await api.POST("/api/v1/integrations/connections/{connection_id}/sync", {
-              params: { path: { connection_id: conn.id } },
-            }),
-          );
-          if (res.status === "done") message = `Connected and synced ${who}.`;
-        } catch {
-          // Connected either way: the hourly sync picks it up, and Manage shows its state.
-        }
-        void client.invalidateQueries({ queryKey: keys.integrations });
-        void client.invalidateQueries({ queryKey: keys.sources });
-        toast.success(message);
-        router.replace("/integrations");
+        await firstSync(conn.id, who);
       } catch (err) {
         setPhase({ kind: "error", title: "Couldn't finish connecting", message: errorMessage(err) });
       }
     })();
-  }, [callback, router, client]);
+  }, [callback, router, client]); // eslint-disable-line react-hooks/exhaustive-deps -- runs once
+
+  /** The first sync runs now (up to ~90 s), so the account isn't empty for an hour. Its
+   * real outcome is shown: a failure stays on screen with its reason (P0-2). */
+  async function firstSync(connectionId: string, who: string) {
+    setPhase({ kind: "syncing", who });
+    let reply: SyncReply;
+    let sourceId: string | null = null;
+    try {
+      const res = unwrap(
+        await api.POST("/api/v1/integrations/connections/{connection_id}/sync", {
+          params: { path: { connection_id: connectionId } },
+        }),
+      );
+      reply = res;
+      sourceId = res.source_id;
+    } catch (err) {
+      reply = { status: "failed", reason: errorMessage(err) };
+    }
+    void client.invalidateQueries({ queryKey: keys.integrations });
+    void client.invalidateQueries({ queryKey: keys.sources });
+    if (reply.status === "failed") {
+      const reason = reply.reason ?? "Something went wrong. Try again.";
+      setPhase({ kind: "sync_failed", who, reason, connectionId, sourceId });
+      return;
+    }
+    if (reply.status === "done") toast.success(`Connected and synced ${who}.`);
+    else toast.info(`Connected ${who}. ${syncMessage(reply, who).text}`);
+    router.replace("/integrations");
+  }
 
   return (
     <>
@@ -91,6 +110,27 @@ export function IntegrationsCallback() {
             <Spinner className="size-4" /> Connected {phase.who}. Syncing your first items, which takes
             up to a minute and a half…
           </p>
+        ) : phase.kind === "sync_failed" ? (
+          <div role="alert" className="flex gap-3 rounded-lg border border-danger-border bg-danger-subtle px-4 py-4">
+            <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
+            <div className="text-caption text-fg-body">
+              <p className="mb-1 text-ui font-semibold text-fg">Connected {phase.who}, but the first sync failed</p>
+              {phase.reason}
+              <span className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => void firstSync(phase.connectionId, phase.who)}>
+                  Try again
+                </Button>
+                {phase.sourceId ? (
+                  <Button asChild variant="secondary" size="sm">
+                    <Link href={`/sources/${phase.sourceId}`}>Open source</Link>
+                  </Button>
+                ) : null}
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/integrations">Back to Integrations</Link>
+                </Button>
+              </span>
+            </div>
+          </div>
         ) : (
           <div role="alert" className="flex gap-3 rounded-lg border border-danger-border bg-danger-subtle px-4 py-4">
             <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />

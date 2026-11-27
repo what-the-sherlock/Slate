@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Protocol
 
-from core.domain.github import Comment, Issue, Recheck, Repo, RepoFile, UserAccess
+from core.domain.github import Comment, Issue, Recheck, Repo, RepoFile, TreeSkips, UserAccess
 
 
 class GitHubApi(Protocol):
@@ -53,8 +53,11 @@ class GitHubApi(Protocol):
 
     async def head_commit(self, installation_id: int, full_name: str, branch: str) -> str: ...
 
-    def doc_files(self, installation_id: int, full_name: str, ref: str) -> AsyncIterator[RepoFile]:
-        """Documentation files at ``ref`` (one tarball download; caps in core.domain.github)."""
+    def doc_files(
+        self, installation_id: int, full_name: str, ref: str
+    ) -> AsyncIterator[RepoFile | TreeSkips]:
+        """Documentation files at ``ref`` (one tarball download; caps in core.domain.github),
+        then one ``TreeSkips``: what else the tree held and why it isn't indexed."""
         ...
 
     def issues(

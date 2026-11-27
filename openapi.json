@@ -48,6 +48,11 @@
             "title": "Docs Seen",
             "type": "integer"
           },
+          "docs_skipped": {
+            "default": 0,
+            "title": "Docs Skipped",
+            "type": "integer"
+          },
           "error_summary": {
             "anyOf": [
               {
@@ -86,6 +91,24 @@
           "kind": {
             "title": "Kind",
             "type": "string"
+          },
+          "skipped": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Skipped",
+            "type": "object"
+          },
+          "skipped_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped Summary"
           },
           "source_id": {
             "format": "uuid",
@@ -2245,6 +2268,11 @@
             "title": "Docs Seen",
             "type": "integer"
           },
+          "docs_skipped": {
+            "default": 0,
+            "title": "Docs Skipped",
+            "type": "integer"
+          },
           "error_summary": {
             "anyOf": [
               {
@@ -2283,6 +2311,24 @@
           "kind": {
             "title": "Kind",
             "type": "string"
+          },
+          "skipped": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Skipped",
+            "type": "object"
+          },
+          "skipped_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped Summary"
           },
           "started_at": {
             "anyOf": [
@@ -2564,6 +2610,12 @@
       },
       "SourceOut": {
         "properties": {
+          "busy": {
+            "default": false,
+            "description": "Work is moving (counts as processing)",
+            "title": "Busy",
+            "type": "boolean"
+          },
           "connector": {
             "title": "Connector",
             "type": "string"
@@ -2579,6 +2631,12 @@
           "documents": {
             "title": "Documents",
             "type": "integer"
+          },
+          "healthy": {
+            "default": true,
+            "description": "False: something needs attention",
+            "title": "Healthy",
+            "type": "boolean"
           },
           "id": {
             "format": "uuid",
@@ -2618,18 +2676,45 @@
             "title": "Shareable",
             "type": "boolean"
           },
+          "skipped_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the last run left out and why, e.g. '30 PDFs (not supported yet)'",
+            "title": "Skipped Summary"
+          },
           "status": {
             "enum": [
               "synced",
               "syncing",
               "queued",
+              "retrying",
+              "waiting_for_worker",
               "failed",
+              "partial",
+              "empty",
               "never",
-              "paused",
-              "partial"
+              "paused"
             ],
             "title": "Status",
             "type": "string"
+          },
+          "status_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the source is in this state and what to do, if anything",
+            "title": "Status Reason"
           },
           "visibility": {
             "enum": [
@@ -2694,6 +2779,18 @@
       },
       "SyncConnectionOut": {
         "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it's partial or failed",
+            "title": "Reason"
+          },
           "source_id": {
             "description": "The source being synced; open it to follow progress",
             "format": "uuid",
@@ -2701,9 +2798,11 @@
             "type": "string"
           },
           "status": {
-            "description": "done: synced now; background: the worker finishes it (big or busy)",
+            "description": "done: synced now; partial: part synced, see reason; failed: it didn't work, see reason; background: the worker finishes it (big or busy)",
             "enum": [
               "done",
+              "partial",
+              "failed",
               "background"
             ],
             "title": "Status",
@@ -2724,8 +2823,38 @@
             "title": "Job Id",
             "type": "string"
           },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it's partial or failed",
+            "title": "Reason"
+          },
+          "skipped_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the sync left out and why, e.g. '12 code files (...)'",
+            "title": "Skipped Summary"
+          },
           "status": {
-            "description": "done: synced now; queued: the worker finishes it",
+            "description": "done: synced now; partial: part synced, see reason; failed: it didn't work, see reason; background: the worker does it",
+            "enum": [
+              "done",
+              "partial",
+              "failed",
+              "background"
+            ],
             "title": "Status",
             "type": "string"
           }

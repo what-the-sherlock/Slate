@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import type { SyncReply } from "@/lib/sync-result";
 import { LogoTile } from "@/components/brand";
 import { PageHeader } from "@/components/page-header";
 import { Pill, type PillVariant } from "@/components/status-pill";
@@ -32,12 +33,13 @@ type Phase =
   | { kind: "picking"; grant: string; installationId: number }
   | { kind: "syncing"; rows: SyncRow[] };
 
-type SyncRow = { sourceId: string; name: string; state: "waiting" | "syncing" | "done" | "background" | "failed"; detail?: string };
+type SyncRow = { sourceId: string; name: string; state: "waiting" | "syncing" | SyncReply["status"]; detail?: string };
 
 const ROW_STATE: Record<SyncRow["state"], { variant: PillVariant; label: string }> = {
   waiting: { variant: "outline", label: "Waiting" },
   syncing: { variant: "accent", label: "Syncing" },
   done: { variant: "success", label: "Synced" },
+  partial: { variant: "warning", label: "Partly synced" },
   background: { variant: "neutral", label: "Continues in background" },
   failed: { variant: "danger", label: "Couldn't sync" },
 };
@@ -93,7 +95,10 @@ export function GitHubCallback() {
         let next: SyncRow;
         try {
           const res = unwrap(await api.POST("/api/v1/sources/{source_id}/sync", { params: { path: { source_id: row.sourceId } } }));
-          next = { ...row, state: res.status === "done" ? "done" : "background" };
+          // The run's real outcome (P0-2): a failure shows its reason, never "background".
+          // Say what was left out too (P0-4), so "0 documents" is never a mystery.
+          const skipped = res.skipped_summary ? `Not indexed: ${res.skipped_summary}.` : undefined;
+          next = { ...row, state: res.status, detail: [res.reason, skipped].filter(Boolean).join(" ") || undefined };
         } catch (err) {
           next = { ...row, state: "failed", detail: errorMessage(err) };
         }
@@ -282,6 +287,11 @@ function RepoPicker({
         {!visible.length ? <li className="px-4 py-6 text-center text-caption text-fg-subtle">No repositories match “{query}”.</li> : null}
       </ul>
 
+      <p className="text-caption text-fg-subtle">
+        Slate indexes each repository&apos;s docs (Markdown and text files, README and similar), issues and pull requests.
+        It doesn&apos;t index code. After the first sync you&apos;ll see what was left out.
+      </p>
+
       {anyPublic ? (
         <p className="rounded-md border border-border bg-subtle px-3 py-2 text-caption text-fg-muted">
           Public repositories are searchable only by you, just like private ones.
@@ -321,7 +331,9 @@ function SyncProgress({ rows }: { rows: SyncRow[] }) {
               <Pill variant={st.variant} icon={r.state === "syncing" ? <Spinner className="size-2.5" /> : undefined}>
                 {st.label}
               </Pill>
-              {r.detail ? <p className="w-full text-caption text-danger">{r.detail}</p> : null}
+              {r.detail ? (
+                <p className={`w-full text-caption ${r.state === "failed" ? "text-danger" : "text-fg-muted"}`}>{r.detail}</p>
+              ) : null}
             </li>
           );
         })}

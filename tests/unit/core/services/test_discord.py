@@ -629,3 +629,33 @@ async def test_running_syncs_report_progress(env: Env) -> None:
     await env.run(sid)
     assert env.sources.progressed  # every 10 items, so the source page shows live counts
     assert env.sources.progressed[0][1] == 10
+
+
+# ================================================================== honest outcomes (P0-1)
+
+
+async def test_a_crash_is_failed_and_re_raised_not_an_empty_success(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sid = await connected(env)
+
+    async def boom(guild_id: str) -> None:
+        raise ValueError("message text from the server")
+
+    monkeypatch.setattr(env.dc, "guild", boom)
+    with pytest.raises(ValueError, match="message text"):
+        await env.run(sid)
+    assert env.last_status() == "failed"
+    summary = list(env.sources.finished.values())[-1][4] or ""
+    assert "ValueError" in summary
+    assert "message text" not in summary
+    assert sid not in env.sources.synced
+
+
+async def test_a_missing_guild_id_is_a_plain_failure(env: Env) -> None:
+    sid = await connected(env)
+    rec = env.sources.records[sid]
+    for bad in ({}, {**rec.config, "guild_id": ""}, {**rec.config, "guild_id": 123}):
+        env.sources.records[sid] = replace(rec, config=bad)
+        assert await env.run(sid) == "failed"
+        assert "settings are incomplete" in (list(env.sources.finished.values())[-1][4] or "")

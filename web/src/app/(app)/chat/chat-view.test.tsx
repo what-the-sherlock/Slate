@@ -26,7 +26,7 @@ function sse(events: [string, unknown][]): Response {
 }
 
 const SOURCES = [
-  { id: "s1", name: "octo/docs", connector: "github", data_class: "private", documents: 0, last_error: null, last_synced_at: null, status: "syncing", visibility: "workspace" },
+  { id: "s1", name: "octo/docs", connector: "github", data_class: "private", documents: 0, last_error: null, last_synced_at: null, status: "syncing", busy: true, healthy: true, visibility: "workspace" },
 ];
 
 function mockApi(chat: (body: Record<string, unknown>) => Response) {

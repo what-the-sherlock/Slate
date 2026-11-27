@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -10,9 +11,10 @@ from api.schemas.catalog import ActivityOut, JobOut, RunErrorOut, RunOut, Source
 from api.security import CurrentIdentity, MutatingIdentity
 from core.domain.ids import JobId, SourceId
 from core.domain.principals import PUBLIC
+from core.domain.skips import describe_skips
+from core.domain.source_status import Status, source_status
 from core.ports.catalog import SourceSummary
 from core.services.catalog import CatalogService
-from core.services.inline import InlineOutcome
 from core.services.source_actions import SourceActions
 
 router = APIRouter(tags=["sources"])
@@ -32,16 +34,9 @@ def _actions(container: Annotated[Container, Depends(get_container)]) -> SourceA
 Actions = Annotated[SourceActions, Depends(_actions)]
 
 
-def _status(s: SourceSummary) -> str:
-    if s.status == "paused":
-        return "paused"
-    if s.pending_jobs:
-        return "syncing" if s.last_run_status == "running" else "queued"
-    if s.last_run_status == "failed":
-        return "failed"
-    if s.last_run_status == "partial":
-        return "partial"  # stopped early (budget, rate limit, items that failed): see last_error
-    return "synced" if s.last_synced_at else "never"
+def _status(s: SourceSummary, now: datetime) -> Status:
+    """The badge and its reason, from raw facts (core.domain.source_status)."""
+    return source_status(s.facts(), now)
 
 
 def _visibility(s: SourceSummary) -> str:
@@ -54,21 +49,29 @@ def _visibility(s: SourceSummary) -> str:
 
 @router.get("/sources", summary="Sources you can see, with status", response_model=list[SourceOut])
 async def list_sources(identity: CurrentIdentity, catalog: Catalog) -> list[SourceOut]:
-    return [
-        SourceOut(
-            id=s.id,
-            name=s.name,
-            connector=s.connector,
-            visibility=_visibility(s),  # pyright: ignore[reportArgumentType]
-            data_class=s.data_class,  # pyright: ignore[reportArgumentType]
-            status=_status(s),  # pyright: ignore[reportArgumentType]
-            documents=s.documents,
-            last_synced_at=s.last_synced_at,
-            last_error=s.last_run_error if s.last_run_status == "failed" else None,
-            shareable=s.created_by == identity.user_id and s.connector != "upload",
+    now = datetime.now(UTC)
+    out: list[SourceOut] = []
+    for s in await catalog.sources(identity):
+        st = _status(s, now)
+        out.append(
+            SourceOut(
+                id=s.id,
+                name=s.name,
+                connector=s.connector,
+                visibility=_visibility(s),  # pyright: ignore[reportArgumentType]
+                data_class=s.data_class,  # pyright: ignore[reportArgumentType]
+                status=st.badge.value,
+                status_reason=st.reason,
+                busy=st.busy,
+                healthy=st.healthy,
+                documents=s.documents,
+                last_synced_at=s.last_synced_at,
+                last_error=st.reason if not st.healthy else None,
+                skipped_summary=describe_skips(s.run_skipped),
+                shareable=s.created_by == identity.user_id and s.connector != "upload",
+            )
         )
-        for s in await catalog.sources(identity)
-    ]
+    return out
 
 
 @router.get(
@@ -97,6 +100,9 @@ async def list_runs(
                 RunErrorOut(stage=e.stage, message=e.message, retryable=e.retryable)
                 for e in r.errors
             ],
+            docs_skipped=sum(r.skipped.values()),
+            skipped=dict(r.skipped),
+            skipped_summary=describe_skips(r.skipped),
         )
         for r in await catalog.runs(identity, SourceId(source_id), limit)
     ]
@@ -142,8 +148,13 @@ async def get_job(job_id: UUID, identity: CurrentIdentity, catalog: Catalog) -> 
     response_model=SyncOut,
 )
 async def sync_now(source_id: UUID, identity: MutatingIdentity, actions: Actions) -> SyncOut:
-    job, outcome = await actions.sync_now(identity, SourceId(source_id))
-    return SyncOut(job_id=job, status="done" if outcome is InlineOutcome.DONE else "queued")
+    result = await actions.sync_now(identity, SourceId(source_id))
+    return SyncOut(
+        job_id=result.job_id,
+        status=result.status.value,
+        reason=result.reason,
+        skipped_summary=result.skipped,
+    )
 
 
 @router.delete(

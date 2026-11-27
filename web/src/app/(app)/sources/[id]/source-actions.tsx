@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api, errorMessage, unwrap } from "@/lib/api/client";
+import { toastSync } from "@/lib/sync-result";
 import { keys, type Source } from "@/lib/api/hooks";
 import { isEmail, SYNCABLE } from "@/lib/connectors";
 
@@ -16,13 +17,13 @@ export function SyncNowButton({ source }: { source: Source }) {
   const client = useQueryClient();
   const [busy, setBusy] = useState(false);
   if (!SYNCABLE.includes(source.connector)) return null; // uploads and imports don't sync
-  const running = source.status === "syncing" || source.status === "queued";
+  const running = source.busy;
 
   async function sync() {
     setBusy(true);
     try {
       const res = unwrap(await api.POST("/api/v1/sources/{source_id}/sync", { params: { path: { source_id: source.id } } }));
-      toast.success(res.status === "done" ? "Synced" : "Sync started. It finishes in the background within the hour.");
+      toastSync(res, source.name);
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {

@@ -41,7 +41,31 @@ def test_sources_list_derives_status_and_visibility(
     catalog.source_rows += [
         (ws, summary(ws)),
         (ws, summary(ws, name="Failing", last_run_status="failed", last_run_error="Bad PDF")),
-        (ws, summary(ws, name="Busy", pending_jobs=2, last_run_status="running")),
+        (
+            ws,
+            summary(
+                ws,
+                name="Busy",
+                pending_jobs=2,
+                jobs_running=2,
+                last_run_status="running",
+                running_since=datetime.now(UTC),
+            ),
+        ),
+        (
+            ws,
+            summary(
+                ws,
+                name="Retrying",
+                jobs_waiting=1,
+                retry_error="unexpected KeyError",
+                oldest_waiting_due=datetime.now(UTC),
+            ),
+        ),
+        (
+            ws,
+            summary(ws, name="Empty", documents=0, run_skipped={"unsupported_type:pdf": 3}),
+        ),
         (
             ws,
             summary(
@@ -57,6 +81,12 @@ def test_sources_list_derives_status_and_visibility(
     assert rows["Failing"]["status"] == "failed"
     assert rows["Failing"]["last_error"] == "Bad PDF"
     assert rows["Busy"]["status"] == "syncing"
+    assert rows["Busy"]["busy"]
+    assert rows["Retrying"]["status"] == "retrying"  # not "queued" with no end (P0-2)
+    assert rows["Retrying"]["last_error"] == "Retrying: Slate hit an internal error (KeyError)."
+    assert rows["Empty"]["status"] == "empty"
+    assert not rows["Empty"]["healthy"]
+    assert rows["Empty"]["skipped_summary"] == "3 PDFs (not supported yet)"
     assert rows["Public uploads"]["visibility"] == "public"
 
 

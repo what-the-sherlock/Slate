@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import io
+import tarfile
 import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
+import httpx
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
+from core.adapters.github.app import GitHubApp
 from core.adapters.parsers.formats import FormatParser
 from core.domain.auth import Identity, Role
 from core.domain.budget import SpendLimits
@@ -356,6 +362,65 @@ async def test_a_spent_budget_stops_the_sync_without_failing_it(env: Env) -> Non
     assert "budget" in summary.lower()
 
 
+def _real_app_over(files: dict[str, bytes]) -> GitHubApp:
+    """The real GitHubApp adapter, with GitHub itself replaced by MockTransport."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for path, data in files.items():
+            info = tarfile.TarInfo(f"octo-docs-sha1/{path}")
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    tarball = buf.getvalue()
+    repo = {"id": 1, "full_name": "octo/docs", "private": True, "default_branch": "main",
+            "html_url": "https://github.com/octo/docs"}  # fmt: skip
+    issues = [{"number": 1, "title": "Bug", "body": "It breaks.", "state": "open",
+               "html_url": "https://github.com/octo/docs/issues/1", "comments": 1,
+               "created_at": "2026-11-01T00:00:00Z", "updated_at": "2026-11-02T00:00:00Z",
+               "user": {"login": "ada"}}]  # fmt: skip
+    comments = [{"body": "Fixed in v2.", "created_at": "2026-11-02T00:00:00Z",
+                 "user": {"login": "bob"}}]  # fmt: skip
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        path = req.url.path
+        if path.endswith("/access_tokens"):
+            return httpx.Response(
+                201, json={"token": "ghs_x", "expires_at": "2099-01-01T00:00:00Z"}
+            )
+        if path == "/repos/octo/docs":
+            return httpx.Response(200, json=repo)
+        if path == "/repos/octo/docs/commits/main":
+            return httpx.Response(200, text="sha1\n")
+        if path == "/repos/octo/docs/tarball/sha1":
+            return httpx.Response(200, content=tarball)
+        if path == "/repos/octo/docs/issues":
+            return httpx.Response(200, json=issues)
+        if path == "/repos/octo/docs/issues/1/comments":
+            return httpx.Response(200, json=comments)
+        return httpx.Response(404)
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    ).decode()
+    return GitHubApp(
+        app_id="1", slug="slate", client_id="c", client_secret="s", private_key=pem,
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )  # fmt: skip
+
+
+async def test_sync_with_the_real_github_app_indexes_docs_and_issues(env: Env) -> None:
+    # The fake GitHubApi hid P0-0 (a TypeError inside the real adapter). This wires the
+    # real adapter under the service, so the adapter's own plumbing runs too.
+    sid = await env.connect()
+    real = _real_app_over({"README.md": b"# Docs\n\nInstall with pip.", "src/app.py": b"code"})
+    env.sync = GitHubSync(real, env.sources, env.jobs, env.sync._ingest, FormatParser())
+    await env.run(sid)
+    status, seen, changed, failed, summary = env.last_run()
+    assert (status, seen, changed, failed, summary) == ("succeeded", 2, 2, 0, None)
+    assert env.docs(sid) == {"file:README.md", "issue:1"}  # code is never indexed (ADR-0023)
+    assert checkpoint(env, sid)["commit"] == "sha1"
+
+
 async def test_a_job_for_a_deleted_source_is_skipped(env: Env) -> None:
     await env.run(SourceId(uuid4()))
     assert env.sources.finished == {}
@@ -529,3 +594,46 @@ async def test_repos_without_a_stored_token_still_sync() -> None:
     await env.run(sid)
     assert env.status()[0] == "succeeded"
     assert env.gh.rechecks == 0
+
+
+# ---------------------------------------------------------------- honest outcomes (P0-1, P0-4)
+
+DOC_TEXT = "Q3 salary bands"  # stands in for document text inside an exception message
+
+
+async def test_a_crash_mid_sync_is_failed_not_an_empty_success(env: Env) -> None:
+    sid = await env.connect()
+    env.gh.crash_on_file = "docs/faq.md"
+    with pytest.raises(KeyError):  # re-raised: the worker retries the job
+        await env.run(sid)
+    status, _, _, _, summary = env.last_run()
+    assert status == "failed"
+    assert summary
+    assert "KeyError" in summary
+    assert sid not in env.sources.synced  # last_synced_at doesn't move
+    assert all(DOC_TEXT not in e[2] for e in env.sources.errors)
+
+
+async def test_an_incomplete_config_is_a_plain_failure_not_a_key_error(env: Env) -> None:
+    sid = await env.connect()
+    rec = env.sources.records[sid]
+    for bad in ({}, {"installation_id": "x", "full_name": "octo/docs"},
+                {"installation_id": True, "full_name": "octo/docs"},
+                {"installation_id": INSTALL, "full_name": "../etc"}):  # fmt: skip
+        env.sources.records[sid] = replace(rec, config=bad)
+        await env.run(sid)  # no exception: nothing to retry, the reason is shown
+        status, *_, summary = env.last_run()
+        assert status == "failed"
+        assert summary
+        assert "settings are incomplete" in summary
+
+
+async def test_files_left_out_are_counted_with_a_reason(env: Env) -> None:
+    env.repo.files.update({"src/app.py": b"print()", "node_modules/x/README.md": b"v",
+                           "docs/blank.md": b"  \n"})  # fmt: skip
+    sid = await env.connect()
+    await env.run(sid)
+    [skipped] = list(env.sources.skipped.values())
+    assert skipped == {"empty_text:file": 1, "excluded_path": 1, "unsupported_type:code": 1}
+    assert "file:docs/blank.md" not in env.docs(sid)
+    assert env.last_run()[0] == "succeeded"

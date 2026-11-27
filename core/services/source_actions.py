@@ -10,11 +10,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol
 
 from core.domain.auth import Identity
 from core.domain.errors import NotFound, UpstreamUnavailable
 from core.domain.ids import JobId, SourceId
+from core.domain.skips import describe_skips
+from core.domain.source_status import WAITING_FOR_WORKER
 from core.ports.sources import SourceStore
 from core.services.inline import InlineOutcome, InlineRunner
 
@@ -28,6 +31,24 @@ class ConnectorActions(Protocol):
     async def sync_now(self, identity: Identity, source_id: SourceId) -> JobId: ...
 
     async def disconnect(self, identity: Identity, source_id: SourceId) -> None: ...
+
+
+class SyncStatus(StrEnum):
+    DONE = "done"  # synced now, fully
+    PARTIAL = "partial"  # synced part; ``reason`` says what's left and why
+    FAILED = "failed"  # it didn't work; ``reason`` says why
+    BACKGROUND = "background"  # the worker does it (no inline runner, busy, or too big)
+
+
+@dataclass(frozen=True, slots=True)
+class SyncResult:
+    job_id: JobId
+    status: SyncStatus
+    reason: str | None = None
+    skipped: str | None = None  # what the run left out and why (P0-4), e.g. "3 PDFs (...)"
+
+
+CRASHED = "Slate hit an internal error while syncing. It will retry automatically."
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,18 +75,41 @@ class SourceActions:
             raise NotFound(NOT_FOUND)
         return entry
 
-    async def sync_now(
-        self, identity: Identity, source_id: SourceId
-    ) -> tuple[JobId, InlineOutcome]:
+    async def sync_now(self, identity: Identity, source_id: SourceId) -> SyncResult:
+        """Queue a sync and, where an inline runner exists, run it now (up to ~90 s).
+
+        The answer comes from the *run* the sync recorded, not from the job: a job can
+        finish while its run failed (a repo that's gone, a revoked grant), and a crashed job
+        is retried by the worker but did not work now. Neither is "continuing" (P0-2).
+        """
         entry = await self._entry(identity, source_id)
         if not entry.actions.available:
             raise UpstreamUnavailable(f"{entry.name} isn't set up on this server yet.")
         job = await entry.actions.sync_now(identity, source_id)
-        outcome = InlineOutcome.DEFERRED
-        if entry.inline is not None:
-            # Up to ~90 s here; a big source continues in the background from its checkpoint.
-            outcome = await entry.inline.run(job)
-        return job, outcome
+        if entry.inline is None:
+            return await self._background(identity, job)
+        # Up to ~90 s here; a big source continues in the background from its checkpoint.
+        outcome = await entry.inline.run(job)
+        run = await self._sources.last_run(source_id)
+        if outcome is InlineOutcome.FAILED:
+            reason = run.error_summary if run is not None and run.status == "failed" else None
+            return SyncResult(job, SyncStatus.FAILED, reason or CRASHED)
+        if outcome is InlineOutcome.DEFERRED:
+            return await self._background(identity, job)
+        if run is None:  # the job finished without a run: the source was gone or paused
+            return SyncResult(job, SyncStatus.DONE)
+        if run.status == "failed":
+            return SyncResult(job, SyncStatus.FAILED, run.error_summary)
+        skipped = describe_skips(run.skipped)
+        if run.status in {"partial", "cancelled", "running"}:
+            return SyncResult(job, SyncStatus.PARTIAL, run.error_summary, skipped)
+        return SyncResult(job, SyncStatus.DONE, None, skipped)
+
+    async def _background(self, identity: Identity, job: JobId) -> SyncResult:
+        if await self._sources.worker_overdue(identity.workspace_id):
+            # Earlier work is still waiting: saying "it continues" would be a promise.
+            return SyncResult(job, SyncStatus.FAILED, WAITING_FOR_WORKER)
+        return SyncResult(job, SyncStatus.BACKGROUND)
 
     async def disconnect(self, identity: Identity, source_id: SourceId) -> None:
         # Disconnecting works even when the connector is no longer configured: deleting

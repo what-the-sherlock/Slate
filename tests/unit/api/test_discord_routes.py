@@ -75,7 +75,7 @@ def test_full_connect_sync_and_disconnect(
     sid = r.json()["source_id"]
     r = client.post(f"/api/v1/sources/{sid}/sync", headers=csrf(client))
     assert r.status_code == 200, r.text
-    assert r.json()["status"] == "queued"  # no inline runner in this app
+    assert r.json()["status"] == "background"  # no inline runner in this app
     assert client.delete(f"/api/v1/sources/{sid}", headers=csrf(client)).status_code == 204
     assert fake_discord.left == [G]
     assert client.delete(f"/api/v1/sources/{sid}", headers=csrf(client)).status_code == 404

@@ -15,8 +15,9 @@ import { absoluteTime, formatCount, relativeTime } from "@/lib/format";
 
 /** Figures for the KPI strip, derived from the sources list (no extra endpoint). */
 export function summarise(sources: Source[]) {
-  const processing = sources.filter((s) => s.status === "queued" || s.status === "syncing").length;
-  const failed = sources.filter((s) => s.status === "failed").length;
+  // Work actually moving (P0-2): a job no worker picks up is a problem, not "processing".
+  const processing = sources.filter((s) => s.busy).length;
+  const failed = sources.filter((s) => !s.healthy).length;
   const documents = sources.reduce((n, s) => n + s.documents, 0);
   const lastSynced = sources
     .map((s) => s.last_synced_at)

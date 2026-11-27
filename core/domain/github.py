@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import PurePosixPath
+
+from core.domain.skips import SkipReason
 
 DOC_SUFFIXES = frozenset({".md", ".markdown", ".mdx", ".txt", ".rst"})
 DOC_NAMES = frozenset(
@@ -45,6 +47,19 @@ _REPO = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
 
 def is_valid_repo_name(full_name: str) -> bool:
     return bool(_REPO.match(full_name)) and ".." not in full_name
+
+
+def doc_path_skip(path: str) -> SkipReason | None:
+    """Why a file in the tree isn't indexed (None: it is a doc). Code is unsupported by
+    design (ADR-0023), vendored and hidden folders are excluded."""
+    if is_doc_path(path):
+        return None
+    p = PurePosixPath(path)
+    if any(
+        part in SKIP_DIRS or (part.startswith(".") and part != ".github") for part in p.parts[:-1]
+    ):
+        return SkipReason.EXCLUDED_PATH
+    return SkipReason.UNSUPPORTED_TYPE
 
 
 def is_doc_path(path: str) -> bool:
@@ -95,6 +110,37 @@ class Repo:
 class RepoFile:
     path: str
     data: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class TreeSkips:
+    """Yielded once, last, by ``GitHubApi.doc_files``: what the tree held that isn't
+    indexed, ``{"reason[:kind]": count}`` (core.domain.skips)."""
+
+    counts: Mapping[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubSourceConfig:
+    """A GitHub source's stored ``config``, parsed. None when it's incomplete (e.g. a
+    hand-made fixture or a row from an old version), which the sync reports plainly
+    instead of crashing with a KeyError."""
+
+    installation_id: int
+    full_name: str
+
+    @classmethod
+    def parse(cls, raw: Mapping[str, object]) -> GitHubSourceConfig | None:
+        inst, name = raw.get("installation_id"), raw.get("full_name")
+        if isinstance(inst, bool) or not isinstance(inst, int | str):
+            return None
+        try:
+            installation = int(inst)
+        except ValueError:
+            return None
+        if installation <= 0 or not isinstance(name, str) or not is_valid_repo_name(name):
+            return None
+        return cls(installation, name)
 
 
 @dataclass(frozen=True, slots=True)

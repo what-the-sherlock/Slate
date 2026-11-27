@@ -23,7 +23,6 @@ from api.schemas.integrations import (
 from api.security import CurrentIdentity, MutatingIdentity
 from core.domain.errors import UpstreamUnavailable
 from core.ports.integrations import Connection
-from core.services.inline import InlineOutcome
 from core.services.integrations import IntegrationService, IntegrationView
 
 router = APIRouter(tags=["integrations"])
@@ -123,6 +122,5 @@ async def sync_connection(
     # Find (or repair) the source, then sync it like any source: inline for ~90 s, then the
     # worker continues from the checkpoint. A fresh connection has content within minutes.
     source_id = await container.connected.source_for(identity, connection_id)
-    _, outcome = await container.source_actions.sync_now(identity, source_id)
-    status = "done" if outcome is InlineOutcome.DONE else "background"
-    return SyncConnectionOut(source_id=source_id, status=status)
+    result = await container.source_actions.sync_now(identity, source_id)
+    return SyncConnectionOut(source_id=source_id, status=result.status.value, reason=result.reason)

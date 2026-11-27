@@ -36,8 +36,9 @@ export function suggestionsFor(sources: Source[]): Suggestion[] {
  */
 export function ChatEmpty({ sources, loading, onPick }: { sources: Source[]; loading: boolean; onPick: (text: string) => void }) {
   const documents = sources.reduce((n, s) => n + s.documents, 0);
-  const syncing = sources.filter((s) => (s.status === "syncing" || s.status === "queued" || s.status === "never") && s.connector !== "upload");
-  const failing = sources.filter((s) => s.status === "failed" || (s.status === "partial" && s.last_error));
+  const syncing = sources.filter((s) => (s.busy || s.status === "never") && s.connector !== "upload");
+  // Anything that needs attention says why (P0-2): failed, waiting on the worker, empty.
+  const failing = sources.filter((s) => !s.healthy && !s.busy && (s.status !== "partial" || s.last_error));
   const suggestions = suggestionsFor(sources);
 
   return (
@@ -82,7 +83,9 @@ export function ChatEmpty({ sources, loading, onPick }: { sources: Source[]; loa
             <p key={s.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-danger-subtle px-3 py-1 text-caption text-fg-muted">
               <CircleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
               <span className="truncate">
-                <strong className="font-medium text-fg">{s.name}</strong> couldn&apos;t sync{s.last_error ? `: ${s.last_error}` : "."}
+                <strong className="font-medium text-fg">{s.name}</strong>
+                {s.status === "empty" ? " has nothing indexed" : " couldn't sync"}
+                {s.status_reason ?? s.last_error ? `: ${s.status_reason ?? s.last_error}` : "."}
               </span>
               <Link href="/sources" className="shrink-0 font-medium text-brand hover:underline">
                 Fix in Sources

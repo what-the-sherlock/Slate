@@ -19,15 +19,41 @@ SELECT s.id, s.name, s.connector, s.data_class, s.visibility, s.status, s.last_s
        s.created_by,
        (SELECT count(*) FROM documents d
          WHERE d.source_id = s.id AND d.deleted_at IS NULL AND d.acl && CAST(:p AS text[])) AS docs,
-       r.status AS run_status, r.error_summary AS run_error,
-       (SELECT count(*) FROM jobs j
-         WHERE j.workspace_id = s.workspace_id AND j.payload->>'source_id' = s.id::text
-           AND j.status IN ('queued', 'running', 'failed')) AS pending
+       r.status AS run_status, r.error_summary AS run_error, r.started_at AS run_started_at,
+       r.skipped AS run_skipped,
+       ok.started_at AS last_ok_run_at,
+       j.running, j.running_since, j.waiting, j.oldest_waiting_due, j.retry_error,
+       dead.last_error AS dead_error, dead.finished_at AS dead_at
 FROM sources s
 LEFT JOIN LATERAL (
-    SELECT status, error_summary FROM ingestion_runs
+    SELECT status, error_summary, started_at, skipped FROM ingestion_runs
     WHERE source_id = s.id ORDER BY created_at DESC LIMIT 1
 ) r ON true
+LEFT JOIN LATERAL (
+    SELECT started_at FROM ingestion_runs
+    WHERE source_id = s.id AND status IN ('succeeded', 'partial')
+    ORDER BY created_at DESC LIMIT 1
+) ok ON true
+LEFT JOIN LATERAL (
+    SELECT count(*) FILTER (WHERE status = 'running') AS running,
+           min(coalesce(heartbeat_at, locked_at)) FILTER (WHERE status = 'running')
+               AS running_since,
+           count(*) FILTER (WHERE status IN ('queued', 'failed')) AS waiting,
+           min(run_after) FILTER (WHERE status IN ('queued', 'failed')) AS oldest_waiting_due,
+           (array_agg(last_error ORDER BY created_at DESC)
+               FILTER (WHERE status = 'failed'))[1] AS retry_error
+    FROM jobs
+    WHERE workspace_id = s.workspace_id AND payload->>'source_id' = s.id::text
+      AND status IN ('queued', 'running', 'failed')
+) j ON true
+LEFT JOIN LATERAL (
+    SELECT status, last_error, coalesce(finished_at, created_at) AS finished_at FROM jobs
+    WHERE workspace_id = s.workspace_id AND payload->>'source_id' = s.id::text
+    ORDER BY created_at DESC LIMIT 1
+) last_job ON true
+LEFT JOIN LATERAL (
+    SELECT last_job.last_error, last_job.finished_at WHERE last_job.status = 'dead'
+) dead ON true
 WHERE s.workspace_id = :ws AND s.visibility && CAST(:p AS text[])
 ORDER BY s.name
 """
@@ -59,8 +85,18 @@ class PostgresCatalog:
                     last_synced_at=r["last_synced_at"],
                     last_run_status=r["run_status"],
                     last_run_error=r["run_error"],
-                    pending_jobs=int(r["pending"]),
+                    pending_jobs=int(r["running"] or 0) + int(r["waiting"] or 0),
                     created_by=UserId(r["created_by"]) if r["created_by"] is not None else None,
+                    run_started_at=r["run_started_at"],
+                    run_skipped=dict(r["run_skipped"] or {}),
+                    jobs_running=int(r["running"] or 0),
+                    running_since=r["running_since"],
+                    jobs_waiting=int(r["waiting"] or 0),
+                    oldest_waiting_due=r["oldest_waiting_due"],
+                    retry_error=r["retry_error"],
+                    dead_error=r["dead_error"],
+                    dead_at=r["dead_at"],
+                    last_ok_run_at=r["last_ok_run_at"],
                 )
             )
         return out
@@ -121,7 +157,7 @@ class PostgresCatalog:
                     await s.execute(
                         text(
                             "SELECT id, kind, status, started_at, finished_at, docs_seen,"
-                            " docs_changed, docs_failed, error_summary FROM ingestion_runs"
+                            " docs_changed, docs_failed, error_summary, skipped FROM ingestion_runs"
                             " WHERE source_id = :s ORDER BY created_at DESC LIMIT :n"
                         ),
                         {"s": source_id, "n": limit},
@@ -164,6 +200,7 @@ class PostgresCatalog:
                 docs_failed=r["docs_failed"],
                 error_summary=r["error_summary"],
                 errors=tuple(by_run.get(r["id"], [])),
+                skipped=dict(r["skipped"] or {}),
             )
             for r in runs
         ]

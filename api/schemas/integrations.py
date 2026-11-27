@@ -55,6 +55,10 @@ class CallbackBody(BaseModel):
 
 class SyncConnectionOut(BaseModel):
     source_id: UUID = Field(description="The source being synced; open it to follow progress")
-    status: Literal["done", "background"] = Field(
-        description="done: synced now; background: the worker finishes it (big or busy)"
+    status: Literal["done", "partial", "failed", "background"] = Field(
+        description=(
+            "done: synced now; partial: part synced, see reason; failed: it didn't work, see"
+            " reason; background: the worker finishes it (big or busy)"
+        )
     )
+    reason: str | None = Field(default=None, description="Why it's partial or failed")

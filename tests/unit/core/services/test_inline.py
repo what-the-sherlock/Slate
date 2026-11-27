@@ -60,12 +60,15 @@ async def test_a_job_the_worker_already_holds_is_not_run_twice() -> None:
     assert calls == 0
 
 
-async def test_unexpected_crash_is_deferred_not_raised() -> None:
+async def test_unexpected_crash_is_reported_failed_not_raised_and_still_retried() -> None:
     async def boom(job: Job) -> None:
-        raise RuntimeError("bug")
+        raise RuntimeError("bug with document text")
 
-    _, job_id, runner = await setup(boom)
-    assert await runner.run(job_id) is InlineOutcome.DEFERRED
+    q, job_id, runner = await setup(boom)
+    assert await runner.run(job_id) is InlineOutcome.FAILED  # never "continues in background"
+    job = await q.get(job_id)
+    assert job.status is JobStatus.FAILED  # the worker retries it
+    assert job.last_error == "unexpected RuntimeError"  # type only, never the message
 
 
 async def test_runner_leaves_jobs_of_other_kinds_to_the_worker() -> None:

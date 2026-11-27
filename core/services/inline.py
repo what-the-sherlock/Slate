@@ -25,8 +25,9 @@ INLINE_TIMEOUT_S = 120.0  # well inside Vercel's 300 s function limit
 
 
 class InlineOutcome(StrEnum):
-    DONE = "done"
-    DEFERRED = "deferred"  # left for the worker (busy, or a retryable problem)
+    DONE = "done"  # the job finished (its run may still have failed: read the run)
+    DEFERRED = "deferred"  # left for the worker (busy, rate limited, or out of time)
+    FAILED = "failed"  # crashed unexpectedly; the worker retries it, but say so (P0-2)
 
 
 class InlineRunner:
@@ -65,11 +66,11 @@ class InlineRunner:
                 raise
             log.info("inline_deferred", job_id=str(job.id), error_code=e.code)
             return InlineOutcome.DEFERRED
-        except Exception as e:  # unexpected: let the worker retry it
+        except Exception as e:  # unexpected: the worker retries it, but it did NOT work
             await self._queue.fail(
                 job.id, self._id, f"unexpected {type(e).__name__}", retryable=True
             )
             log.error("inline_crashed", job_id=str(job.id), error_type=type(e).__name__)
-            return InlineOutcome.DEFERRED
+            return InlineOutcome.FAILED
         await self._queue.complete(job.id, self._id)
         return InlineOutcome.DONE

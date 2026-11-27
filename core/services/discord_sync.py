@@ -49,6 +49,7 @@ from core.domain.discord import (
     checksum,
     group_windows,
     intent_looks_off,
+    is_snowflake,
     message_url,
     recent_windows,
     snowflake_at,
@@ -65,10 +66,9 @@ from core.domain.documents import DocumentUpsert, Section
 from core.domain.errors import (
     AppError,
     BudgetExceeded,
+    ConnectorError,
     NotFound,
     PermissionDenied,
-    RateLimited,
-    UpstreamUnavailable,
 )
 from core.domain.ids import RunId
 from core.domain.jobs import Job
@@ -78,6 +78,7 @@ from core.ports.sources import SourceRecord, SourceStore
 from core.ports.system import Clock
 from core.services.discord import CONNECTOR, SYNC_DISCORD, channel_configs, parse_source_id
 from core.services.ingest import IngestService, Stage
+from core.services.sync_run import RunBoundary
 
 log = structlog.get_logger(__name__)
 
@@ -86,6 +87,7 @@ PROGRESS_EVERY = (
     10  # items between live progress updates on a running run  # inside the inline runner's 120 s
 )
 MIME = "text/plain"
+BAD_CONFIG = "This Discord server's settings are incomplete. Disconnect it and connect it again."
 INTENT_OFF = (
     "Discord returns messages without their text: turn on the Message Content intent "
     "for Slate's bot in the Discord developer portal."
@@ -161,67 +163,33 @@ class DiscordSync:
         )
         out_of_time = (lambda: False) if deadline is None else (lambda: time.monotonic() > deadline)
         state: _Run | None = None
-        status, summary, retry = "succeeded", None, None
         tally = _Tally()
-        try:
-            guild_id = str(source.config.get("guild_id", ""))
-            guild = await self._dc.guild(guild_id)
-            state = _Run(source, run_id, guild, self._clock.now(), out_of_time, cp, tally)
-            await self._sync_guild(state)
-            if state.incomplete:
-                status, summary = "partial", "More to read: the rest continues on the next sync."
-        except _OutOfTime:
-            status, summary = "partial", "Still syncing: the rest continues in the background."
-            await self._jobs.enqueue(
-                source.workspace_id,
-                SYNC_DISCORD,
-                {"source_id": str(source.id)},
-                f"{SYNC_DISCORD}:{source.id}:cont:{run_id}",
-            )
-        except BudgetExceeded as e:
-            status, summary = "partial", e.detail
-        except RateLimited as e:
-            status, summary, retry = (
-                "partial",
-                "Discord's rate limit was reached; syncing resumes later.",
-                e,
-            )
-        except _IntentOff:
-            status, summary = "failed", INTENT_OFF
-            await self._sources.record_error(
-                run_id, external_id=None, stage="fetch", message=INTENT_OFF, retryable=False
-            )
-        except (NotFound, PermissionDenied) as e:
-            status, summary = "failed", e.detail
-            await self._sources.record_error(
-                run_id, external_id=None, stage="fetch", message=e.detail, retryable=False
-            )
-        except UpstreamUnavailable as e:
-            status, summary = "failed", e.detail
-        finally:
-            final = state.cp if state is not None else cp
-            await self._sources.save_checkpoint(
-                source.id, final.as_json(), synced=status == "succeeded"
-            )
-            if tally.failed and status == "succeeded":
-                status, summary = "partial", f"{tally.failed} item(s) couldn't be indexed."
-            await self._sources.finish_run(
-                run_id,
-                status=status,
-                seen=tally.seen,
-                changed=tally.changed,
-                failed=tally.failed,
-                error_summary=summary,
-            )
-            log.info(
-                "discord.synced",
-                status=status,
-                seen=tally.seen,
-                changed=tally.changed,
-                pruned=tally.pruned,
-            )
-        if retry is not None:
-            raise retry  # the queue backs off and runs the job again
+        async with RunBoundary(
+            self._sources, source.id, run_id, event="discord.synced",
+            counts=lambda: tally,
+            checkpoint=lambda: (state.cp if state is not None else cp).as_json(),
+            rate_limited_summary="Discord's rate limit was reached; syncing resumes later.",
+            log_fields=lambda: {"pruned": tally.pruned},
+        ) as boundary:  # fmt: skip
+            try:
+                guild_id = source.config.get("guild_id")
+                if not isinstance(guild_id, str) or not is_snowflake(guild_id):
+                    raise ConnectorError(BAD_CONFIG, retryable=False, connector=CONNECTOR)
+                guild = await self._dc.guild(guild_id)
+                state = _Run(source, run_id, guild, self._clock.now(), out_of_time, cp, tally)
+                await self._sync_guild(state)
+                if state.incomplete:
+                    boundary.partial("More to read: the rest continues on the next sync.")
+            except _OutOfTime:
+                boundary.partial("Still syncing: the rest continues in the background.")
+                await self._jobs.enqueue(
+                    source.workspace_id,
+                    SYNC_DISCORD,
+                    {"source_id": str(source.id)},
+                    f"{SYNC_DISCORD}:{source.id}:cont:{run_id}",
+                )
+            except _IntentOff:
+                await boundary.fail(INTENT_OFF)
 
     # ------------------------------------------------------------------ per server
 

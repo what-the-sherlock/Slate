@@ -106,7 +106,7 @@ def test_sync_now_and_disconnect(
     r = client.post(f"/api/v1/sources/{c['source_id']}/sync", headers=csrf(client))
     assert r.status_code == 200, r.text
     assert r.json()["job_id"] == c["job_id"]  # the waiting initial sync, not a second job
-    assert r.json()["status"] == "queued"  # no inline runner in this test container
+    assert r.json()["status"] == "background"  # no inline runner in this test container
     assert (
         client.delete(f"/api/v1/sources/{c['source_id']}", headers=csrf(client)).status_code == 204
     )

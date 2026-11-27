@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeQueryClient } from "@/app/providers";
@@ -8,7 +8,10 @@ import { IntegrationsCallback } from "./integrations-callback";
 
 const replace = vi.fn();
 const toastSuccess = vi.fn();
-vi.mock("sonner", () => ({ toast: { success: (m: string) => toastSuccess(m), error: vi.fn() } }));
+const toastInfo = vi.fn();
+vi.mock("sonner", () => ({
+  toast: { success: (m: string) => toastSuccess(m), info: (m: string) => toastInfo(m), error: vi.fn() },
+}));
 let search = "code=abc&state=s.t";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace, push: vi.fn() }),
@@ -20,7 +23,7 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": type } });
 }
 
-function mockApi(response: () => Response) {
+function mockApi(response: () => Response, sync: () => Response = () => json({ source_id: "s1", status: "done" })) {
   const bodies: unknown[] = [];
   vi.stubGlobal(
     "fetch",
@@ -28,7 +31,7 @@ function mockApi(response: () => Response) {
       const raw = await req.clone().text();
       const path = new URL(req.url).pathname;
       bodies.push({ path, body: raw ? JSON.parse(raw) : null });
-      if (path.endsWith("/sync")) return json({ source_id: "s1", status: "done" });
+      if (path.endsWith("/sync")) return sync();
       return response();
     }),
   );
@@ -49,6 +52,8 @@ beforeEach(() => {
   sessionStorage.clear();
   search = "code=abc&state=s.t";
   replace.mockReset();
+  toastSuccess.mockReset();
+  toastInfo.mockReset();
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -77,6 +82,43 @@ describe("IntegrationsCallback", () => {
     renderPage();
     expect(await screen.findByText("Couldn't finish connecting")).toBeInTheDocument();
     expect(screen.getByText(/expired or isn't yours/)).toBeInTheDocument();
+  });
+
+  it("keeps a failed first sync on screen with its reason, and can try again (P0-2)", async () => {
+    savePending("linear");
+    let attempts = 0;
+    const calls = mockApi(
+      () => json({ id: "c1", account_label: "Kestrel", status: "connected", last_error: null, connected_at: "2026-11-27T10:00:00Z" }),
+      () => {
+        attempts += 1;
+        return attempts === 1
+          ? json({ source_id: "s1", status: "failed", reason: "Sync stopped unexpectedly (KeyError). It will be retried." })
+          : json({ source_id: "s1", status: "done" });
+      },
+    );
+    renderPage();
+    expect(await screen.findByText("Connected Kestrel, but the first sync failed")).toBeInTheDocument();
+    expect(screen.getByText(/KeyError/)).toBeInTheDocument();
+    expect(screen.queryByText(/background/)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open source" })).toHaveAttribute("href", "/sources/s1");
+    expect(replace).not.toHaveBeenCalledWith("/integrations"); // stays, so the reason is seen
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledWith("/integrations"));
+    expect(toastSuccess).toHaveBeenCalledWith("Connected and synced Kestrel.");
+    expect(calls.filter((c) => (c as { path: string }).path.endsWith("/sync"))).toHaveLength(2);
+  });
+
+  it("says a background first sync is in the background, not that it synced", async () => {
+    savePending("linear");
+    mockApi(
+      () => json({ id: "c1", account_label: "Kestrel", status: "connected", last_error: null, connected_at: "2026-11-27T10:00:00Z" }),
+      () => json({ source_id: "s1", status: "background" }),
+    );
+    renderPage();
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledWith("/integrations"));
+    expect(toastInfo).toHaveBeenCalledWith(
+      "Connected Kestrel. Syncing Kestrel in the background. The source page shows progress.",
+    );
   });
 
   it("treats a cancel at the provider plainly and calls nothing", () => {

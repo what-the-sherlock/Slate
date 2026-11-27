@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from uuid import uuid4
 
 import pytest
@@ -8,10 +9,21 @@ from core.domain.auth import Identity, Role
 from core.domain.data_class import DataClass
 from core.domain.errors import NotFound, UpstreamUnavailable
 from core.domain.ids import JobId, SessionId, SourceId, UserId, WorkspaceId
+from core.domain.jobs import Job
 from core.domain.principals import Principals, user_principal
-from core.services.inline import InlineOutcome
-from core.services.source_actions import ConnectorEntry, SourceActions
+from core.domain.skips import SkipReason
+from core.domain.source_status import WAITING_FOR_WORKER
+from core.services.inline import InlineRunner
+from core.services.source_actions import (
+    CRASHED,
+    ConnectorEntry,
+    SourceActions,
+    SyncStatus,
+)
+from core.services.sync_run import RunBoundary
+from tests.fakes.jobs import FakeJobQueue
 from tests.fakes.sources import InMemorySources
+from tests.fakes.system import FakeClock
 
 
 def identity(ws: WorkspaceId, role: Role = Role.OWNER) -> Identity:
@@ -53,8 +65,8 @@ async def test_dispatches_by_connector() -> None:
     me = identity(WorkspaceId(uuid4()))
     sid = await _source(store, me)
     actions = SourceActions(store, {"discord": ConnectorEntry("Discord", rec)})
-    _, outcome = await actions.sync_now(me, sid)
-    assert outcome is InlineOutcome.DEFERRED
+    result = await actions.sync_now(me, sid)
+    assert result.status is SyncStatus.BACKGROUND  # no inline runner: the worker does it
     await actions.disconnect(me, sid)
     assert rec.synced == [sid]
     assert rec.deleted == [sid]
@@ -95,3 +107,104 @@ async def test_sync_needs_configuration_but_disconnect_never_does() -> None:
         await actions.sync_now(me, sid)
     await actions.disconnect(me, sid)  # deleting your data never depends on the integration
     assert rec.deleted == [sid]
+
+
+# ---------------------------------------------------------------- honest sync results (P0-2)
+
+
+class Queued(Recorder):
+    """Queues a real job, so the inline runner can claim and run it."""
+
+    def __init__(self, queue: FakeJobQueue) -> None:
+        super().__init__()
+        self._queue = queue
+
+    async def sync_now(self, identity: Identity, source_id: SourceId) -> JobId:
+        return await self._queue.enqueue(
+            identity.workspace_id, "sync_discord", {"source_id": str(source_id)}, str(uuid4())
+        )
+
+
+@dataclass
+class _Tally:
+    seen: int = 0
+    changed: int = 0
+    failed: int = 0
+
+
+async def _sync_with(behaviour: str) -> tuple[SyncStatus, str | None]:
+    store, queue = InMemorySources(), FakeJobQueue(FakeClock())
+    me = identity(WorkspaceId(uuid4()))
+    sid = await _source(store, me)
+
+    async def handler(job: Job) -> None:
+        if behaviour == "crash_before_run":
+            raise KeyError("x")
+        run = await store.create_run(sid, "full")
+        tally = _Tally()
+        async with RunBoundary(
+            store, sid, run, event="t", counts=lambda: tally, checkpoint=None
+        ) as b:
+            if behaviour == "typed_failure":
+                raise NotFound("That repository isn't available to Slate.")
+            if behaviour == "crash":
+                raise KeyError("document text")
+            if behaviour == "partial":
+                b.partial("Still syncing: the rest continues in the background.")
+
+    runner = InlineRunner(queue, handler, runner_id="api-inline")
+    actions = SourceActions(store, {"discord": ConnectorEntry("Discord", Queued(queue), runner)})
+    result = await actions.sync_now(me, sid)
+    return result.status, result.reason
+
+
+@pytest.mark.parametrize(
+    ("behaviour", "expected"),
+    [
+        ("ok", (SyncStatus.DONE, None)),
+        ("partial", (SyncStatus.PARTIAL, "Still syncing: the rest continues in the background.")),
+        # The job "finished" but its run failed: that's a failure, not "done" (P0-2).
+        ("typed_failure", (SyncStatus.FAILED, "That repository isn't available to Slate.")),
+        ("crash_before_run", (SyncStatus.FAILED, CRASHED)),
+    ],
+)
+async def test_sync_now_reports_what_the_run_actually_did(
+    behaviour: str, expected: tuple[SyncStatus, str | None]
+) -> None:
+    assert await _sync_with(behaviour) == expected
+
+
+async def test_a_crash_reports_the_runs_reason_and_never_background() -> None:
+    status, reason = await _sync_with("crash")
+    assert status is SyncStatus.FAILED
+    assert reason
+    assert "KeyError" in reason
+    assert "document text" not in reason
+
+
+async def test_background_is_promised_only_while_the_worker_keeps_up() -> None:
+    store, rec = InMemorySources(), Recorder()
+    me = identity(WorkspaceId(uuid4()))
+    sid = await _source(store, me)
+    actions = SourceActions(store, {"discord": ConnectorEntry("Discord", rec)})
+    assert (await actions.sync_now(me, sid)).status is SyncStatus.BACKGROUND
+    store.overdue = True  # earlier jobs have waited 2 h+: nobody is processing them
+    result = await actions.sync_now(me, sid)
+    assert (result.status, result.reason) == (SyncStatus.FAILED, WAITING_FOR_WORKER)
+
+
+async def test_a_done_sync_says_what_it_left_out() -> None:
+    store, queue = InMemorySources(), FakeJobQueue(FakeClock())
+    me = identity(WorkspaceId(uuid4()))
+    sid = await _source(store, me)
+
+    async def handler(job: Job) -> None:
+        run = await store.create_run(sid, "full")
+        async with RunBoundary(store, sid, run, event="t", counts=_Tally, checkpoint=None) as b:
+            b.skips.add(SkipReason.UNSUPPORTED_TYPE, "code", 12)
+
+    runner = InlineRunner(queue, handler, runner_id="api-inline")
+    actions = SourceActions(store, {"discord": ConnectorEntry("Discord", Queued(queue), runner)})
+    result = await actions.sync_now(me, sid)
+    assert result.status is SyncStatus.DONE
+    assert result.skipped == "12 code and other files (not supported yet)"

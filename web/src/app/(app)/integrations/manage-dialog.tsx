@@ -6,7 +6,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import { LogoTile } from "@/components/brand";
-import { Pill } from "@/components/status-pill";
+import { Pill, SourceStatusPill } from "@/components/status-pill";
+import { toastSync } from "@/lib/sync-result";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api, errorMessage, unwrap } from "@/lib/api/client";
@@ -44,7 +45,7 @@ export function ManageDialog({
           params: { path: { connection_id: c.id } },
         }),
       );
-      toast.success(res.status === "done" ? "Synced" : "Synced what fit; the rest continues in the background.");
+      toastSync(res, c.account_label ?? "this account");
       void client.invalidateQueries({ queryKey: keys.integrations });
       void client.invalidateQueries({ queryKey: keys.sources });
     } catch (err) {
@@ -170,7 +171,7 @@ function AccountRow({
   onDisconnect: () => void;
 }) {
   const needsSignIn = c.status === "needs_reconnect";
-  const syncing = source?.status === "syncing" || source?.status === "queued";
+  const syncing = source?.busy ?? false;
   return (
     <li className="flex flex-wrap items-center gap-3 px-4 py-3">
       <div className="min-w-0 flex-1">
@@ -185,6 +186,8 @@ function AccountRow({
         <Pill variant="accent">Syncing</Pill>
       ) : source?.status === "failed" ? (
         <Pill variant="danger">Last sync failed</Pill>
+      ) : source && !source.healthy ? (
+        <SourceStatusPill status={source.status} />
       ) : (
         <Pill variant="success">Connected</Pill>
       )}
@@ -227,6 +230,13 @@ export function accountLine(connector: string, source: Source | undefined, needs
   if (!source) return "Setting up. Use sync now if nothing appears in a few minutes.";
   const count = itemNoun(connector, source.documents);
   if (source.status === "never") return "First sync queued";
+  // Unhealthy: the reason and what to do, not just a count (P0-2, P0-4).
+  if (!source.healthy && (source.status_reason ?? source.last_error)) {
+    return `${count} · ${source.status_reason ?? source.last_error}`;
+  }
+  if (source.skipped_summary && source.last_synced_at) {
+    return `${count} · synced ${relative(source.last_synced_at)} · skipped ${source.skipped_summary}`;
+  }
   if (source.last_synced_at) return `${count} · synced ${relative(source.last_synced_at)}`;
   return count;
 }

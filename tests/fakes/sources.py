@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -9,7 +9,7 @@ from uuid import UUID
 from core.domain.data_class import DataClass
 from core.domain.errors import Conflict
 from core.domain.ids import DocumentId, RunId, SourceId, UserId, WorkspaceId
-from core.ports.sources import ExistingUpload, SourceRecord
+from core.ports.sources import ExistingUpload, LastRun, SourceRecord
 from tests.fakes.system import SequentialIds
 
 if TYPE_CHECKING:
@@ -27,6 +27,8 @@ class InMemorySources:
         self.runs: dict[RunId, tuple[SourceId, str]] = {}
         self.finished: dict[RunId, tuple[str, int, int, int, str | None]] = {}
         self.errors: list[tuple[RunId, str, str, bool]] = []
+        self.skipped: dict[RunId, dict[str, int]] = {}
+        self.overdue = False  # worker_overdue()
         self.progressed: list[tuple[RunId, int, int, int]] = []
         self.used_blobs: set[str] = set()
         self.usage: dict[WorkspaceId, tuple[int, int]] = {}  # (documents, bytes)
@@ -57,6 +59,8 @@ class InMemorySources:
         return doc
 
     async def create_run(self, source_id: SourceId, kind: str) -> RunId:
+        # Mirrors ingestion_runs' kind CHECK (0011): a made-up kind fails in Postgres.
+        assert kind in {"full", "incremental", "prune", "upload", "webhook", "import"}, kind
         run = RunId(self._ids.new_uuid())
         self.runs[run] = (source_id, kind)
         return run
@@ -70,8 +74,22 @@ class InMemorySources:
         changed: int,
         failed: int,
         error_summary: str | None = None,
+        skipped: Mapping[str, int] | None = None,
     ) -> None:
+        # Mirrors ingestion_runs' CHECKs (migrations 0001, 0011).
+        assert status in {"succeeded", "partial", "failed", "cancelled"}, status
         self.finished[run_id] = (status, seen, changed, failed, error_summary)
+        self.skipped[run_id] = dict(skipped or {})
+
+    async def last_run(self, source_id: SourceId) -> LastRun | None:
+        mine = [r for r, (sid, _) in self.runs.items() if sid == source_id and r in self.finished]
+        if not mine:
+            return None
+        status, *_, summary = self.finished[mine[-1]]
+        return LastRun(status, summary, self.skipped.get(mine[-1], {}))
+
+    async def worker_overdue(self, ws: WorkspaceId) -> bool:
+        return self.overdue
 
     async def progress(self, run_id: RunId, *, seen: int, changed: int, failed: int) -> None:
         self.progressed.append((run_id, seen, changed, failed))

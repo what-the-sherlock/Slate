@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
@@ -36,6 +36,13 @@ class SourceRecord:
     connection_id: UUID | None = None  # the OAuth connection it syncs through (ADR-0033)
 
 
+@dataclass(frozen=True, slots=True)
+class LastRun:
+    status: str
+    error_summary: str | None
+    skipped: Mapping[str, int] = field(default_factory=dict[str, int])
+
+
 class SourceStore(Protocol):
     async def upload_source(self, ws: WorkspaceId, data_class: DataClass) -> SourceId:
         """The workspace's system source for uploads of this data class (created on first use).
@@ -61,7 +68,20 @@ class SourceStore(Protocol):
         changed: int,
         failed: int,
         error_summary: str | None = None,
-    ) -> None: ...
+        skipped: Mapping[str, int] | None = None,
+    ) -> None:
+        """``skipped``: items seen but not indexed, ``{"reason[:kind]": count}``
+        (core.domain.skips)."""
+        ...
+
+    async def last_run(self, source_id: SourceId) -> LastRun | None:
+        """The newest run of this source (what a just-finished sync actually did)."""
+        ...
+
+    async def worker_overdue(self, ws: WorkspaceId) -> bool:
+        """True when a runnable job in this workspace has waited over 2 hours: the worker
+        drains every runnable job each run, so nobody is handling it (P0-2)."""
+        ...
 
     async def progress(self, run_id: RunId, *, seen: int, changed: int, failed: int) -> None:
         """Counts so far for a running run (the source page shows live progress)."""

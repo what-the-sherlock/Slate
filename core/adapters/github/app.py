@@ -21,7 +21,7 @@ import random
 import re
 import tarfile
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from datetime import datetime
 from typing import Any, cast
 from urllib.parse import quote
@@ -43,10 +43,12 @@ from core.domain.github import (
     Recheck,
     Repo,
     RepoFile,
+    TreeSkips,
     UserAccess,
-    is_doc_path,
+    doc_path_skip,
     is_valid_repo_name,
 )
+from core.domain.skips import SkipReason, Skips
 
 log = structlog.get_logger(__name__)
 API = "https://api.github.com"
@@ -222,11 +224,20 @@ class GitHubApp:
         self._tokens[installation_id] = (str(body["token"]), _time(body["expires_at"]).timestamp())
         return str(body["token"])
 
-    async def _get(self, installation_id: int, url: str, **kw: Any) -> httpx.Response:
+    async def _get(
+        self,
+        installation_id: int,
+        url: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> httpx.Response:
+        """An installation-authenticated GET. Explicit parameters, not ``**kw``: forwarding
+        a caller's ``headers=`` next to our own raised TypeError and broke every sync (P0-0).
+        A caller may override Accept; the token always comes last, so it can't be replaced."""
         token = await self._installation_token(installation_id)
-        r = await self._send(
-            "GET", url, retry=True, headers={**_HEADERS, "Authorization": f"Bearer {token}"}, **kw
-        )
+        merged = {**_HEADERS, **(headers or {}), "Authorization": f"Bearer {token}"}
+        r = await self._send("GET", url, retry=True, headers=merged, params=params)
         if r.status_code == 404:
             raise NotFound(
                 "That repository isn't available to Slate. Check the app's repository access."
@@ -386,7 +397,7 @@ class GitHubApp:
 
     async def doc_files(
         self, installation_id: int, full_name: str, ref: str
-    ) -> AsyncIterator[RepoFile]:
+    ) -> AsyncIterator[RepoFile | TreeSkips]:
         _check_name(full_name)
         token = await self._installation_token(installation_id)
         buf = io.BytesIO()
@@ -409,6 +420,7 @@ class GitHubApp:
         buf.seek(0)
         count = 0
         walked = unpacked = 0
+        skips = Skips()
         # Streaming mode ("r|gz") keeps no member list in memory; the caps bound a gzip
         # bomb of millions of entries or gigabytes of padding (security review).
         with tarfile.open(fileobj=buf, mode="r|gz") as tar:
@@ -417,22 +429,34 @@ class GitHubApp:
                 unpacked += max(member.size, 0)
                 if walked > MAX_TAR_MEMBERS or unpacked > MAX_UNPACKED_BYTES:
                     log.info("github.tarball_capped", members=walked)
-                    return
+                    skips.add(SkipReason.CAP_REACHED)
+                    break
                 if not member.isfile():  # no symlinks, hard links or devices
                     continue
                 path = member.name.split("/", 1)[1] if "/" in member.name else ""
-                if not path or not is_doc_path(path) or member.size > MAX_DOC_FILE_BYTES:
+                if not path:
+                    continue
+                if (reason := doc_path_skip(path)) is not None:
+                    kind = "code" if reason is SkipReason.UNSUPPORTED_TYPE else None
+                    skips.add(reason, kind)
+                    continue
+                if count >= MAX_DOC_FILES:
+                    skips.add(SkipReason.CAP_REACHED, "file")  # counted, not read
+                    continue
+                if member.size > MAX_DOC_FILE_BYTES:
+                    skips.add(SkipReason.TOO_LARGE, "file")
                     continue
                 handle = tar.extractfile(member)
                 if handle is None:
+                    skips.add(SkipReason.UNREADABLE, "file")
                     continue
                 yield RepoFile(
                     path=path, data=handle.read(MAX_DOC_FILE_BYTES + 1)[:MAX_DOC_FILE_BYTES]
                 )
                 count += 1
-                if count >= MAX_DOC_FILES:
-                    log.info("github.doc_files_capped", files=count)
-                    return
+        if count >= MAX_DOC_FILES:
+            log.info("github.doc_files_capped", files=count)
+        yield TreeSkips(skips.as_json())
 
     async def issues(
         self, installation_id: int, full_name: str, since: str | None, limit: int

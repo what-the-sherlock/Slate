@@ -339,3 +339,30 @@ async def test_a_google_sign_in_without_a_refresh_token_is_refused() -> None:
     state = parse_qs(urlparse(url).query)["state"][0]
     with pytest.raises(ValidationFailed, match="lasting access"):
         await env.integrations.complete(who(), "gmail", "code", state)
+
+
+# ---------------------------------------------------------------- honest outcomes (P0-1, P0-4)
+
+
+async def test_an_unexpected_crash_is_failed_and_re_raised() -> None:
+    env = Env(Script(KeyError("page body text")))
+    await env.connect()
+    with pytest.raises(KeyError):
+        await env.run()
+    status, *_, summary = env.last_run()
+    assert status == "failed"
+    assert "KeyError" in (summary or "")
+    assert "page body" not in (summary or "")
+    assert env.source() not in env.sources.synced
+
+
+async def test_empty_documents_and_page_skips_are_counted() -> None:
+    empty = FetchedDocument(external_id="notion:9", title="Blank", uri="https://notion.so/9",
+                            sections=(), metadata={"kind": "notion"})  # fmt: skip
+    env = Env(Script(Page((doc(1), empty), skipped={"unsupported_type:pdf": 2})))
+    await env.connect()
+    await env.run()
+    status, seen, *_ = env.last_run()
+    assert (status, seen) == ("succeeded", 1)  # the empty one isn't "seen"
+    [skipped] = list(env.sources.skipped.values())
+    assert skipped == {"empty_text:notion": 1, "unsupported_type:pdf": 2}

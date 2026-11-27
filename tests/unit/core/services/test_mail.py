@@ -448,3 +448,42 @@ async def test_a_failed_source_create_leaves_no_credential(env: Env) -> None:
     with pytest.raises(RuntimeError):
         await env.connect()
     assert env.creds.rows == {}
+
+
+# ================================================================== honest outcomes (P0-1)
+
+
+async def test_a_crash_is_failed_and_re_raised(env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
+    sid = await env.connect()
+
+    def boom(*args: object) -> None:
+        raise KeyError("Subject: private lease terms")
+
+    monkeypatch.setattr(env.box, "session", boom)
+    with pytest.raises(KeyError):
+        await env.run(sid)
+    status, *_, summary = list(env.sources.finished.values())[-1]
+    assert status == "failed"
+    assert "KeyError" in (summary or "")
+    assert "lease" not in (summary or "")
+    assert sid not in env.sources.synced
+
+
+async def test_an_unknown_provider_asks_to_reconnect(env: Env) -> None:
+    sid = await env.connect()
+    rec = env.sources.records[sid]
+    env.sources.records[sid] = replace(rec, config={**rec.config, "provider": "aol"})
+    assert await env.run(sid) == "failed"
+
+
+async def test_an_mbox_import_crash_keeps_the_file_for_the_retry(env: Env) -> None:
+    imp, job, blobs = await _import_env(env, _mbox("x"))
+
+    def boom(data: bytes) -> list[object]:
+        raise RuntimeError("parser bug")
+
+    imp._parse = boom  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError):
+        await imp.handle(job)
+    assert list(env.sources.finished.values())[-1][0] == "failed"
+    assert blobs.blobs  # not deleted: the retry needs it
