@@ -19,6 +19,7 @@ from core.services.admin import AdminService
 from core.services.answer import AnswerService
 from core.services.auth import AuthPolicy, AuthService
 from core.services.catalog import CatalogService
+from core.services.chats import ChatHistory
 from core.services.discord import DiscordService
 from core.services.github import GitHubService
 from core.services.integrations import IntegrationService
@@ -294,6 +295,7 @@ def app(
         search=search,
         answers=answers,
         chats=chats,
+        chat_history=ChatHistory(chats, FakeClock()),
         github=github,
         discord=discord,
         mail=mail,

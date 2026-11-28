@@ -128,7 +128,7 @@ async def test_gmail_backfill_reads_threads_and_skips_spam_drafts_and_gone_threa
 async def test_gmail_incremental_rereads_touched_threads_and_moves_the_history_id() -> None:
     history = {"history": [{"messages": [{"id": "m1", "threadId": "t1"}]}], "historyId": "150"}
     client, _ = transport(gmail_route(history))
-    cp = {"phase": "incremental", "history_id": "100"}
+    cp = {"v": 2, "phase": "incremental", "history_id": "100"}
     page = await GmailConnector(client, sleep=0).pull("tok", cp, now=NOW)
     assert [d.title for d in page.documents] == ["Invoice"]
     assert page.checkpoint["history_id"] == "150"
@@ -137,7 +137,7 @@ async def test_gmail_incremental_rereads_touched_threads_and_moves_the_history_i
 
 async def test_gmail_expired_history_falls_back_to_a_rescan() -> None:
     client, _ = transport(gmail_route(httpx.Response(404, json={})))
-    cp = {"phase": "incremental", "history_id": "1"}
+    cp = {"v": 2, "phase": "incremental", "history_id": "1"}
     page = await GmailConnector(client, sleep=0).pull("tok", cp, now=NOW)
     assert page.documents == ()
     assert not page.done

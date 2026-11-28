@@ -145,6 +145,61 @@ export function useChatSessions() {
   });
 }
 
+type SessionPages = { pages: ChatSession[][]; pageParams: unknown[] };
+
+/** Apply a change to every cached page of the history list. */
+function editSessions(qc: ReturnType<typeof useQueryClient>, edit: (s: ChatSession[]) => ChatSession[]) {
+  qc.setQueryData<SessionPages>(keys.chatSessions, (old) => (old ? { ...old, pages: old.pages.map(edit) } : old));
+}
+
+/** Rename a chat (ADR-0044); the list shows the server's cleaned title. */
+export function useRenameChat() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, title }: { id: string; title: string }) =>
+      unwrap(await api.PATCH("/api/v1/chat/sessions/{session_id}", { params: { path: { session_id: id } }, body: { title } })),
+    onSuccess: (saved) => editSessions(qc, (page) => page.map((s) => (s.id === saved.id ? { ...s, title: saved.title } : s))),
+  });
+}
+
+/**
+ * Delete a chat (ADR-0044): it leaves the list at once (optimistic) and comes back if the
+ * server refuses. The server keeps it restorable for 24 hours, so Undo is real.
+ */
+export function useDeleteChat() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      // 204 No Content: success has no body to unwrap; only an error is read.
+      const r = await api.DELETE("/api/v1/chat/sessions/{session_id}", { params: { path: { session_id: id } } });
+      if (!r.response.ok) unwrap(r);
+    },
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: keys.chatSessions });
+      const before = qc.getQueryData<SessionPages>(keys.chatSessions);
+      editSessions(qc, (page) => page.filter((s) => s.id !== id));
+      return { before };
+    },
+    onError: (_e, _id, ctx) => {
+      if (ctx?.before) qc.setQueryData(keys.chatSessions, ctx.before);
+    },
+    onSettled: (_d, _e, id) => {
+      qc.removeQueries({ queryKey: keys.chatMessages(id) });
+    },
+  });
+}
+
+export function useRestoreChat() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const r = await api.POST("/api/v1/chat/sessions/{session_id}/restore", { params: { path: { session_id: id } } });
+      if (!r.response.ok) unwrap(r); // 204 No Content on success
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.chatSessions }),
+  });
+}
+
 /** A chat's stored messages (oldest first), to reopen it from the URL. */
 export function useChatMessages(sessionId: string | null) {
   return useQuery({

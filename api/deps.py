@@ -52,6 +52,7 @@ from core.services.admin import AdminService
 from core.services.answer import AnswerService
 from core.services.auth import AuthService
 from core.services.catalog import CatalogService
+from core.services.chats import ChatHistory
 from core.services.connected import SYNC_CONNECTED, ConnectedSources
 from core.services.discord import CONNECTOR as DISCORD
 from core.services.discord import SYNC_DISCORD, DiscordService
@@ -80,6 +81,7 @@ class Container:
     search: SearchService | None = None
     answers: AnswerService | None = None  # None without an OpenAI key
     chats: ChatStore | None = None
+    chat_history: ChatHistory | None = None  # ADR-0044: rename, delete, restore
     github: GitHubService | None = None
     discord: DiscordService | None = None
     mail: MailService | None = None
@@ -135,6 +137,30 @@ def get_container() -> Container:
         PostgresJobQueue(uow), connected.handle_inline, runner_id="api-inline",
         kinds=frozenset({SYNC_CONNECTED}),
     )  # fmt: skip
+    connected_quick = InlineRunner(
+        PostgresJobQueue(uow), connected.handle_quick, runner_id="api-quick",
+        kinds=frozenset({SYNC_CONNECTED}),
+    )  # fmt: skip
+    actions = SourceActions(
+        PostgresSourceStore(uow),
+        {
+            GITHUB: ConnectorEntry("GitHub", github, _github_inline(settings, uow)),
+            DISCORD: ConnectorEntry(
+                "Discord", discord, _discord_inline(settings, uow),
+                quick=_discord_inline(settings, uow, quick=True),
+            ),
+            IMAP: ConnectorEntry(
+                "Email", mail, _mail_inline(settings, uow),
+                quick=_mail_inline(settings, uow, quick=True),
+            ),
+            MBOX: ConnectorEntry("Email import", MboxActions(mail)),
+            **{
+                p: ConnectorEntry(provider(p).name, connected, connected_inline, connected_quick)
+                for p in connected.providers
+            },
+        },
+        trigger,
+    )  # fmt: skip
     return Container(
         settings=settings,
         health=PostgresHealthProbe(uow),
@@ -144,8 +170,11 @@ def get_container() -> Container:
         uploads=_upload_service(settings, uow),
         inline=_inline_runner(settings, uow),
         search=search_service(settings, uow),
-        answers=answer_service(settings, uow),
+        answers=answer_service(
+            settings, uow, freshness=actions, access=integrations, trigger=trigger
+        ),
         chats=PostgresChatStore(uow),
+        chat_history=ChatHistory(PostgresChatStore(uow), SystemClock()),
         github=github,
         discord=discord,
         mail=mail,
@@ -168,20 +197,7 @@ def get_container() -> Container:
             SystemClock(),
             owner_email=settings.owner_email,
         ),
-        actions=SourceActions(
-            PostgresSourceStore(uow),
-            {
-                GITHUB: ConnectorEntry("GitHub", github, _github_inline(settings, uow)),
-                DISCORD: ConnectorEntry("Discord", discord, _discord_inline(settings, uow)),
-                IMAP: ConnectorEntry("Email", mail, _mail_inline(settings, uow)),
-                MBOX: ConnectorEntry("Email import", MboxActions(mail)),
-                **{
-                    p: ConnectorEntry(provider(p).name, connected, connected_inline)
-                    for p in connected.providers
-                },
-            },
-            trigger,
-        ),
+        actions=actions,
     )
 
 
@@ -209,23 +225,27 @@ def _github_inline(settings: Settings, uow: UnitOfWork) -> InlineRunner | None:
     )  # fmt: skip
 
 
-def _discord_inline(settings: Settings, uow: UnitOfWork) -> InlineRunner | None:
+def _discord_inline(
+    settings: Settings, uow: UnitOfWork, *, quick: bool = False
+) -> InlineRunner | None:
     sync = discord_sync(settings, uow)
     if sync is None:
         return None
     return InlineRunner(
-        PostgresJobQueue(uow), sync.handle_inline, runner_id="api-inline",
-        kinds=frozenset({SYNC_DISCORD}),
+        PostgresJobQueue(uow), sync.handle_quick if quick else sync.handle_inline,
+        runner_id="api-quick" if quick else "api-inline", kinds=frozenset({SYNC_DISCORD}),
     )  # fmt: skip
 
 
-def _mail_inline(settings: Settings, uow: UnitOfWork) -> InlineRunner | None:
+def _mail_inline(
+    settings: Settings, uow: UnitOfWork, *, quick: bool = False
+) -> InlineRunner | None:
     sync = mail_sync(settings, uow)
     if sync is None:
         return None
     return InlineRunner(
-        PostgresJobQueue(uow), sync.handle_inline, runner_id="api-inline",
-        kinds=frozenset({SYNC_MAIL}),
+        PostgresJobQueue(uow), sync.handle_quick if quick else sync.handle_inline,
+        runner_id="api-quick" if quick else "api-inline", kinds=frozenset({SYNC_MAIL}),
     )  # fmt: skip
 
 

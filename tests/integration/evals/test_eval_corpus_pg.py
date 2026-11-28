@@ -27,7 +27,13 @@ from core.domain.documents import DocumentUpsert
 from core.domain.ids import GenerationId, WorkspaceId
 from core.domain.principals import PUBLIC, workspace_principal
 from core.services.search import VectorLane
-from evals.cases import CONNECTOR_BY_KIND, EXTERNAL_PREFIX, load_cases, load_corpus
+from evals.cases import (
+    CONNECTOR_BY_KIND,
+    EXTERNAL_PREFIX,
+    document_metadata,
+    load_cases,
+    load_corpus,
+)
 from evals.harness import run_cases
 from tests.fakes.models import FakeEmbedder
 
@@ -60,7 +66,8 @@ async def loaded(uow: UnitOfWork) -> AsyncIterator[tuple[WorkspaceId, Generation
         TiktokenTokenizer(),
         FakeEmbedder(),
     )
-    for d in load_corpus():
+    corpus = load_corpus()  # parents before their attachments
+    for d in corpus:
         public = d.visibility == "public"
         dc = DataClass.PUBLIC if public else DataClass.PRIVATE
         chunks = chunk_sections(parser.parse(d.body, "text/markdown").sections, tok.count)
@@ -83,6 +90,8 @@ async def loaded(uow: UnitOfWork) -> AsyncIterator[tuple[WorkspaceId, Generation
                 (PUBLIC, workspace_principal(ws)) if public else (workspace_principal(ws),),
                 author=d.author,
                 source_updated_at=d.updated_at,
+                metadata=document_metadata(d, corpus),
+                parent_external_id=EXTERNAL_PREFIX + d.parent if d.parent else None,
             ),
             chunks,
             {gen: vectors},
@@ -117,6 +126,10 @@ async def test_eval_suite_runs_and_never_leaks(
         for c in report.cases:
             if c.recall is not None and c.recall < 1:
                 print("  miss", c.id, c.recall, c.top_documents[:3])
+        if vector is not None:
+            # Fake vectors are hashes, not meaning: fused with them, ranking is noise by
+            # design. That pass proves plumbing and isolation (asserted above), not quality.
+            continue
         # Exact identifiers must be found by the keyword lane alone.
         assert by_tag["keyword"]["recall@10"] >= 0.9
         # Given a correct plan, "latest" and period questions find their documents

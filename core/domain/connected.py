@@ -17,6 +17,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from core.domain.attachments import AttachmentBlob, blob_digest
 from core.domain.documents import Section
 
 # One source pass reads at most this many documents; the rest follow on the next run (the
@@ -47,6 +48,10 @@ class FetchedDocument:
     # connector only fetches (CLAUDE.md rule 2): with ``raw`` set, ``sections`` is empty and
     # the engine fills it with the same parser uploads use.
     raw: bytes | None = field(default=None, repr=False)
+    # Files that came with it whose bytes the connector already holds (ADR-0043); their
+    # Tier 0 list is ``metadata["attachments"]``. The engine sniffs, parses and stores them
+    # as child documents.
+    attachments: tuple[AttachmentBlob, ...] = field(default=(), repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +78,8 @@ def document_checksum(doc: FetchedDocument) -> str:
         h.update(part.encode() + b"\x00")
     for s in doc.sections:
         h.update((s.heading_path or "").encode() + b"\x00" + s.text.encode() + b"\x01")
+    if doc.attachments:  # a file replaced under the same name and size still counts
+        h.update(b"\x02" + blob_digest(doc.attachments).encode())
     return h.hexdigest()
 
 

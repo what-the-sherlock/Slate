@@ -264,6 +264,25 @@ class SearchService:
         """Chunks next to these, under the same ACL rule (SearchIndex.neighbours)."""
         return await self._index.neighbours(identity.workspace_id, identity.principals, around)
 
+    async def attachment_children(
+        self, identity: Identity, parents: Sequence[DocumentId]
+    ) -> list[tuple[DocumentId, DocumentId]]:
+        """(child, parent) for these documents' readable attachments, ACL in SQL (ADR-0043)."""
+        return await self._index.attachment_children(
+            identity.workspace_id, identity.principals, parents
+        )
+
+    async def document_chunks(
+        self, identity: Identity, documents: Sequence[DocumentId], query: str, k: int
+    ) -> list[ScoredChunk]:
+        """The best chunks of these documents for ``query`` (then document order), under
+        the same ACL rule: reading a document or its attachments whole (ADR-0043)."""
+        if not documents:
+            return []
+        return await self._index.anchored_chunks(
+            identity.workspace_id, identity.principals, documents, query, k, SearchFilters()
+        )
+
     async def _record_query_embedding(self, ws: WorkspaceId, q: str) -> None:
         """Every paid call is in the ledger, or the spend caps can't see it (ARCHITECTURE §12).
         Tokens are estimated (~4 characters each, rounded up); the data class is private

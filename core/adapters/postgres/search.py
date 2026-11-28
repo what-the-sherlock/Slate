@@ -29,6 +29,7 @@ from typing import Any
 from sqlalchemy import text
 
 from core.adapters.postgres.uow import UnitOfWork
+from core.domain.attachments import from_meta
 from core.domain.documents import (
     DocumentPreview,
     PreviewChunk,
@@ -46,14 +47,21 @@ MAX_K = 200
 
 _COLUMNS = (
     "c.id, c.document_id, c.ordinal, c.content, c.heading_path, d.title, c.data_class,"
-    " COALESCE(d.source_updated_at, d.created_at) AS doc_date, d.author, d.uri, src.connector"
+    " COALESCE(d.source_updated_at, d.created_at) AS doc_date, d.author, d.uri, src.connector,"
+    " d.parent_document_id AS parent_id, d.metadata -> 'attachments' AS atts"
 )
 # A source being deleted disappears from search at once, before cleanup removes its rows.
 _VISIBLE = (
     "c.workspace_id = :ws AND c.acl && CAST(:p AS text[]) AND d.deleted_at IS NULL"
     " AND src.status <> 'deleting'"
 )
-_JOIN_SOURCE = " JOIN sources src ON src.id = d.source_id"
+# ``pd`` is an attachment's parent (ADR-0043): filters about the conversation (sent,
+# people) are answered by the parent's metadata, so the attachment matches with it.
+_JOIN_SOURCE = (
+    " JOIN sources src ON src.id = d.source_id"
+    " LEFT JOIN documents pd ON pd.id = d.parent_document_id"
+)
+_META = "COALESCE(pd.metadata, d.metadata)"
 
 
 def _vector_literal(vector: Vector) -> str:
@@ -77,10 +85,24 @@ def _filters_sql(f: SearchFilters, params: dict[str, Any]) -> str:
         params["before"] = f.updated_before
     if f.author:
         # A substring match; LIKE's wildcards in the user's text are escaped (bound value).
-        parts.append("d.author ILIKE :author ESCAPE '\\'")
-        escaped = f.author.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        params["author"] = f"%{escaped}%"
+        parts.append("COALESCE(pd.author, d.author) ILIKE :author ESCAPE '\\'")
+        params["author"] = _like(f.author)
+    if f.sent is not None:
+        folder = "sent" if f.sent else "inbox"  # a constant, never user text
+        parts.append(f"({_META} -> 'folders') @> CAST('[\"{folder}\"]' AS jsonb)")
+    if f.person:
+        parts.append(
+            f"(COALESCE(pd.author, d.author) ILIKE :person ESCAPE '\\'"
+            f" OR ({_META} ->> 'people') ILIKE :person ESCAPE '\\')"
+        )
+        params["person"] = _like(f.person)
     return "".join(f" AND {p}" for p in parts)
+
+
+def _like(value: str) -> str:
+    """A substring pattern with LIKE's wildcards in the user's text escaped."""
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 # Each lexeme of the query, OR-ed. to_tsvector normalises (and drops stop words) exactly
@@ -242,6 +264,8 @@ class PostgresSearchIndex:
             f"{_JOIN_SOURCE}"
             "  WHERE d.workspace_id = :ws AND d.acl && CAST(:p AS text[])"
             "    AND d.deleted_at IS NULL AND src.status <> 'deleting'"
+            # Attachments ride with their parent (expansion), not in the newest-N slots.
+            "    AND d.parent_document_id IS NULL"
             f"{doc_filters}"
             "  ORDER BY doc_at DESC, d.id LIMIT :k)"
             f" SELECT {_COLUMNS} FROM recent r"
@@ -324,6 +348,28 @@ class PostgresSearchIndex:
             rows = (await s.execute(text(sql), params)).mappings().all()
         return [_scored(r, 0.0) for r in rows]
 
+    async def attachment_children(
+        self, ws: WorkspaceId, principals: Principals, parents: Sequence[DocumentId]
+    ) -> list[tuple[DocumentId, DocumentId]]:
+        """(child id, parent id) for these documents' indexed attachments the caller may
+        see (ADR-0043). Same visibility rule as search, in the query."""
+        if not parents:
+            return []
+        if len(parents) > MAX_K:
+            raise ValueError(f"at most {MAX_K} documents")
+        params: dict[str, Any] = {"ws": ws, "p": principals.as_list(), "ids": list(parents)}
+        sql = (
+            "SELECT d.id, d.parent_document_id"  # noqa: S608 (constant fragments)
+            f" FROM documents d{_JOIN_SOURCE}"
+            " WHERE d.parent_document_id = ANY(CAST(:ids AS uuid[]))"
+            "   AND d.workspace_id = :ws AND d.acl && CAST(:p AS text[])"
+            "   AND d.deleted_at IS NULL AND src.status <> 'deleting'"
+            " ORDER BY d.parent_document_id, d.external_id"
+        )
+        async with self._uow() as s:
+            rows = (await s.execute(text(sql), params)).all()
+        return [(DocumentId(r[0]), DocumentId(r[1])) for r in rows]
+
 
 # A chat holds at most 200 messages; this caps one history read's lookup.
 MAX_CITED = 2000
@@ -358,4 +404,6 @@ def _scored(r: Any, score: float) -> ScoredChunk:  # reason: RowMapping values a
         author=r["author"],
         uri=r["uri"],
         connector=r["connector"],
+        parent_id=DocumentId(r["parent_id"]) if r["parent_id"] else None,
+        attachments=tuple(from_meta(r["atts"])) if r["atts"] else (),
     )

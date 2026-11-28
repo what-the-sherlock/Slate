@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from dataclasses import replace as _replace
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -22,6 +24,7 @@ from core.services.source_actions import (
     ConnectorEntry,
     SourceActions,
     SyncStatus,
+    stale_note,
 )
 from core.services.sync_run import RunBoundary
 from tests.fakes.jobs import FakeJobQueue
@@ -270,3 +273,84 @@ async def test_the_worker_is_started_only_when_work_is_handed_to_it() -> None:
     no_inline = SourceActions(store, {"discord": ConnectorEntry("Discord", Recorder())}, trigger)
     await no_inline.sync_now(me, sid)
     assert trigger.reasons[-1] == "sync_now:background"
+
+
+# ---------------------------------------------------------------- freshness (ADR-0043)
+
+
+FNOW = datetime(2026, 11, 27, 9, 0, tzinfo=UTC)
+
+
+class RecordingQueue(Recorder):
+    """Sync now that really queues a job, so an inline runner can claim it."""
+
+    def __init__(self, queue: FakeJobQueue) -> None:
+        super().__init__()
+        self.queue = queue
+
+    async def sync_now(self, identity: Identity, source_id: SourceId) -> JobId:
+        self.synced.append(source_id)
+        return await self.queue.enqueue(identity.workspace_id, "sync_mail", {}, str(uuid4()))
+
+
+async def _fresh_env(
+    synced_at: datetime | None, *, handler_marks: bool = True
+) -> tuple[SourceActions, InMemorySources, Identity, SourceId, RecordingQueue]:
+    store = InMemorySources()
+    me = identity(WorkspaceId(uuid4()))
+    sid = await _source(store, me, "gmail")
+    store.records[sid] = _replace(store.records[sid], last_synced_at=synced_at)
+    queue = FakeJobQueue(FakeClock())
+    rec = RecordingQueue(queue)
+
+    async def quick(job: Job) -> None:
+        if handler_marks:
+            store.records[sid] = _replace(store.records[sid], last_synced_at=FNOW)
+
+    runner = InlineRunner(queue, quick, runner_id="t")
+    actions = SourceActions(store, {"gmail": ConnectorEntry("Gmail", rec, quick=runner)})
+    return actions, store, me, sid, rec
+
+
+async def test_a_fresh_source_is_left_alone() -> None:
+    actions, _, me, _, rec = await _fresh_env(FNOW - timedelta(minutes=3))
+    assert await actions.freshen(me, ["gmail"], now=FNOW, zone=UTC) == ()
+    assert rec.synced == []
+
+
+async def test_a_stale_source_is_synced_before_answering() -> None:
+    actions, _, me, sid, rec = await _fresh_env(FNOW - timedelta(minutes=48))
+    assert await actions.freshen(me, ["gmail"], now=FNOW, zone=UTC) == ()  # fresh now
+    assert rec.synced == [sid]
+
+
+async def test_a_sync_that_couldnt_catch_up_is_reported_with_its_time() -> None:
+    actions, _, me, _, _ = await _fresh_env(FNOW - timedelta(minutes=48), handler_marks=False)
+    [note] = await actions.freshen(me, ["gmail"], now=FNOW, zone=UTC)
+    assert note == (
+        "Gmail last synced at 08:12 (48 minutes ago), so newer items may not be in Slate yet."
+    )
+
+
+async def test_someone_elses_source_is_neither_synced_nor_mentioned() -> None:
+    actions, _, _, _, rec = await _fresh_env(FNOW - timedelta(hours=5))
+    stranger = identity(WorkspaceId(uuid4()))
+    assert await actions.freshen(stranger, ["gmail"], now=FNOW, zone=UTC) == ()
+    assert rec.synced == []
+
+
+async def test_a_failing_sync_now_only_produces_the_note() -> None:
+    actions, _, me, _, rec = await _fresh_env(FNOW - timedelta(hours=2))
+
+    async def refuse(identity: Identity, source_id: SourceId) -> JobId:
+        raise UpstreamUnavailable("Gmail is down")
+
+    rec.sync_now = refuse
+    [note] = await actions.freshen(me, ["gmail"], now=FNOW, zone=UTC)
+    assert note.startswith("Gmail last synced at 07:00 (2 hours ago)")
+
+
+def test_stale_notes_read_naturally() -> None:
+    assert stale_note("Gmail", None, FNOW, UTC).startswith("Gmail hasn't finished its first sync")
+    assert "(1 minute ago)" in stale_note("Gmail", FNOW - timedelta(minutes=1), FNOW, UTC)
+    assert "3 days ago" in stale_note("Discord", FNOW - timedelta(days=3), FNOW, UTC)

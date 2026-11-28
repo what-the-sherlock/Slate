@@ -37,6 +37,11 @@ class MailSession(Protocol):
         messages are skipped, not raised."""
         ...
 
+    async def attachment(self, uid: int, part: int) -> tuple[str, bytes] | None:
+        """(Message-ID, bytes) of one attachment of a message in the open folder (BODY.PEEK),
+        or None when the message or part is gone or over the size cap (ADR-0043)."""
+        ...
+
     async def thread_uids(self, mail: Mail) -> list[int]:
         """UIDs in the open folder that belong to ``mail``'s conversation."""
         ...

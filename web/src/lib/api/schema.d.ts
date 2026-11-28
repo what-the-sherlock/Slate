@@ -293,6 +293,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a chat (restorable for 24 hours, then purged) */
+        delete: operations["delete_chat_api_v1_chat_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename a chat */
+        patch: operations["rename_chat_api_v1_chat_sessions__session_id__patch"];
+        trace?: never;
+    };
     "/api/v1/chat/sessions/{session_id}/messages": {
         parameters: {
             query?: never;
@@ -304,6 +322,23 @@ export interface paths {
         get: operations["messages_api_v1_chat_sessions__session_id__messages_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/sessions/{session_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo deleting a chat */
+        post: operations["restore_chat_api_v1_chat_sessions__session_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2013,6 +2048,14 @@ export interface components {
             /** Sources Deleted */
             sources_deleted: number;
         };
+        /** RenameChatBody */
+        RenameChatBody: {
+            /**
+             * Title
+             * @description Trimmed to 120 printable characters
+             */
+            title: string;
+        };
         /** RepoOut */
         RepoOut: {
             /** Connected */
@@ -2935,6 +2978,70 @@ export interface operations {
             };
         };
     };
+    delete_chat_api_v1_chat_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_chat_api_v1_chat_sessions__session_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameChatBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     messages_api_v1_chat_sessions__session_id__messages_get: {
         parameters: {
             query?: never;
@@ -2954,6 +3061,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MessageOut"][];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_chat_api_v1_chat_sessions__session_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -100,6 +100,23 @@ class _MemoryChats:
         self._messages[sid] = []
         return sid
 
+    # Evals never rename or delete chats (ADR-0044); present for the protocol.
+    async def rename_session(
+        self, ws: WorkspaceId, user: UserId, session: ChatSessionId, title: str
+    ) -> bool:
+        return session in self._messages
+
+    async def delete_session(self, ws: WorkspaceId, user: UserId, session: ChatSessionId) -> bool:
+        return self._messages.pop(session, None) is not None
+
+    async def restore_session(
+        self, ws: WorkspaceId, user: UserId, session: ChatSessionId, *, since: datetime
+    ) -> bool:
+        return False
+
+    async def purge_deleted(self, before: datetime) -> int:
+        return 0
+
     async def get_session(
         self, ws: WorkspaceId, user: UserId, session: ChatSessionId
     ) -> ChatSessionInfo | None:

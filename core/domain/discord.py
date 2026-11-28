@@ -29,6 +29,7 @@ from datetime import UTC, datetime, timedelta
 from enum import IntEnum
 from typing import cast
 
+from core.domain.attachments import MAX_ATTACHMENTS_LISTED, AttachmentInfo
 from core.domain.documents import Section
 
 DISCORD_EPOCH_MS = 1_420_070_400_000
@@ -206,7 +207,11 @@ class Message:
     author_name: str
     content: str
     type: int = 0
-    attachments: tuple[str, ...] = ()  # file names only: contents are never fetched
+    attachments: tuple[str, ...] = ()  # file names, for the message text
+    # Tier 0 of each file (ADR-0043): read on demand, never at sync. ``file_urls`` are the
+    # signed CDN links from this API response; they expire, so they are never stored.
+    files: tuple[AttachmentInfo, ...] = ()
+    file_urls: Mapping[str, str] = field(default_factory=dict[str, str], repr=False)
     embeds: tuple[str, ...] = ()  # title/description text from rich embeds
     mentions: Mapping[str, str] = field(default_factory=dict[str, str])  # user id -> name
     reply_to: str | None = None  # the author name of the replied-to message
@@ -323,6 +328,22 @@ def group_windows(messages: Iterable[Message]) -> list[Window]:
     if current:
         out.append(Window(current[0].channel_id, tuple(current)))
     return out
+
+
+def message_files(messages: Sequence[Message]) -> list[dict[str, object]]:
+    """The Tier 0 list a document stores (``metadata["attachments"]``)."""
+    return [f.to_meta() for m in messages for f in m.files][:MAX_ATTACHMENTS_LISTED]
+
+
+def parse_document_id(external_id: str) -> tuple[str, str, str] | None:
+    """("msg", channel, first message) or ("thread", parent, thread) from an external id,
+    so a document's messages can be read again (ADR-0043). None for anything else."""
+    parts = external_id.split(":")
+    if len(parts) != 3 or parts[0] not in ("msg", "thread"):
+        return None
+    if not (is_snowflake(parts[1]) and is_snowflake(parts[2])):
+        return None
+    return parts[0], parts[1], parts[2]
 
 
 def window_external_id(channel_id: str, first_message_id: str) -> str:

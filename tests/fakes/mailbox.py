@@ -51,6 +51,15 @@ class FakeMailSession:
         self._box.fetched += len(wanted)
         return [m for m in self._current().mails if m.uid in wanted]
 
+    async def attachment(self, uid: int, part: int) -> tuple[str, bytes] | None:
+        for m in self._current().mails:
+            if m.uid != uid:
+                continue
+            for b in m.blobs:
+                if b.info.ref.get("part") == str(part):
+                    return m.message_id, b.data
+        return None
+
     async def thread_uids(self, mail: Mail) -> list[int]:
         key = thread_key(mail)
         return sorted(m.uid for m in self._current().mails if thread_key(m) == key)

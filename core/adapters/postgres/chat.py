@@ -21,7 +21,8 @@ from core.domain.errors import NotFound
 from core.domain.ids import ChatSessionId, ChunkId, DocumentId, MessageId, UserId, WorkspaceId
 from core.ports.chat import ChatSessionInfo, Citation, NewMessage, StoredMessage
 
-_OWNED = "s.workspace_id = :ws AND s.user_id = :u"
+# A deleted chat (ADR-0044) is gone for every read and write through this filter.
+_OWNED = "s.workspace_id = :ws AND s.user_id = :u AND s.deleted_at IS NULL"
 _GET_SESSION = (
     "SELECT s.id, s.title, s.created_at FROM chat_sessions s"  # noqa: S608 (constants only)
     f" WHERE s.id = :id AND {_OWNED}"
@@ -64,7 +65,50 @@ def _info(r: Any) -> ChatSessionInfo:  # reason: RowMapping values are Any
     return ChatSessionInfo(ChatSessionId(r["id"]), r["title"], r["created_at"])
 
 
-class PostgresChatStore:
+class _SessionEdits:
+    """Rename / delete / restore / purge (ADR-0044); mixed into PostgresChatStore."""
+
+    _uow: UnitOfWork
+
+    async def _changed(self, sql: str, params: dict[str, Any]) -> bool:
+        async with self._uow() as s:
+            return (await s.execute(text(sql), params)).first() is not None
+
+    async def rename_session(
+        self, ws: WorkspaceId, user: UserId, session: ChatSessionId, title: str
+    ) -> bool:
+        return await self._changed(
+            f"UPDATE chat_sessions s SET title = :t WHERE s.id = :id AND {_OWNED}"  # noqa: S608
+            " RETURNING s.id",
+            {"t": title, "id": session, "ws": ws, "u": user},
+        )
+
+    async def delete_session(self, ws: WorkspaceId, user: UserId, session: ChatSessionId) -> bool:
+        return await self._changed(
+            f"UPDATE chat_sessions s SET deleted_at = now() WHERE s.id = :id AND {_OWNED}"  # noqa: S608
+            " RETURNING s.id",
+            {"id": session, "ws": ws, "u": user},
+        )
+
+    async def restore_session(
+        self, ws: WorkspaceId, user: UserId, session: ChatSessionId, *, since: datetime
+    ) -> bool:
+        return await self._changed(
+            "UPDATE chat_sessions s SET deleted_at = NULL WHERE s.id = :id"
+            " AND s.workspace_id = :ws AND s.user_id = :u AND s.deleted_at >= :since"
+            " RETURNING s.id",
+            {"id": session, "ws": ws, "u": user, "since": since},
+        )
+
+    async def purge_deleted(self, before: datetime) -> int:
+        async with self._uow() as s:
+            rows = await s.execute(
+                text("DELETE FROM chat_sessions WHERE deleted_at < :b RETURNING id"), {"b": before}
+            )
+            return len(rows.all())
+
+
+class PostgresChatStore(_SessionEdits):
     def __init__(self, uow: UnitOfWork) -> None:
         self._uow = uow
 

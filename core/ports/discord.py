@@ -65,6 +65,10 @@ class DiscordApi(Protocol):
         ``since``."""
         ...
 
+    async def download(self, url: str, max_bytes: int) -> bytes | None:
+        """An attachment from Discord's CDN, byte-capped; None when it's gone."""
+        ...
+
     async def leave_guild(self, guild_id: str) -> None:
         """Remove the bot from a server. Best effort: never raises."""
         ...

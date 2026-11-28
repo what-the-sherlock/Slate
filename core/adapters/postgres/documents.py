@@ -14,8 +14,16 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.adapters.postgres.uow import UnitOfWork
+from core.domain.attachments import AttachmentInfo, from_meta
 from core.domain.chunking import search_context
-from core.domain.documents import ChunkToEmbed, Document, DocumentUpsert, NewChunk, Vector
+from core.domain.documents import (
+    AttachmentParent,
+    ChunkToEmbed,
+    Document,
+    DocumentUpsert,
+    NewChunk,
+    Vector,
+)
 from core.domain.errors import NotFound
 from core.domain.ids import ChunkId, DocumentId, GenerationId, SourceId, WorkspaceId
 from core.domain.principals import Principals
@@ -25,7 +33,125 @@ def _vector_literal(vector: Vector) -> str:
     return "[" + ",".join(f"{x:.7g}" for x in vector) + "]"
 
 
-class PostgresDocumentStore:
+class _AttachmentQueries:
+    """ADR-0043 store methods (mixed into PostgresDocumentStore)."""
+
+    _uow: UnitOfWork
+
+    async def child_checksums(self, source_id: SourceId, parent_external_id: str) -> dict[str, str]:
+        async with self._uow() as s:
+            rows = (
+                await s.execute(
+                    text(
+                        "SELECT c.external_id, c.checksum FROM documents c"
+                        " JOIN documents p ON p.id = c.parent_document_id"
+                        " WHERE p.source_id = :s AND p.external_id = :e"
+                    ),
+                    {"s": source_id, "e": parent_external_id},
+                )
+            ).all()
+        return {str(r[0]): str(r[1]) for r in rows}
+
+    async def set_attachments(
+        self, source_id: SourceId, parent_external_id: str, attachments: Sequence[AttachmentInfo]
+    ) -> None:
+        async with self._uow() as s:
+            await s.execute(
+                text(
+                    "UPDATE documents SET metadata = jsonb_set(metadata, '{attachments}',"
+                    " CAST(:a AS jsonb)) WHERE source_id = :s AND external_id = :e"
+                    " AND parent_document_id IS NULL"
+                ),
+                {
+                    "s": source_id,
+                    "e": parent_external_id,
+                    "a": json.dumps([a.to_meta() for a in attachments]),
+                },
+            )
+
+    async def attachment_parent(
+        self, ws: WorkspaceId, principals: Principals | None, doc_id: DocumentId
+    ) -> AttachmentParent:
+        # principals=None is the worker finishing a read a signed-in request started
+        # (ingestion, not retrieval: nothing is returned to anyone).
+        access = "" if principals is None else " AND d.acl && CAST(:p AS text[])"
+        sql = (
+            "SELECT d.id, d.source_id, src.connector, d.external_id, d.title,"  # noqa: S608 (constant fragments; values are bound)
+            " d.uri, d.author, COALESCE(d.source_updated_at, d.created_at) AS at,"
+            " d.data_class, d.acl, d.metadata -> 'attachments' AS atts"
+            " FROM documents d JOIN sources src ON src.id = d.source_id"
+            " WHERE d.id = :id AND d.workspace_id = :ws AND d.deleted_at IS NULL"
+            f" AND d.parent_document_id IS NULL AND src.status <> 'deleting'{access}"
+        )
+        async with self._uow() as s:
+            row = (
+                (
+                    await s.execute(
+                        text(sql),
+                        {"id": doc_id, "ws": ws, "p": principals.as_list() if principals else []},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            raise NotFound("document not found")  # same answer for missing and forbidden
+        return AttachmentParent(
+            id=DocumentId(row["id"]),
+            workspace_id=ws,
+            source_id=SourceId(row["source_id"]),
+            connector=str(row["connector"]),
+            external_id=str(row["external_id"]),
+            title=str(row["title"]),
+            uri=str(row["uri"]),
+            author=row["author"],
+            updated_at=row["at"],
+            data_class=str(row["data_class"]),
+            acl=tuple(row["acl"]),
+            attachments=tuple(from_meta(row["atts"])) if row["atts"] else (),
+        )
+
+    async def chunks_without_embedding(
+        self, ws: WorkspaceId, doc_ids: Sequence[DocumentId], generation: GenerationId, limit: int
+    ) -> list[ChunkToEmbed]:
+        if not doc_ids:
+            return []
+        if not 1 <= limit <= 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        async with self._uow() as s:
+            rows = (
+                (
+                    await s.execute(
+                        text(
+                            "SELECT c.id, c.workspace_id, d.title, c.heading_path, c.content,"
+                            " c.ordinal FROM chunks c JOIN documents d ON d.id = c.document_id"
+                            " WHERE c.workspace_id = :ws"
+                            " AND (c.document_id = ANY(CAST(:d AS uuid[]))"
+                            "   OR d.parent_document_id = ANY(CAST(:d AS uuid[])))"
+                            " AND d.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM"
+                            " chunk_embeddings e WHERE e.chunk_id = c.id AND e.generation_id = :g)"
+                            " ORDER BY c.id LIMIT :n"
+                        ),
+                        {"ws": ws, "d": list(doc_ids), "g": generation, "n": limit},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [
+            ChunkToEmbed(
+                chunk_id=ChunkId(int(r["id"])),
+                workspace_id=WorkspaceId(r["workspace_id"]),
+                title=str(r["title"]),
+                heading_path=r["heading_path"],
+                content=str(r["content"]),
+                ordinal=int(r["ordinal"]),
+            )
+            for r in rows
+        ]
+
+
+class PostgresDocumentStore(_AttachmentQueries):
     def __init__(self, uow: UnitOfWork) -> None:
         self._uow = uow
 
@@ -113,6 +239,7 @@ class PostgresDocumentStore:
             "meta": json.dumps(dict(doc.metadata)),
             "sc": doc.source_created_at,
             "su": doc.source_updated_at,
+            "parent": await _parent_id(s, doc),
         }
         if existing is None:
             new_id = (
@@ -120,8 +247,9 @@ class PostgresDocumentStore:
                     text(
                         "INSERT INTO documents (workspace_id, source_id, external_id, uri, title,"
                         " mime, author, checksum, acl, data_class, metadata, source_created_at,"
-                        " source_updated_at) VALUES (:ws, :s, :e, :uri, :title, :mime, :author,"
-                        " :sum, CAST(:acl AS text[]), :dc, CAST(:meta AS jsonb), :sc, :su)"
+                        " source_updated_at, parent_document_id) VALUES (:ws, :s, :e, :uri, :title,"
+                        " :mime, :author, :sum, CAST(:acl AS text[]), :dc, CAST(:meta AS jsonb),"
+                        " :sc, :su, :parent)"
                         " RETURNING id"
                     ),
                     params,
@@ -137,6 +265,7 @@ class PostgresDocumentStore:
                 "UPDATE documents SET uri = :uri, title = :title, mime = :mime, author = :author,"
                 " checksum = :sum, acl = CAST(:acl AS text[]), metadata = CAST(:meta AS jsonb),"
                 " source_updated_at = :su, deleted_at = NULL, updated_at = now(),"
+                " parent_document_id = :parent,"
                 " version = version + CASE WHEN checksum <> :sum THEN 1 ELSE 0 END"
                 " WHERE id = :id"
             ),
@@ -228,6 +357,24 @@ class PostgresDocumentStore:
             author=row["author"],
             source_updated_at=row["source_updated_at"],
         )
+
+
+async def _parent_id(s: AsyncSession, doc: DocumentUpsert) -> DocumentId | None:
+    """The parent's id, locked so it can't be deleted under the child (ADR-0043)."""
+    if doc.parent_external_id is None:
+        return None
+    found = (
+        await s.execute(
+            text(
+                "SELECT id FROM documents WHERE source_id = :s AND external_id = :e"
+                " AND parent_document_id IS NULL FOR SHARE"
+            ),
+            {"s": doc.source_id, "e": doc.parent_external_id},
+        )
+    ).scalar_one_or_none()
+    if found is None:
+        raise NotFound("attachment parent not found")
+    return DocumentId(found)
 
 
 # Backfill: chunks of live documents with no vector in generation :g, keyset-paged by id.

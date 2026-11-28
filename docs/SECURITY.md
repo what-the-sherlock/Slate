@@ -62,7 +62,7 @@ This is a personal project that indexes **private mail and code**, and anyone ca
   - Every connected source is private to the person who connected it (`user:<id>`), and only they can sync or disconnect it (anyone else gets 404). Gmail is always private data (DB CHECK).
   - A source can't exist without its connection (CHECK), and deleting the connection deletes the source and everything indexed from it (FK cascade). Leaving a workspace therefore removes it all, in the database.
   - Read-only scopes only. A sign-in missing a required scope, or Google's offline grant, is refused and revoked.
-  - Connectors call fixed https hosts per provider, follow no redirects, put only validated ids in URL paths, cap every body (2 MB per file, 10 MB per message) and never read attachments.
+  - Connectors call fixed https hosts per provider, follow no redirects, put only validated ids in URL paths, cap every body (2 MB per file, 10 MB per message). Attachments (ADR-0043) pass the upload gate (sniffed bytes, parser caps, 10 MB, timeout), become child documents whose ACL, data class and deletion are copied from the parent by the database, and Discord files are fetched only from its CDN hosts with fresh URLs.
   - Provider content is untrusted data: it reaches the model only as escaped source blocks (ADR-0022), and logs carry counts, statuses and error reasons, never content.
   - Accepted: Google's restricted scopes (Gmail, Drive) as an unverified app (warning screen, 100 users).
 - **Query planner (M8, ADR-0031):** the planner sees the question and recent turns as a delimited, escaped data block, and its output is data: validated JSON that can only *narrow* retrieval (queries, dates, connector kinds, sender), never widen it, because ACLs are applied in SQL regardless. The user's own filters always win. Bad output falls back to the question. Calls are classed private in the ledger. Neither queries nor plans are logged, only counts and the intent. Source metadata shown to the model (sender, title, section) is escaped like content, so a crafted author name can't close a tag. Document URIs are not sent to the model.
@@ -94,7 +94,7 @@ This is a personal project that indexes **private mail and code**, and anyone ca
   - Read-only by construction: EXAMINE, `BODY.PEEK[]`, and no commands that modify the mailbox.
   - The app password is Fernet-encrypted (`CREDENTIALS_FERNET_KEY`, rotatable), sent once in a CSRF-protected body, never logged, echoed (422s carry field names only) or kept in config, and deleted with its source (trigger + code).
   - 5 login attempts per hour and 20 per day per user.
-  - Only Inbox and Sent; attachments are never read; messages over 10 MB are skipped.
+  - Only Inbox and Sent; attachments are read only as ADR-0043 child documents (same gate as uploads, inherited ACL); oversized parts are listed as `too_large`.
   - Email is always private data, readable only by its connector.
   - `.mbox` imports reuse the upload gate (25 MB, sniffed, SHA-256 re-verified by the worker); the job checks that the object belongs to the uploader; the raw file is deleted after import; imports never run inline (the inline runner refuses foreign job kinds).
   - Accepted: deletions in the mailbox aren't propagated yet, and an app password could also send mail, though Slate never does.

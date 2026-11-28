@@ -200,6 +200,8 @@ function AssistantMessage({
         </div>
       ) : null}
 
+      {turn.stage === "done" && !abstained ? <Notices notices={turn.done?.notices ?? []} /> : null}
+
       {turn.stage === "stopped" ? (
         <div className="flex flex-wrap items-center gap-2 animate-in fade-in duration-200">
           <span className="inline-flex h-6 items-center gap-1.5 rounded-full border border-border bg-subtle px-2.5 text-data font-medium text-fg-muted">
@@ -391,6 +393,11 @@ function Insufficient({ turn, filtersActive, actions }: { turn: Turn; filtersAct
           </ul>
         </div>
       ) : null}
+      {turn.done?.notices.length ? (
+        <div className="pl-7">
+          <Notices notices={turn.done.notices} />
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-1.5 pl-6">
         <Button size="sm" variant="ghost" onClick={() => actions.onRephrase(turn.question)}>
           <Pencil /> Rephrase
@@ -407,6 +414,25 @@ function Insufficient({ turn, filtersActive, actions }: { turn: Turn; filtersAct
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * What limited this answer (ADR-0043): a source that hasn't synced recently, a file that
+ * can't be read or is still being read, filters that had to be widened. Same warning
+ * style as the search page's notices. Plain text from the server, never HTML.
+ */
+export function Notices({ notices }: { notices: string[] }) {
+  if (!notices.length) return null;
+  return (
+    <ul className="flex flex-col gap-1.5" aria-label="Notes about this answer">
+      {notices.slice(0, 5).map((n) => (
+        <li key={n} className="flex gap-2 rounded-md border border-warning-border bg-warning-subtle px-3 py-2 text-caption text-warning">
+          <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <span>{n}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

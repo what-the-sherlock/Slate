@@ -59,12 +59,16 @@ from core.domain.budget import SpendLimits
 from core.domain.emails import OutgoingEmail
 from core.domain.errors import UpstreamUnavailable
 from core.domain.integrations import REGISTRY
+from core.ports.attachments import AttachmentFetcher
 from core.ports.auth import HumanVerifier
+from core.ports.connected import ConnectionAccess
 from core.ports.email import EmailSender
 from core.ports.integrations import ClientCredentials
 from core.ports.jobs import WorkerTrigger
 from core.ports.storage import BlobStore
-from core.services.answer import AnswerService
+from core.services.answer import AnswerService, Freshness
+from core.services.attachment_fetchers import ConnectedFiles, DiscordFiles, MailboxFiles
+from core.services.attachments import AttachmentIndexer, AttachmentJobs, AttachmentReader
 from core.services.auth import AuthPolicy, AuthService
 from core.services.connected import ConnectedSources
 from core.services.discord import DiscordService
@@ -133,8 +137,17 @@ def search_service(settings: Settings, uow: UnitOfWork) -> SearchService:
     )
 
 
-def answer_service(settings: Settings, uow: UnitOfWork) -> AnswerService | None:
-    """Cited chat, or None without an OpenAI key (chat is the one feature that needs it)."""
+def answer_service(
+    settings: Settings,
+    uow: UnitOfWork,
+    *,
+    freshness: Freshness | None = None,
+    access: ConnectionAccess | None = None,
+    trigger: WorkerTrigger | None = None,
+) -> AnswerService | None:
+    """Cited chat, or None without an OpenAI key (chat is the one feature that needs it).
+    ``freshness``, ``access`` and ``trigger`` enable ADR-0043's steps (syncing stale
+    sources, reading Gmail files on demand, handing unfinished reads to the worker)."""
     key = settings.openai_api_key.get_secret_value().strip() if settings.openai_api_key else ""
     if not key:
         return None
@@ -150,6 +163,10 @@ def answer_service(settings: Settings, uow: UnitOfWork) -> AnswerService | None:
         limits=spend_limits(settings),
         min_similarity=settings.chat_min_similarity,
         reranker=LLMReranker(chat) if settings.chat_rerank else None,
+        freshness=freshness,
+        attachments=attachment_reader(settings, uow, access),
+        attachment_jobs=attachment_jobs(settings, uow, access),
+        trigger=trigger,
     )
 
 
@@ -187,6 +204,44 @@ class _NoBlobs:
 
     def __getattr__(self, name: str) -> object:
         raise UpstreamUnavailable("Upload storage isn't configured on this server.")
+
+
+def _attachments(ingest: IngestService, uow: UnitOfWork) -> AttachmentIndexer:
+    """Reads files that came with an email or message (ADR-0043)."""
+    return AttachmentIndexer(
+        ingest, PostgresDocumentStore(uow), PostgresSourceStore(uow), FormatParser()
+    )
+
+
+def attachment_reader(
+    settings: Settings, uow: UnitOfWork, access: ConnectionAccess | None = None
+) -> AttachmentReader | None:
+    """On-demand attachment reads (ADR-0043), or None without an OpenAI key (the
+    indexing pipeline). Each connector that can fetch a file again gets a fetcher."""
+    ingest = _ingest(settings, uow, s3_blob_store(settings) or _NoBlobs())  # type: ignore[arg-type]
+    if ingest is None:
+        return None
+    sources = PostgresSourceStore(uow)
+    fetchers: dict[str, AttachmentFetcher] = {}
+    if access is not None:
+        files = ConnectedFiles(sources, access, {"gmail": GmailConnector()})
+        fetchers.update(dict.fromkeys(files.connectors(), files))
+    if settings.discord_bot_token:
+        fetchers["discord"] = DiscordFiles(discord_api(settings))
+    creds = credential_store(settings, uow)
+    if creds.available:
+        fetchers["imap"] = MailboxFiles(ImapMailbox(), creds, sources)
+    return AttachmentReader(PostgresDocumentStore(uow), _attachments(ingest, uow), fetchers)
+
+
+def attachment_jobs(
+    settings: Settings, uow: UnitOfWork, access: ConnectionAccess | None = None
+) -> AttachmentJobs | None:
+    reader = attachment_reader(settings, uow, access)
+    ingest = _ingest(settings, uow, s3_blob_store(settings) or _NoBlobs())  # type: ignore[arg-type]
+    if reader is None or ingest is None:
+        return None
+    return AttachmentJobs(reader, ingest, PostgresJobQueue(uow))
 
 
 def github_api(settings: Settings) -> GitHubApp:
@@ -297,6 +352,7 @@ def discord_sync(settings: Settings, uow: UnitOfWork) -> DiscordSync | None:
         PostgresJobQueue(uow),
         ingest,
         SystemClock(),
+        attachments=_attachments(ingest, uow),
     )
 
 
@@ -323,7 +379,13 @@ def mail_sync(settings: Settings, uow: UnitOfWork) -> MailSync | None:
     if not creds.available or ingest is None:
         return None
     return MailSync(
-        ImapMailbox(), creds, PostgresSourceStore(uow), PostgresJobQueue(uow), ingest, SystemClock()
+        ImapMailbox(),
+        creds,
+        PostgresSourceStore(uow),
+        PostgresJobQueue(uow),
+        ingest,
+        SystemClock(),
+        attachments=_attachments(ingest, uow),
     )
 
 
@@ -333,7 +395,9 @@ def mbox_import(settings: Settings, uow: UnitOfWork) -> MboxImport | None:
     ingest = _ingest(settings, uow, blobs) if blobs is not None else None
     if blobs is None or ingest is None:
         return None
-    return MboxImport(blobs, PostgresSourceStore(uow), ingest, parse_mbox)
+    return MboxImport(
+        blobs, PostgresSourceStore(uow), ingest, parse_mbox, attachments=_attachments(ingest, uow)
+    )
 
 
 def email_sender(settings: Settings) -> EmailSender | None:
@@ -444,10 +508,11 @@ def connected_sources(
     """The sync engine for every OAuth-connected source (ADR-0033), registered as the
     integrations' connect hook. Syncing needs only the OpenAI key (no blob storage)."""
     key = settings.credentials_fernet_key
+    ingest = _ingest(settings, uow, s3_blob_store(settings) or _NoBlobs())  # type: ignore[arg-type]
     engine = ConnectedSources(
         PostgresSourceStore(uow),
         PostgresJobQueue(uow),
-        _ingest(settings, uow, s3_blob_store(settings) or _NoBlobs()),  # type: ignore[arg-type]
+        ingest,
         PostgresConnectionStore(uow, make_fernet(key.get_secret_value() if key else None)),
         integrations,
         PostgresRateLimiter(uow),
@@ -462,6 +527,7 @@ def connected_sources(
         },
         specs={p.id: p for p in REGISTRY},
         parser=FormatParser(),  # Drive PDFs, Word files and Sheets exports (P1-1)
+        attachments=_attachments(ingest, uow) if ingest is not None else None,
     )
     for provider in engine.providers:
         integrations.on_connected(provider, engine.connected)

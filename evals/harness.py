@@ -27,7 +27,7 @@ from core.domain.search import Lane
 from core.ports.models import Embedder, Embeddings
 from core.ports.storage import SearchIndex
 from core.services.search import VectorLane, hybrid_retrieve
-from evals.cases import Case
+from evals.cases import EVAL_NOW, Case
 from evals.metrics import mean, mrr_at_k, ndcg_at_k, percentile, recall_at_k, unique_in_order
 
 K = 10
@@ -111,7 +111,9 @@ async def run_cases(
     for case in cases:
         # An oracle plan (ADR-0031) applies the filters and lane a correct planner would.
         plan = case.plan.as_plan(case.question) if case.plan else None
-        filters = merge_filters(SearchFilters(), plan, UTC) if plan else SearchFilters()
+        filters = (
+            merge_filters(SearchFilters(), plan, UTC, now=EVAL_NOW) if plan else SearchFilters()
+        )
         recent = bool(plan and plan.wants_recent)
         # A follow-up is anchored on what the previous turn cited (P1-5), as in chat.
         anchor = (

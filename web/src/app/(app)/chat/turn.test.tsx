@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { newTurn, type DoneEvent, type SourceOut, type Turn } from "@/lib/chat";
-import { TurnView, type TurnActions } from "./turn";
+import { Notices, TurnView, type TurnActions } from "./turn";
 
 const SOURCE: SourceOut = { n: 1, chunk_id: 7, document_id: "00000000-0000-0000-0000-000000000001", ordinal: 0, title: "Handbook", heading_path: null, snippet: "" };
 const DONE: DoneEvent = { v: 1, message_id: "a1", abstained: false, model: "gpt-x", latency_ms: 2100, citations: [], closest: [], notices: [], mode: "grounded" };
@@ -127,5 +127,27 @@ describe("TurnView", () => {
     show(done({}, { followups: ["Who approves leave?"] }));
     expect(screen.getByText("Follow-ups")).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Suggested follow-up questions" })).toBeInTheDocument();
+  });
+});
+
+
+describe("notices (ADR-0043)", () => {
+  const note = "Gmail last synced at 13:17 (48 minutes ago), so newer items may not be in Slate yet.";
+
+  it("shows what limited a grounded answer", () => {
+    render(<Notices notices={[note, "contract.pdf: password-protected, so it can't be read"]} />);
+    expect(screen.getByText(note)).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Notes about this answer" }).children).toHaveLength(2);
+  });
+
+  it("renders nothing without notices", () => {
+    const { container } = render(<Notices notices={[]} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("never renders server text as HTML", () => {
+    render(<Notices notices={["<img src=x onerror=alert(1)>"]} />);
+    expect(screen.getByText("<img src=x onerror=alert(1)>")).toBeInTheDocument();
+    expect(document.querySelector("img")).toBeNull();
   });
 });

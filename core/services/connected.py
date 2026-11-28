@@ -29,6 +29,7 @@ from uuid import UUID
 
 import structlog
 
+from core.domain.attachments import from_meta
 from core.domain.auth import Identity, Role
 from core.domain.connected import (
     MAX_DOCUMENTS_PER_RUN,
@@ -61,6 +62,7 @@ from core.ports.jobs import JobQueue
 from core.ports.rate_limit import Limit, RateLimiter
 from core.ports.sources import SourceRecord, SourceStore
 from core.ports.system import Clock, Parser
+from core.services.attachments import AttachmentIndexer, ParentRef
 from core.services.ingest import IngestService, Stage
 from core.services.sync_run import RunBoundary
 
@@ -68,6 +70,7 @@ log = structlog.get_logger(__name__)
 
 SYNC_CONNECTED = "sync_connected"
 INLINE_SYNC_BUDGET_S = 90.0
+QUICK_SYNC_BUDGET_S = 15.0  # a sync a question waits for (ADR-0043)
 PROGRESS_EVERY = 10
 SYNC_NOW_LIMIT = Limit(budget=1, window=timedelta(minutes=2))
 NOT_FOUND = "This source doesn't exist."
@@ -116,7 +119,11 @@ class ConnectedSources:
         connectors: Mapping[str, SourceConnector],
         specs: Mapping[str, ProviderSpec],
         parser: Parser | None = None,
+        attachments: AttachmentIndexer | None = None,
     ) -> None:
+        # Reads files that came with a document (Gmail attachments; ADR-0043). None: they
+        # stay listed by name and are read on demand.
+        self._attachments = attachments
         # Parses files a connector hands over as bytes (FetchedDocument.raw, P1-1). None:
         # such files are counted as unsupported.
         self._parser = parser
@@ -208,6 +215,11 @@ class ConnectedSources:
 
     async def handle_inline(self, job: Job) -> None:
         await self.sync(job, deadline=time.monotonic() + INLINE_SYNC_BUDGET_S)
+
+    async def handle_quick(self, job: Job) -> None:
+        """A sync a question started (ADR-0043): a short, cooperative budget; whatever is
+        left continues in the worker from the saved checkpoint."""
+        await self.sync(job, deadline=time.monotonic() + QUICK_SYNC_BUDGET_S)
 
     async def sync(self, job: Job, *, deadline: float | None) -> None:
         source = await self._job_source(job)
@@ -318,6 +330,15 @@ class ConnectedSources:
         if state.existing.get(doc.external_id) == digest:
             return True
         source, stage = state.source, Stage("chunk")
+        files = from_meta(doc.metadata.get("attachments"))
+        prepared = (
+            await self._attachments.prepare(files, doc.attachments)
+            if self._attachments is not None and files
+            else []
+        )
+        metadata = dict(doc.metadata)
+        if prepared:
+            metadata["attachments"] = [p.info.to_meta() for p in prepared]
         try:
             result = await self._ingest.index_document(
                 source.workspace_id,
@@ -332,7 +353,7 @@ class ConnectedSources:
                     author=doc.author,
                     source_created_at=doc.created_at,
                     source_updated_at=doc.updated_at,
-                    metadata=dict(doc.metadata),
+                    metadata=metadata,
                 ),
                 doc.sections,
                 data_class=source.data_class,
@@ -350,6 +371,16 @@ class ConnectedSources:
         state.existing[doc.external_id] = digest
         if result.changed:
             t.changed += 1
+        if self._attachments is not None and result.changed:  # also prunes removed files
+            await self._attachments.write(
+                ParentRef(
+                    workspace_id=source.workspace_id, source_id=source.id,
+                    external_id=doc.external_id, title=doc.title, uri=doc.uri,
+                    acl=source.visibility, data_class=source.data_class, author=doc.author,
+                    created_at=doc.created_at, updated_at=doc.updated_at,
+                ),
+                prepared,
+            )  # fmt: skip
         return True
 
     # ------------------------------------------------------------ helpers

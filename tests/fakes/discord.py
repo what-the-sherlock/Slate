@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 from core.domain.discord import Channel, Guild, Member, Message, Thread, snowflake_time
-from core.domain.errors import NotFound, PermissionDenied, RateLimited
+from core.domain.errors import NotFound, PermissionDenied, RateLimited, UnreadableFile
 from core.ports.discord import InstallProof
 
 BOT_ID = "900000000000000001"
@@ -37,6 +37,8 @@ class FakeDiscord:
         self.forbidden_channels: set[str] = set()
         self.message_calls = 0
         self.thread_fetches: list[str] = []
+        self.cdn: dict[str, bytes] = {}  # signed URL -> file bytes (ADR-0043)
+        self.downloads: list[str] = []
 
     @property
     def configured(self) -> bool:
@@ -148,6 +150,13 @@ class FakeDiscord:
             last_message_id=last or t.last_message_id,
             archived=t.id in server.archived_at and server.archived_at[t.id] is not None,
         )
+
+    async def download(self, url: str, max_bytes: int) -> bytes | None:
+        self.downloads.append(url)
+        data = self.cdn.get(url)
+        if data is not None and len(data) > max_bytes:
+            raise UnreadableFile("The file is too large.", reason="too_large")
+        return data
 
     async def leave_guild(self, guild_id: str) -> None:
         self.left.append(guild_id)

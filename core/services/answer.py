@@ -23,15 +23,25 @@ Guarantees:
     NO_ANSWER.
   NO_ANSWER never reaches the user: it persists the same designed "not enough evidence"
   reply. General and chat calls see no sources, so they can't leak any.
+* Vague questions (ADR-0043), at most two deterministic steps (no model tool calls):
+  - freshness: a question about the last hours first syncs its sources if they're stale
+    (short, cooperative, throttled), or says when they last synced;
+  - expansion: when the question wants what something contains, or the top hits carry
+    files, unread files are read on demand (deadline-bound; the worker finishes the
+    rest) and their text, plus more of the top document, joins the sources. Everything
+    is fetched through the same ACL-filtered SQL as search.
+  - every degradation becomes a notice (stale source, unreadable file, relaxed filters),
+    shown with the answer or the abstention.
 """
 
 from __future__ import annotations
 
 import time
 from collections.abc import AsyncIterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta, tzinfo
 from decimal import Decimal
+from typing import Protocol
 
 import structlog
 
@@ -56,6 +66,13 @@ from core.domain.answer import (
     should_abstain_before_model,
     validate_citations,
 )
+from core.domain.attachments import (
+    INDEXED,
+    RETRYABLE,
+    AttachmentInfo,
+    AttachmentState,
+    explain,
+)
 from core.domain.auth import Identity
 from core.domain.auth import Role as AccountRole
 from core.domain.budget import SpendLimits
@@ -71,6 +88,7 @@ from core.domain.errors import (
 )
 from core.domain.ids import ChatSessionId, ChunkId, DocumentId, MessageId, WorkspaceId
 from core.domain.planner import (
+    CONNECTORS_BY_KIND,
     QueryPlan,
     fallback_plan,
     local_zone,
@@ -82,11 +100,13 @@ from core.domain.planner import (
 from core.domain.rerank import RERANK_CANDIDATES, RERANK_KEEP, RERANK_MAX_TOKENS, snippet
 from core.domain.search import DIVERSITY_POOL, FusedHit, diversify
 from core.ports.chat import ChatStore, Citation, NewMessage
+from core.ports.jobs import WorkerTrigger
 from core.ports.models import ChatModel, Tokenizer
 from core.ports.rate_limit import Limit, RateLimiter
 from core.ports.reranker import RerankCandidate, Reranker
 from core.ports.system import Clock
 from core.ports.usage import UsageEntry, UsageLedger
+from core.services.attachments import AttachmentJobs, AttachmentReader
 from core.services.search import SearchResults, SearchService
 
 log = structlog.get_logger(__name__)
@@ -102,6 +122,12 @@ PLAN_MAX_TOKENS = 200  # one small JSON object
 SOURCE_TOKEN_BUDGET = 8000
 HIT_TOKEN_BUDGET = 6000
 CLOSEST_SHOWN = 3
+# Expansion (ADR-0043): files of the top hits are read and added to the sources.
+EXPAND_TOP = 3  # hits whose documents may be expanded
+EXPAND_CHUNKS = 8  # attachment / whole-document chunks fetched
+EXPAND_TOKEN_BUDGET = 5000  # on top of SOURCE_TOKEN_BUDGET
+READ_BUDGET_S = 20.0  # on-demand file reads a question may wait for
+EMAIL_CONNECTORS = CONNECTORS_BY_KIND["email"]
 # USD per million tokens (input, output). Unknown models are priced high: fail safe.
 CHAT_PRICES: dict[str, tuple[Decimal, Decimal]] = {
     "gpt-4o-mini": (Decimal("0.15"), Decimal("0.60")),
@@ -158,6 +184,14 @@ class Done:
 AnswerEvent = Meta | SourcesFound | Token | Cited | Done
 
 
+class Freshness(Protocol):
+    """Syncs a question's stale sources (``SourceActions.freshen``)."""
+
+    async def freshen(
+        self, identity: Identity, connectors: Sequence[str], *, now: datetime, zone: tzinfo
+    ) -> tuple[str, ...]: ...
+
+
 # ---------------------------------------------------------------- service
 
 
@@ -175,7 +209,16 @@ class AnswerService:
         min_similarity: float = DEFAULT_MIN_SIMILARITY,
         clock: Clock | None = None,
         reranker: Reranker | None = None,
+        freshness: Freshness | None = None,
+        attachments: AttachmentReader | None = None,
+        attachment_jobs: AttachmentJobs | None = None,
+        trigger: WorkerTrigger | None = None,
     ) -> None:
+        # ADR-0043: each is optional; without one, that step is skipped (never an error).
+        self._freshness = freshness
+        self._attachments = attachments
+        self._attachment_jobs = attachment_jobs
+        self._trigger = trigger
         # The optional selection step (P1-4, ADR-0040); None: fused rank order.
         self._reranker = reranker
         self._search = search
@@ -264,8 +307,11 @@ class AnswerService:
         queries = search_queries(plan, question, first_turn=not history)
         yield Meta(sid, user_msg, queries[0], plan)
 
+        fresh = await self._freshen(identity, plan, now, zone)
         user_filters = filters or SearchFilters()
-        results = await self._retrieve(identity, queries, user_filters, plan, zone, anchor=anchor)
+        results, matched = await self._retrieve(
+            identity, queries, user_filters, plan, zone, anchor=anchor, now=now
+        )
         # Without a source filter, every connector that found something strong gets a
         # voice (P1-7); with one, the person asked for that source only.
         narrowed = bool(plan.kinds or user_filters.connectors or user_filters.source_ids)
@@ -276,12 +322,16 @@ class AnswerService:
             # Recent and summary questions are about dates, not relevance: no selection.
             hits = await self._select(identity, queries[0], results.hits) or hits
         passages = await self._assemble(identity, hits)
+        extra, file_notes = await self._expand(identity, plan, hits, queries[0], now)
+        passages = [*passages, *extra]
         sources = tuple(number_sources(passages))
-        notices = results.notices
+        notices = tuple(dict.fromkeys((*fresh, *results.notices, *file_notes)))
 
         # "What's new?" resembles no passage, so the similarity gate would always fire;
         # with the recent lane, any document found is the evidence (ADR-0031).
-        best = None if plan.wants_recent else results.best_similarity
+        # The plan's own filters (sent, a person, the last hours) matching is evidence too:
+        # an email whose only text is "Test" resembles no question (ADR-0043).
+        best = None if plan.wants_recent or matched else results.best_similarity
         if should_abstain_before_model(bool(passages), best, min_similarity=self._min_similarity):
             # Nothing relevant: the model may still answer a general question, without
             # sources; a question about the user's own data still abstains (ADR-0025).
@@ -524,7 +574,7 @@ class AnswerService:
                     usage = item
                 else:
                     parts.append(item.text)
-            return parse_plan("".join(parts), question, today=now.date())
+            return parse_plan("".join(parts), question, today=now.date(), history=history)
         except (UpstreamUnavailable, RateLimited) as exc:
             log.warning("answer.plan_failed", error=type(exc).__name__)
             return fallback_plan(question)
@@ -546,24 +596,32 @@ class AnswerService:
         zone: tzinfo,
         *,
         anchor: Sequence[DocumentId] = (),
-    ) -> SearchResults:
+        now: datetime | None = None,
+    ) -> tuple[SearchResults, bool]:
         """Retrieval under the plan's filters merged with the user's. If the plan's own
         period, kind or sender hid everything, retry with the user's filters alone: a
-        guess about the question must not turn into "nothing found" (ADR-0031)."""
+        guess about the question must not turn into "nothing found" (ADR-0031). The
+        answer is told (a notice), so it doesn't present the closest results as a match.
+
+        Also returns whether the plan's own conversation filters (direction, person, hours)
+        matched directly: then the hits are what was asked for, whatever their similarity."""
         results = await self._search.retrieve(
             identity,
             queries,
-            merge_filters(user_filters, plan, zone),
+            merge_filters(user_filters, plan, zone, now=now),
             limit=DIVERSITY_POOL,  # a pool: _answer keeps MAX_SOURCES (P1-7)
             recent=plan.wants_recent,
             anchor=anchor,
         )
+        matched = bool(results.hits) and bool(plan.direction or plan.person or plan.since_hours)
         if not results.hits and plan.narrows:
             log.info("answer.plan_filters_dropped")
             results = await self._search.retrieve(
                 identity, queries, user_filters, limit=DIVERSITY_POOL, recent=plan.wants_recent,
                 anchor=anchor,
             )  # fmt: skip
+            if results.hits:
+                results = replace(results, notices=(*results.notices, relaxed_notice(plan)))
         log.info(
             "answer.planned",
             planned=plan.planned,
@@ -572,7 +630,7 @@ class AnswerService:
             narrowed=plan.narrows,
             hits=len(results.hits),
         )  # never the queries themselves: they're private text
-        return results
+        return results, matched
 
     async def _select(
         self, identity: Identity, question: str, pool: Sequence[FusedHit]
@@ -649,8 +707,108 @@ class AnswerService:
                 if n.heading_path and n.heading_path != c.heading_path:
                     text = f"[{n.heading_path}]\n{n.content}"
                 texts.insert(0, text) if at_start else texts.append(text)
+            if c.attachments:  # what each file is, and why one can't be read (ADR-0043)
+                texts.append(files_line(c.attachments))
             passages.append(_passage(c, "\n\n".join(texts)))
         return passages
+
+    async def _freshen(
+        self, identity: Identity, plan: QueryPlan, now: datetime, zone: tzinfo
+    ) -> tuple[str, ...]:
+        """Sync the sources a question about the last hours depends on (ADR-0043)."""
+        if self._freshness is None or not touches_last_hours(plan, now):
+            return ()
+        connectors = freshness_connectors(plan)
+        if not connectors:
+            return ()
+        try:
+            return await self._freshness.freshen(identity, connectors, now=now, zone=zone)
+        except Exception as e:  # freshness only improves an answer; it never fails one
+            log.warning("answer.freshen_failed", error=type(e).__name__)
+            return ()
+
+    async def _expand(
+        self,
+        identity: Identity,
+        plan: QueryPlan,
+        hits: Sequence[FusedHit],
+        query: str,
+        now: datetime,
+    ) -> tuple[list[Passage], tuple[str, ...]]:
+        """Step two (ADR-0043): the top hits' files, and more of the top document when the
+        question wants its contents. Returns extra passages and notices."""
+        top = [h.chunk for h in hits[:EXPAND_TOP]]
+        if not top:
+            return [], ()
+        parents: dict[DocumentId, ScoredChunk] = {}
+        for c in top:
+            parents.setdefault(c.parent_id or c.document_id, c)
+        with_files = [
+            pid for pid, c in parents.items()
+            if c.parent_id is not None or c.attachments or mentions_files(c.content)
+        ]  # fmt: skip
+        if not with_files and not plan.wants_content:
+            return [], ()
+        ws = identity.workspace_id
+        notes: list[str] = []
+        pending: list[DocumentId] = []
+        deadline = time.monotonic() + READ_BUDGET_S
+        if self._attachments is not None:
+            for pid in with_files:
+                c = parents[pid]
+                if c.parent_id is not None or not self._attachments.can_read(c.connector):
+                    continue
+                if c.attachments and not any(a.state in RETRYABLE for a in c.attachments):
+                    continue  # nothing left to read
+                out = await self._attachments.read(ws, identity.principals, pid, deadline=deadline)
+                if out.pending:
+                    pending.append(pid)
+                notes += [explain(a) for a in out.attachments if a.state not in INDEXED | RETRYABLE]
+                waiting = [a.name for a in out.attachments if a.state is AttachmentState.LISTED]
+                if out.pending and waiting:
+                    notes.append(reading_notice(waiting))
+        kids = await self._search.attachment_children(identity, list(parents))
+        targets = [child for child, _ in kids]
+        if plan.wants_content:
+            targets.append(top[0].parent_id or top[0].document_id)  # read it whole
+        shown = {h.chunk.chunk_id for h in hits[:MAX_SOURCES]}
+        chunks = [
+            c for c in await self._search.document_chunks(identity, targets, query, EXPAND_CHUNKS)
+            if c.chunk_id not in shown
+        ]  # fmt: skip
+        extra: list[Passage] = []
+        budget = EXPAND_TOKEN_BUDGET
+        for c in chunks:
+            cost = self._tokenizer.count(c.content)
+            if cost > budget:
+                continue
+            budget -= cost
+            extra.append(_passage(c, c.content))
+        await self._queue_attachment_work(ws, pending, [p for _, p in kids], now)
+        log.info(
+            "answer.expanded", parents=len(with_files), children=len(kids), added=len(extra),
+            pending=len(pending),
+        )  # fmt: skip
+        return extra, tuple(notes)
+
+    async def _queue_attachment_work(
+        self,
+        ws: WorkspaceId,
+        pending: Sequence[DocumentId],
+        used: Sequence[DocumentId],
+        now: datetime,
+    ) -> None:
+        """Unfinished reads go to the worker now; attachments an answer used get their
+        vectors (Tier 2) at the worker's next run. Best effort: never fails an answer."""
+        if self._attachment_jobs is None or not (pending or used):
+            return
+        try:
+            hour = int(now.timestamp()) // 3600
+            await self._attachment_jobs.enqueue(ws, [*pending, *used], hour=hour)
+            if pending and self._trigger is not None:
+                await self._trigger.trigger("attachments")
+        except Exception as e:
+            log.warning("answer.attachment_queue_failed", error=type(e).__name__)
 
     def _fit_hits(self, chunks: Sequence[ScoredChunk]) -> list[ScoredChunk]:
         """Hits in rank order while they fit HIT_TOKEN_BUDGET (the best one always)."""
@@ -756,3 +914,68 @@ def _owner_at_home(identity: Identity) -> bool:
     """The platform owner, acting in a workspace they own (ADR-0029/0030): never in someone
     else's workspace, and never for anyone they invited."""
     return identity.is_platform_admin and identity.role is AccountRole.OWNER
+
+
+def touches_last_hours(plan: QueryPlan, now: datetime) -> bool:
+    """The question is about the last few hours: "today", "just now", "this morning"."""
+    if plan.since_hours is not None:
+        return True
+    today = now.date()
+    return (
+        plan.after is not None
+        and plan.after >= today - timedelta(days=1)
+        and (plan.before is None or plan.before >= today)
+    )
+
+
+def freshness_connectors(plan: QueryPlan) -> tuple[str, ...]:
+    """Which sources to check: the kinds the question names, or email when it talks about
+    sending or receiving, or about someone (vague mail questions)."""
+    if plan.kinds:
+        return tuple(c for k in plan.kinds for c in CONNECTORS_BY_KIND[k])
+    if plan.direction or plan.person:
+        return EMAIL_CONNECTORS
+    return ()
+
+
+def mentions_files(content: str) -> bool:
+    """Text indexed before attachments were listed still names them (ADR-0043)."""
+    return "[attachment:" in content
+
+
+def files_line(files: Sequence[AttachmentInfo]) -> str:
+    """One line per document: each file and what Slate knows of it."""
+    parts: list[str] = []
+    for f in files[:10]:
+        if f.state in INDEXED:
+            parts.append(f"{f.name} (contents indexed{', first part only' if f.truncated else ''})")
+        elif f.state in RETRYABLE:
+            parts.append(f"{f.name} (not read yet)")
+        else:
+            parts.append(explain(f))
+    more = f" and {len(files) - 10} more" if len(files) > 10 else ""
+    return "[Files: " + "; ".join(parts) + more + "]"
+
+
+def reading_notice(names: Sequence[str]) -> str:
+    shown = ", ".join(names[:3]) + (" and more" if len(names) > 3 else "")
+    return f"Still reading {shown}. Ask again in a minute to include what it says."
+
+
+def relaxed_notice(plan: QueryPlan) -> str:
+    """Said when the plan's own filters found nothing and the search was widened."""
+    what: list[str] = []
+    if plan.direction == "sent":
+        what.append("mail you sent")
+    elif plan.direction == "received":
+        what.append("mail you received")
+    if plan.person:
+        what.append(f"involving {plan.person}")
+    if plan.since_hours:
+        what.append(f"in the last {plan.since_hours} hour{'s' if plan.since_hours != 1 else ''}")
+    elif plan.after:
+        what.append(f"since {plan.after:%d %b}")
+    if plan.kinds:
+        what.append("in " + ", ".join(plan.kinds))
+    detail = " ".join(what) or "your exact filters"
+    return f"Nothing matched {detail}, so these are the closest results instead."

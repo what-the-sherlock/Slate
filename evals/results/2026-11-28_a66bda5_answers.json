@@ -1,0 +1,408 @@
+{
+  "git_sha": "a66bda5",
+  "model": "gpt-4o-mini",
+  "summary": {
+    "cases": 7,
+    "abstention_accuracy": 0.8571,
+    "false_abstentions": [
+      "vague-sent-003"
+    ],
+    "missed_abstentions": [],
+    "mode_accuracy": null,
+    "wrong_mode": [],
+    "general_instead_of_grounded": [],
+    "citation_validity": 1.0,
+    "point_coverage": 1.0,
+    "answered_without_citations": [],
+    "followed_injection": [],
+    "cross_source_ok": null,
+    "cross_source_failed": [],
+    "followup_rate": 1.0,
+    "faithfulness": null,
+    "citation_completeness": null,
+    "cost_usd": 0.003151,
+    "latency_ms_p50": 15833
+  },
+  "cases": [
+    {
+      "id": "vague-sent-001",
+      "answerable": true,
+      "abstained": false,
+      "cited_documents": [
+        "email/rate-card-to-lena.md",
+        "email/attachments/q4-rate-card.md"
+      ],
+      "expected_documents": [
+        "email/rate-card-to-lena.md",
+        "email/attachments/q4-rate-card.md"
+      ],
+      "points_expected": [
+        "Lena Park",
+        "rate card"
+      ],
+      "points_found": [
+        "Lena Park",
+        "rate card"
+      ],
+      "cost_usd": 0.000402,
+      "latency_ms": 20540,
+      "text": "You sent an email today, 27 November 2026, at 09:40 to Lena Park. The email is titled \"Rate card\" and includes an attachment, \"Q4-rate-card.pdf\" [1]. \n\nThe attached rate card contains the following details for Kestrel Freight for Q4 2026:\n- Full truckload from Lisbon to Porto: 840 EUR per load.\n- Less than truckload: 95 EUR per pallet, with a minimum of two pallets.\n- Fuel surcharge: 6.5% on all lanes, reviewed monthly.\n- The rates are valid until 31 December 2026 for Harbourline orders placed through the shipper portal [2].\n\n",
+      "expect_mode": null,
+      "mode": "grounded",
+      "plan": {
+        "planned": true,
+        "lead_query": "I have sent an email today to a person, name him and see what I have sent.",
+        "queries": [
+          "What email did I send today and to whom?"
+        ],
+        "intent": "lookup",
+        "after": null,
+        "before": null,
+        "kinds": [
+          "email"
+        ],
+        "sender": null
+      },
+      "sources": [
+        "email/rate-card-to-lena.md",
+        "email/attachments/q4-rate-card.md"
+      ],
+      "cited_kinds": [
+        "email"
+      ],
+      "min_cited_kinds": null,
+      "judge": null,
+      "followups": [
+        "What are the details of the rate card?",
+        "Who else received the email?",
+        "What is the fuel surcharge policy?"
+      ]
+    },
+    {
+      "id": "vague-sent-002",
+      "answerable": true,
+      "abstained": false,
+      "cited_documents": [
+        "email/attachments/q4-rate-card.md"
+      ],
+      "expected_documents": [
+        "email/attachments/q4-rate-card.md"
+      ],
+      "points_expected": [
+        "95"
+      ],
+      "points_found": [
+        "95"
+      ],
+      "cost_usd": 0.000329,
+      "latency_ms": 15277,
+      "text": "You quoted Lena 95 EUR per pallet for less than truckload shipments, with a minimum of two pallets required [2]. \n\n",
+      "expect_mode": null,
+      "mode": "grounded",
+      "plan": {
+        "planned": true,
+        "lead_query": "How much per pallet did I quote Lena?",
+        "queries": [
+          "How much per pallet did I quote Lena?"
+        ],
+        "intent": "lookup",
+        "after": null,
+        "before": null,
+        "kinds": [],
+        "sender": null
+      },
+      "sources": [
+        "email/rate-card-to-lena.md",
+        "email/attachments/q4-rate-card.md"
+      ],
+      "cited_kinds": [
+        "email"
+      ],
+      "min_cited_kinds": null,
+      "judge": null,
+      "followups": [
+        "What is the fuel surcharge?",
+        "What is the rate for full truckload?",
+        "Until when is the rate valid?"
+      ]
+    },
+    {
+      "id": "vague-sent-003",
+      "answerable": true,
+      "abstained": true,
+      "cited_documents": [],
+      "expected_documents": [
+        "email/attachments/q4-rate-card.md",
+        "email/rate-card-to-lena.md"
+      ],
+      "points_expected": [
+        "840",
+        "6.5%"
+      ],
+      "points_found": [],
+      "cost_usd": 0.000475,
+      "latency_ms": 14057,
+      "text": "",
+      "expect_mode": null,
+      "mode": "grounded",
+      "plan": {
+        "planned": true,
+        "lead_query": "What's in the file I just sent?",
+        "queries": [
+          "What's in the file I just sent?"
+        ],
+        "intent": "lookup",
+        "after": null,
+        "before": null,
+        "kinds": [
+          "file"
+        ],
+        "sender": null
+      },
+      "sources": [
+        "operations/carrier-onboarding-checklist.md",
+        "company/values.md",
+        "misc/music-playlist.md",
+        "engineering/architecture.md",
+        "handbook/security-basics.md",
+        "archive/history-draft.md",
+        "customers/partner-notes.md",
+        "handbook/expenses.md",
+        "legal/project-heron.md",
+        "misc/emoji-guide.md",
+        "misc/book-club.md",
+        "archive/architecture-2021.md",
+        "finance/board-update-q3.md"
+      ],
+      "cited_kinds": [],
+      "min_cited_kinds": null,
+      "judge": null,
+      "followups": []
+    },
+    {
+      "id": "vague-sent-004",
+      "answerable": true,
+      "abstained": false,
+      "cited_documents": [
+        "email/rate-card-to-lena.md"
+      ],
+      "expected_documents": [
+        "email/rate-card-to-lena.md"
+      ],
+      "points_expected": [
+        "Lena Park"
+      ],
+      "points_found": [
+        "Lena Park"
+      ],
+      "cost_usd": 0.00033,
+      "latency_ms": 15833,
+      "text": "You sent the rate card to Lena Park on 27 November 2026 at 09:40 [1]. \n\n",
+      "expect_mode": null,
+      "mode": "grounded",
+      "plan": {
+        "planned": true,
+        "lead_query": "Who did I send the rate card to?",
+        "queries": [
+          "Who did I send the rate card to?"
+        ],
+        "intent": "lookup",
+        "after": null,
+        "before": null,
+        "kinds": [],
+        "sender": null
+      },
+      "sources": [
+        "email/rate-card-to-lena.md",
+        "email/attachments/q4-rate-card.md"
+      ],
+      "cited_kinds": [
+        "email"
+      ],
+      "min_cited_kinds": null,
+      "judge": null,
+      "followups": [
+        "What are the details of the rate card?",
+        "What is the validity period of the rate card?",
+        "What are the fuel surcharge details?"
+      ]
+    },
+    {
+      "id": "vague-file-001",
+      "answerable": true,
+      "abstained": false,
+      "cited_documents": [
+        "discord/attachments/roma-call-transcript.md"
+      ],
+      "expected_documents": [
+        "discord/attachments/roma-call-transcript.md"
+      ],
+      "points_expected": [
+        "volume discount",
+        "proof-of-delivery"
+      ],
+      "points_found": [
+        "volume discount",
+        "proof-of-delivery"
+      ],
+      "cost_usd": 0.000622,
+      "latency_ms": 19435,
+      "text": "The main topics discussed in the Roma call on 21 November 2026 included:\n\n1. **Volume Discount**: Roma requested a volume discount for the Lisbon to Madrid lane starting in January.\n2. **Proof-of-Delivery Photos**: Their operations lead specified that proof-of-delivery photos should be uploaded in the shipper portal rather than sent by email.\n3. **Next Steps**: Daniel is tasked with sending a revised quote that includes a 4% discount for shipments exceeding 60 loads a month, with a deadline of 2 December for this action [4].\n\n",
+      "expect_mode": null,
+      "mode": "grounded",
+      "plan": {
+        "planned": true,
+        "lead_query": "What were the main topics discussed in the Roma call transcript?",
+        "queries": [
+          "What were the main topics discussed in the Roma call transcript?"
+        ],
+        "intent": "lookup",
+        "after": null,
+        "before": null,
+        "kinds": [],
+        "sender": null
+      },
+      "sources": [
+        "engineering/oncall.md",
+        "archive/oncall-draft-2022.md",
+        "discord/attachments/roma-call-transcript.md",
+        "email/interview-schedule.md",
+        "engineering/architecture.md",
+        "company/values.md",
+        "email/offsite-venue.md",
+        "operations/carrier-onboarding-checklist.md",
+        "discord/general-lunch.md",
+        "github/issue-377-rate-limit.md",
+        "discord/eng-deploy-freeze.md",
+        "archive/architecture-2021.md",
+        "misc/book-club.md",
+        "legal/project-heron.md",
+        "discord/product-carrier-count.md"
+      ],
+      "cited_kinds": [
+        "discord"
+      ],
+      "min_cited_kinds": null,
+      "judge": null,
+      "followups": [
+        "What was the outcome of the call?",
+        "Who is Daniel?",
+        "What is the current status of the volume discount request?"
+      ]
+    },
+    {
+      "id": "vague-file-002",
+      "answerable": true,
+      "abstained": false,
+      "cited_documents": [
+        "discord/attachments/roma-call-transcript.md"
+      ],
+      "expected_documents": [
+        "discord/attachments/roma-call-transcript.md"
+      ],
+      "points_expected": [
+        "4%",
+        "2 December"
+      ],
+      "points_found": [
+        "4%",
+        "2 December"
+      ],
+      "cost_usd": 0.000617,
+      "latency_ms": 14556,
+      "text": "After the call with Roma on 21 November 2026, it was promised that Daniel would send a revised quote with a 4% discount for orders above 60 loads a month. This quote is to be sent by 2 December 2026 [5]. \n\n",
+      "expect_mode": null,
+      "mode": "grounded",
+      "plan": {
+        "planned": true,
+        "lead_query": "What did we promise Roma after the call, and by when?",
+        "queries": [
+          "What did we promise Roma after the call, and by when?"
+        ],
+        "intent": "lookup",
+        "after": null,
+        "before": null,
+        "kinds": [],
+        "sender": null
+      },
+      "sources": [
+        "engineering/oncall.md",
+        "archive/oncall-draft-2022.md",
+        "discord/attachments/roma-call-transcript.md",
+        "email/interview-schedule.md",
+        "email/offsite-venue.md",
+        "discord/support-carrier-api.md",
+        "github/issue-377-rate-limit.md",
+        "discord/eng-deploy-freeze.md",
+        "legal/project-heron.md",
+        "email/hiring-budget.md",
+        "company/values.md",
+        "email/beacon-renewal.md",
+        "email/nordlys-escalation.md",
+        "github/pr-419-carrier-backoff.md"
+      ],
+      "cited_kinds": [
+        "discord"
+      ],
+      "min_cited_kinds": null,
+      "judge": null,
+      "followups": [
+        "What was discussed in the call?",
+        "What is the current status of the quote?",
+        "Who is responsible for sending the quote?"
+      ]
+    },
+    {
+      "id": "vague-file-003",
+      "answerable": true,
+      "abstained": false,
+      "cited_documents": [
+        "discord/roma-call.md",
+        "discord/attachments/roma-call-transcript.md"
+      ],
+      "expected_documents": [
+        "discord/attachments/roma-call-transcript.md",
+        "discord/roma-call.md"
+      ],
+      "points_expected": [
+        "Roma"
+      ],
+      "points_found": [
+        "Roma"
+      ],
+      "cost_usd": 0.000376,
+      "latency_ms": 18264,
+      "text": "The document Aashutosh shared in Discord is a transcript of the Roma Logistics call held on 21 November 2026. It includes the following key points:\n\n- Roma requested a volume discount for the Lisbon to Madrid lane starting in January.\n- Their operations lead requires proof-of-delivery photos to be uploaded in the shipper portal instead of being sent by email.\n- The next step involves Daniel sending a revised quote that includes a 4% discount for orders exceeding 60 loads a month by 2 December [1][2].\n\n",
+      "expect_mode": null,
+      "mode": "grounded",
+      "plan": {
+        "planned": true,
+        "lead_query": "what is the document Aashutosh shared in discord about?",
+        "queries": [
+          "What is the document Aashutosh shared in Discord about?"
+        ],
+        "intent": "lookup",
+        "after": null,
+        "before": null,
+        "kinds": [
+          "discord"
+        ],
+        "sender": null
+      },
+      "sources": [
+        "discord/roma-call.md",
+        "discord/attachments/roma-call-transcript.md"
+      ],
+      "cited_kinds": [
+        "discord"
+      ],
+      "min_cited_kinds": null,
+      "judge": null,
+      "followups": [
+        "What other details are in the transcript?",
+        "Who is Daniel?",
+        "What is the next meeting scheduled?"
+      ]
+    }
+  ]
+}

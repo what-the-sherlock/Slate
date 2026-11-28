@@ -52,7 +52,7 @@ def chunk_sections(
 
 # Metadata values worth matching by keyword (string values only). Keep in step with the
 # backfill in migration 0012, which builds the same text for chunks written before it.
-SEARCH_CONTEXT_KEYS = ("repo", "path", "state", "identifier")
+SEARCH_CONTEXT_KEYS = ("repo", "path", "state", "identifier", "recipients")
 MAX_SEARCH_CONTEXT_CHARS = 500
 
 

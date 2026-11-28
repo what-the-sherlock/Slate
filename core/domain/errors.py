@@ -43,6 +43,15 @@ class ValidationFailed(AppError):
     title = "Validation failed"
 
 
+class UnreadableFile(ValidationFailed):
+    """A file that can't be read, and why: ``encrypted``, ``empty`` (no text layer),
+    ``too_large`` or ``unreadable``. Still a ValidationFailed for existing callers."""
+
+    def __init__(self, message: str, *, reason: str = "unreadable") -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
 class Conflict(AppError):
     code = "conflict"
     title = "Conflict"

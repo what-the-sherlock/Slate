@@ -208,3 +208,63 @@ def test_sources_carry_what_the_citation_card_shows() -> None:
     )  # fmt: skip
     out = _source(Source(1, passage))
     assert (out.connector, out.updated_at, out.author) == ("github", when, "mei-chen")
+
+
+# ---------------------------------------------------------------- rename and delete (ADR-0044)
+
+
+async def test_rename_cleans_the_title_and_it_shows_in_the_list(
+    client: TestClient, mailer: FakeMailer, index: InMemoryIndex
+) -> None:
+    headers = sign_up(client, mailer)
+    await seed(client, index)
+    session = ask(client, headers, "How much paid leave?")[0][1]["session_id"]
+    r = client.patch(
+        f"/api/v1/chat/sessions/{session}", json={"title": "  Leave\n\tpolicy  "}, headers=headers
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["title"] == "Leave policy"
+    assert client.get("/api/v1/chat/sessions").json()[0]["title"] == "Leave policy"
+    blank = client.patch(f"/api/v1/chat/sessions/{session}", json={"title": " \u0007 "},
+                         headers=headers)  # fmt: skip
+    assert blank.status_code == 422
+
+
+async def test_delete_hides_the_chat_everywhere_and_undo_brings_it_back(
+    client: TestClient, mailer: FakeMailer, index: InMemoryIndex
+) -> None:
+    headers = sign_up(client, mailer)
+    await seed(client, index)
+    session = ask(client, headers, "How much paid leave?")[0][1]["session_id"]
+    assert client.delete(f"/api/v1/chat/sessions/{session}", headers=headers).status_code == 204
+    assert client.get("/api/v1/chat/sessions").json() == []
+    assert client.get(f"/api/v1/chat/sessions/{session}/messages").json() == []
+    body = {"question": "and sick leave?", "session_id": session}
+    assert client.post("/api/v1/chat", json=body, headers=headers).status_code == 404
+    again = client.delete(f"/api/v1/chat/sessions/{session}", headers=headers)
+    assert again.status_code == 404  # already gone
+    r = client.post(f"/api/v1/chat/sessions/{session}/restore", headers=headers)
+    assert r.status_code == 204
+    assert [c["id"] for c in client.get("/api/v1/chat/sessions").json()] == [session]
+    assert len(client.get(f"/api/v1/chat/sessions/{session}/messages").json()) == 2
+
+
+async def test_someone_elses_chat_cant_be_renamed_deleted_or_restored(
+    client: TestClient, mailer: FakeMailer, index: InMemoryIndex
+) -> None:
+    owner = sign_up(client, mailer)
+    await seed(client, index)
+    session = ask(client, owner, "How much paid leave?")[0][1]["session_id"]
+    client.cookies.clear()
+    other = sign_up(client, mailer, email="eve@example.com")
+    url = f"/api/v1/chat/sessions/{session}"
+    assert client.patch(url, json={"title": "x"}, headers=other).status_code == 404
+    assert client.delete(url, headers=other).status_code == 404
+    assert client.post(f"{url}/restore", headers=other).status_code == 404
+
+
+def test_rename_and_delete_need_csrf(client: TestClient, mailer: FakeMailer) -> None:
+    sign_up(client, mailer)
+    url = f"/api/v1/chat/sessions/{uuid4()}"
+    assert client.delete(url).status_code == 403
+    assert client.patch(url, json={"title": "x"}).status_code == 403

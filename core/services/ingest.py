@@ -22,9 +22,9 @@ import structlog
 from core.domain.budget import SpendLimits
 from core.domain.chunking import chunk_sections, embedding_text
 from core.domain.data_class import classify
-from core.domain.documents import DocumentUpsert, NewChunk, Section
+from core.domain.documents import ChunkToEmbed, DocumentUpsert, NewChunk, Section
 from core.domain.errors import AppError, BudgetExceeded, UpstreamUnavailable, ValidationFailed
-from core.domain.ids import DocumentId, RunId, SourceId, UserId, WorkspaceId
+from core.domain.ids import ChunkId, DocumentId, RunId, SourceId, UserId, WorkspaceId
 from core.domain.jobs import Job
 from core.domain.principals import user_principal, workspace_principal
 from core.domain.uploads import MAX_UPLOAD_BYTES, MIME, SNIFF_BYTES, FileKind, sniff_kind
@@ -57,6 +57,7 @@ class IndexResult:
     document_id: DocumentId
     changed: bool
     chunks: int
+    truncated: bool = False  # ``max_tokens`` cut the text (ADR-0043)
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,22 +211,46 @@ class IngestService:
         *,
         data_class: str,
         stage: Stage | None = None,
+        embed: bool = True,
+        max_tokens: int | None = None,
     ) -> IndexResult:
         """chunk -> embed -> store for one already-parsed document (any source).
 
         Budget-guarded and recorded in the usage ledger. Idempotent: an unchanged
         checksum writes nothing (``changed=False``).
+
+        ``embed=False`` stores keyword-searchable chunks only, at no cost (an attachment's
+        Tier 1; ``embed_documents`` adds the vectors later). ``max_tokens`` keeps the first
+        chunks up to that many tokens instead of refusing a long document.
         """
         stage = stage or Stage()
         stage.name = "chunk"
         chunks = chunk_sections(sections, self._tokenizer.count)
         if not chunks:
             raise ValidationFailed("No text found in this file.")
+        truncated = False
+        if max_tokens is not None:
+            kept: list[NewChunk] = []
+            used = 0
+            for c in chunks:
+                if used + c.token_count > max_tokens:
+                    truncated = True
+                    break
+                kept.append(c)
+                used += c.token_count
+            chunks = kept or chunks[:1]
         total_tokens = sum(c.token_count for c in chunks)
         if total_tokens > MAX_DOC_TOKENS:
             raise ValidationFailed(
                 "This document is too large to index (over 400,000 tokens of text)."
             )
+        if not embed:
+            stage.name = "store"
+            doc = replace(doc, metadata={**doc.metadata, "chunks": len(chunks)})
+            doc_id, changed = await self._documents.write_document(
+                ws, doc, chunks, {}, data_class=data_class
+            )
+            return IndexResult(doc_id, changed, len(chunks), truncated)
         stage.name = "embed"
         await self._check_budget(ws, self._estimate_usd(total_tokens))
         generation = await self._generations.ensure_present(
@@ -237,7 +262,41 @@ class IngestService:
         doc_id, changed = await self._documents.write_document(
             ws, doc, chunks, {generation: vectors}, data_class=data_class
         )
-        return IndexResult(doc_id, changed, len(chunks))
+        return IndexResult(doc_id, changed, len(chunks), truncated)
+
+    async def embed_documents(
+        self, ws: WorkspaceId, doc_ids: Sequence[DocumentId], *, data_class: str
+    ) -> int:
+        """Tier 2 (ADR-0043): vectors for these documents' chunks that have none in the
+        present generation. Budget-guarded per batch like ``index_document``; idempotent
+        (an existing vector is left alone). Returns the number of chunks embedded."""
+        if not doc_ids:
+            return 0
+        generation = await self._generations.ensure_present(
+            self._embedder.model, self._embedder.dims
+        )
+        done = 0
+        while True:
+            todo = await self._documents.chunks_without_embedding(
+                ws, doc_ids, generation, EMBED_BATCH
+            )
+            if not todo:
+                return done
+            items: list[tuple[ChunkId, Sequence[float]]] = []
+            by_title: dict[str, list[ChunkToEmbed]] = {}
+            for t in todo:  # the title prefixes each embedded text, as at indexing
+                by_title.setdefault(t.title, []).append(t)
+            for title, group in by_title.items():
+                chunks = [
+                    NewChunk(t.ordinal, t.content, self._tokenizer.count(t.content), t.heading_path)
+                    for t in group
+                ]
+                vectors = await self._embed(ws, data_class, title, chunks)
+                items += [(t.chunk_id, v) for t, v in zip(group, vectors, strict=True)]
+            inserted = await self._documents.add_embeddings(generation, items)
+            done += len(todo)
+            if inserted == 0:
+                return done  # nothing new was stored: stop rather than loop
 
     async def _download(self, payload: UploadPayload) -> bytes:
         size = await self._blobs.size_of(payload.blob_key)

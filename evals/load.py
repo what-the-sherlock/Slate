@@ -27,7 +27,14 @@ from core.config import get_settings
 from core.domain.data_class import DataClass
 from core.domain.documents import DocumentUpsert
 from core.domain.principals import PUBLIC, workspace_principal
-from evals.cases import CONNECTOR_BY_KIND, check_references, load_cases, load_corpus
+from evals.cases import (
+    CONNECTOR_BY_KIND,
+    EXTERNAL_PREFIX,
+    check_references,
+    document_metadata,
+    load_cases,
+    load_corpus,
+)
 
 EVAL_WORKSPACE_SLUG = "slate-evals"
 EVAL_WORKSPACE_NAME = "Slate evals"
@@ -70,7 +77,8 @@ async def load() -> None:
                     acl=acl,
                     author=doc.author,
                     source_updated_at=doc.updated_at,
-                    metadata={"corpus_path": doc.path},
+                    metadata=document_metadata(doc, corpus),
+                    parent_external_id=EXTERNAL_PREFIX + doc.parent if doc.parent else None,
                 ),
                 parsed.sections,
                 data_class=data_class.value,

@@ -15,7 +15,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 from core.domain.documents import ParsedDocument, Section
-from core.domain.errors import ValidationFailed
+from core.domain.errors import UnreadableFile, ValidationFailed
 from core.domain.uploads import FileKind
 
 if TYPE_CHECKING:
@@ -62,10 +62,14 @@ def parse_pdf(data: bytes) -> ParsedDocument:
     try:
         pdf = pdfium.PdfDocument(data)
     except pdfium.PdfiumError as e:
-        raise ValidationFailed("This PDF can't be opened. It may be damaged or encrypted.") from e
+        if "password" in str(e).lower():
+            raise UnreadableFile("This PDF is password-protected.", reason="encrypted") from e
+        raise UnreadableFile("This PDF can't be opened. It may be damaged or encrypted.") from e
     try:
         if len(pdf) > MAX_PDF_PAGES:
-            raise ValidationFailed(f"This PDF has more than {MAX_PDF_PAGES:,} pages.")
+            raise UnreadableFile(
+                f"This PDF has more than {MAX_PDF_PAGES:,} pages.", reason="too_large"
+            )
         sections: list[Section] = []
         chars = 0
         for index in range(len(pdf)):
@@ -76,15 +80,18 @@ def parse_pdf(data: bytes) -> ParsedDocument:
             page.close()
             chars += len(text)
             if chars > MAX_TEXT_CHARS:
-                raise ValidationFailed("This PDF contains too much text to index.")
+                raise UnreadableFile(
+                    "This PDF contains too much text to index.", reason="too_large"
+                )
             if text:
                 sections.append(Section(f"Page {index + 1}", text))
         title = (pdf.get_metadata_dict().get("Title") or "").strip() or None
     finally:
         pdf.close()
     if not sections:
-        raise ValidationFailed(
-            "No extractable text in this PDF. It may be a scan; OCR isn't supported yet."
+        raise UnreadableFile(
+            "No extractable text in this PDF. It may be a scan; OCR isn't supported yet.",
+            reason="empty",
         )
     return ParsedDocument(title=title, sections=tuple(sections))
 

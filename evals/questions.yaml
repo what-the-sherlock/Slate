@@ -754,3 +754,54 @@
   expected_documents: [company/office-wifi.md]
   tags: [title-only]
   visibility: public
+
+# ---- vague questions and attachments (ADR-0043): an email whose only content is a file,
+# a Discord message whose file holds the answer, sent vs received, people, recent hours.
+- id: vague-sent-001
+  question: I have sent an email today to a person, name him and see what I have sent.
+  expected_documents: [email/rate-card-to-lena.md, email/attachments/q4-rate-card.md]
+  expected_answer_points: ["Lena Park", "rate card"]
+  tags: [connector, vague, attachment, email]
+  visibility: private
+  plan: {intent: recent, after: 2026-11-27, sources: [email], direction: sent, wants_content: true}
+- id: vague-sent-002
+  question: How much per pallet did I quote Lena?
+  expected_documents: [email/attachments/q4-rate-card.md]
+  expected_answer_points: ["95"]
+  tags: [connector, vague, attachment, email, person]
+  visibility: private
+  plan: {direction: sent, person: Lena}
+- id: vague-sent-003
+  question: What's in the file I just sent?
+  expected_documents: [email/attachments/q4-rate-card.md, email/rate-card-to-lena.md]
+  expected_answer_points: ["840", "6.5%"]
+  tags: [connector, vague, attachment, email, recent-hours]
+  visibility: private
+  plan: {intent: recent, direction: sent, since_hours: 4, wants_content: true}
+- id: vague-sent-004
+  question: Who did I send the rate card to?
+  expected_documents: [email/rate-card-to-lena.md]
+  expected_answer_points: ["Lena Park"]
+  tags: [connector, vague, email, recipient]
+  visibility: private
+  plan: {direction: sent}
+- id: vague-file-001
+  question: What were the main topics discussed in the Roma call transcript?
+  expected_documents: [discord/attachments/roma-call-transcript.md]
+  expected_answer_points: ["volume discount", "proof-of-delivery"]
+  tags: [connector, vague, attachment, discord]
+  visibility: private
+  plan: {wants_content: true}
+- id: vague-file-002
+  question: What did we promise Roma after the call, and by when?
+  expected_documents: [discord/attachments/roma-call-transcript.md]
+  expected_answer_points: ["4%", "2 December"]
+  tags: [connector, vague, attachment, discord]
+  visibility: private
+- id: vague-file-003
+  question: what is the document Aashutosh shared in discord about?
+  expected_documents: [discord/attachments/roma-call-transcript.md, discord/roma-call.md]
+  expected_answer_points: ["Roma"]
+  tags: [connector, vague, attachment, discord, person]
+  visibility: private
+  plan: {sources: [discord], wants_content: true}

@@ -87,7 +87,14 @@ No raw HTML.
 and a chat message), connect them in one answer. If sources disagree, say so and give \
 both with their dates, preferring the newer one, for example: "the March email says X \
 [1]; the April issue says Y [2], which is newer".
-10. If you answered from the sources, always end with one last line, even after a short \
+10. A source may end with a [Files: ...] line naming the files that came with it; a \
+file's own text is a separate source titled "<file> (attached to: <conversation>)". Say \
+what a file contains only from such a source. If a file is listed as not read yet or \
+unreadable, say that plainly (and why) instead of guessing from its name.
+11. If several sources fit a vague question equally (for example three emails sent today \
+to different people), list each briefly with its date and the people involved, cite them, \
+and ask which one the user means.
+12. If you answered from the sources, always end with one last line, even after a short \
 answer: FOLLOWUPS: then a JSON array of two or three short questions the user might ask \
 next that these sources could answer, for example FOLLOWUPS: ["Who approved it?", "When \
 does voting close?"]. Write it as plain text on its own line, never in a code block. No \

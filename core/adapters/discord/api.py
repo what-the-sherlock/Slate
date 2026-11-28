@@ -22,11 +22,12 @@ import time
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any, cast
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 import structlog
 
+from core.domain.attachments import MAX_ATTACHMENTS_LISTED, AttachmentInfo, clean_name
 from core.domain.discord import (
     BOT_PERMISSIONS,
     Channel,
@@ -38,7 +39,13 @@ from core.domain.discord import (
     Thread,
     is_snowflake,
 )
-from core.domain.errors import NotFound, PermissionDenied, RateLimited, UpstreamUnavailable
+from core.domain.errors import (
+    NotFound,
+    PermissionDenied,
+    RateLimited,
+    UnreadableFile,
+    UpstreamUnavailable,
+)
 from core.ports.discord import InstallProof
 
 log = structlog.get_logger(__name__)
@@ -47,6 +54,7 @@ API = "https://discord.com/api/v10"
 AUTHORIZE = "https://discord.com/oauth2/authorize"
 SCOPES = "bot identify guilds.members.read"
 TIMEOUT = httpx.Timeout(20.0, connect=5.0)
+CDN_HOSTS = frozenset({"cdn.discordapp.com", "media.discordapp.net"})  # ADR-0043
 MAX_ATTEMPTS = 4
 MAX_WAIT_S = 60.0
 PAGE = 100
@@ -154,11 +162,37 @@ def parse_message(m: Any) -> Message:  # reason: JSON values are Any
         content=_str(m, "content"),
         type=_int(m, "type"),
         attachments=tuple(_str(a, "filename", "file") for a in _list(m, "attachments")),
+        files=tuple(
+            _file(m, a)
+            for a in _list(m, "attachments")[:MAX_ATTACHMENTS_LISTED]
+            if is_snowflake(_str(a, "id"))
+        ),
+        file_urls={
+            _str(a, "id"): _str(a, "url")
+            for a in _list(m, "attachments")
+            if is_snowflake(_str(a, "id")) and _str(a, "url")
+        },
         embeds=tuple(embeds),
         mentions={_str(u, "id"): _name(u) for u in _list(m, "mentions")},
         reply_to=_name(_field(ref, "author")) if isinstance(ref, dict) else None,
         edited=_field(m, "edited_timestamp") is not None,
         bot=bool(_field(author, "bot")),
+    )
+
+
+def _file(m: Any, a: Any) -> AttachmentInfo:  # reason: JSON values are Any
+    """Tier 0 of one Discord attachment; its key is Discord's attachment id."""
+    size = _field(a, "size")
+    return AttachmentInfo(
+        key=_str(a, "id"),
+        name=clean_name(_str(a, "filename", "file")),
+        mime=(_str(a, "content_type") or "application/octet-stream")[:100],
+        size=size if isinstance(size, int) and size >= 0 else 0,
+        ref={
+            "channel": _str(m, "channel_id"),
+            "message": _str(m, "id"),
+            "attachment": _str(a, "id"),
+        },
     )
 
 
@@ -314,6 +348,33 @@ class DiscordBot:
         )
         _ok(r)
         return self._json(r)
+
+    async def download(self, url: str, max_bytes: int) -> bytes | None:
+        """An attachment's bytes from Discord's CDN (ADR-0043): https on the CDN hosts
+        only, no redirects, no bot token (the link is signed), at most ``max_bytes``
+        (UnreadableFile ``too_large`` past it). None when it's gone (403/404)."""
+        parsed = urlsplit(url)
+        if parsed.scheme != "https" or parsed.hostname not in CDN_HOSTS or parsed.port:
+            return None
+        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=False) as c:
+            client = self._client or c
+            try:
+                async with client.stream("GET", url, headers={"User-Agent": USER_AGENT}) as r:
+                    if r.status_code in (403, 404, 410):
+                        return None
+                    if r.status_code != 200:
+                        raise UpstreamUnavailable("Discord's file server is unavailable.")
+                    declared = r.headers.get("content-length")
+                    if declared and declared.isdigit() and int(declared) > max_bytes:
+                        raise UnreadableFile("The file is too large.", reason="too_large")
+                    out = bytearray()
+                    async for chunk in r.aiter_bytes():
+                        out += chunk
+                        if len(out) > max_bytes:
+                            raise UnreadableFile("The file is too large.", reason="too_large")
+                    return bytes(out)
+            except httpx.HTTPError as e:
+                raise UpstreamUnavailable("Discord's file server is unavailable.") from e
 
     # ------------------------------------------------------------------ ownership
 

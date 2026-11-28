@@ -552,9 +552,11 @@ async def test_every_question_is_planned_with_todays_date_in_the_users_zone() ->
     await env.ask("is the acme invoice paid?", timezone="Asia/Kolkata")
     planner = env.model.requests[0]
     assert is_planner(planner)
-    assert "Today is Friday 27 November 2026 (IST)" in planner[0].content
+    assert "Today is Friday 27 November 2026, " in planner[0].content
+    assert "(IST)" in planner[0].content
     answer = next(r for r in env.model.requests if not is_planner(r))
-    assert answer[0].content.endswith("Today is Friday 27 November 2026 (IST).")
+    assert "Today is Friday 27 November 2026, " in answer[0].content
+    assert answer[0].content.endswith("(IST).")
 
 
 async def test_sources_show_kind_date_and_sender_to_the_model() -> None:

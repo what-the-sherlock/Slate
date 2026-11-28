@@ -22,6 +22,7 @@ from decimal import Decimal
 import structlog
 
 from core.adapters.factories import (
+    attachment_jobs,
     connected_sources,
     credential_store,
     discord_service,
@@ -38,6 +39,7 @@ from core.adapters.factories import (
 )
 from core.adapters.postgres.admin import PostgresAuthEventLog
 from core.adapters.postgres.auth import PostgresAccountStore
+from core.adapters.postgres.chat import PostgresChatStore
 from core.adapters.postgres.documents import PostgresDocumentStore
 from core.adapters.postgres.engine import (
     EngineKind,
@@ -54,7 +56,9 @@ from core.config import Settings, get_settings
 from core.domain.github import CREDENTIAL_KIND as GITHUB_TOKEN
 from core.logs import configure_logging
 from core.services.admin import sweep_auth_events
+from core.services.attachments import READ_ATTACHMENTS
 from core.services.backfill import BackfillReport, Provider, backfill_generation
+from core.services.chats import purge_deleted_chats
 from core.services.connected import SYNC_CONNECTED
 from core.services.discord import SYNC_DISCORD
 from core.services.github import SYNC_GITHUB
@@ -98,11 +102,23 @@ def build_handlers(settings: Settings, uow: UnitOfWork) -> dict[str, Handler]:
     mbox = mbox_import(settings, uow)
     if mbox is not None:
         handlers[IMPORT_MBOX] = mbox.handle
+    # Attachments a question reached but couldn't finish reading in time, then their
+    # vectors (ADR-0043).
+    files = attachment_jobs(settings, uow, integration_service(settings, uow, {}))
+    if files is not None:
+        handlers[READ_ATTACHMENTS] = files.handle
     return handlers
 
 
 async def housekeeping(settings: Settings, uow: UnitOfWork) -> None:
     # Housekeeping must never stop real work, so each sweep fails on its own.
+    try:
+        # Chats deleted more than 24 hours ago (past their Undo) go for good (ADR-0044).
+        purged = await purge_deleted_chats(PostgresChatStore(uow), SystemClock())
+        if purged:
+            log.info("chats_purged", count=purged)
+    except Exception as e:
+        log.warning("sweep_failed", sweep="deleted_chats", error_type=type(e).__name__)
     try:
         await sweep_unverified_accounts(PostgresAccountStore(uow), datetime.now(UTC))
     except Exception as e:

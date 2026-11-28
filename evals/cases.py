@@ -7,6 +7,7 @@ up front instead of producing a silently wrong metric.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from core.domain.attachments import AttachmentInfo, AttachmentState
 from core.domain.planner import QueryPlan
 
 ROOT = Path(__file__).resolve().parent
@@ -47,6 +49,11 @@ class OraclePlan(BaseModel):
     before: date | None = None
     sources: tuple[Literal["email", "github", "discord", "file"], ...] = ()
     sender: str | None = None
+    # Vague questions (ADR-0043).
+    direction: Literal["sent", "received"] | None = None
+    person: str | None = None
+    since_hours: int | None = Field(default=None, ge=1, le=72)
+    wants_content: bool = False
 
     def as_plan(self, question: str) -> QueryPlan:
         return QueryPlan(
@@ -57,6 +64,10 @@ class OraclePlan(BaseModel):
             kinds=self.sources,
             sender=self.sender,
             planned=True,
+            direction=self.direction,
+            person=self.person,
+            since_hours=self.since_hours,
+            wants_content=self.wants_content,
         )
 
 
@@ -115,6 +126,11 @@ class CorpusDoc:
     kind: CorpusKind = "file"
     author: str | None = None
     updated_at: datetime | None = None
+    # Email (ADR-0043): the folder it sits in and everyone in it; an attachment's text
+    # names its parent document (loaded as a child, like production stores it).
+    folder: Literal["sent", "inbox"] | None = None
+    people: tuple[str, ...] = ()
+    parent: str | None = None
 
     @property
     def external_id(self) -> str:
@@ -143,12 +159,49 @@ def load_corpus(root: Path = CORPUS) -> list[CorpusDoc]:
                 kind=kind,
                 author=meta.get("author"),
                 updated_at=_when(meta.get("date"), rel),
+                folder=_folder(meta.get("folder"), rel),
+                people=tuple(p.strip() for p in meta.get("people", "").split(",") if p.strip()),
+                parent=meta.get("parent"),
             )
         )
-    return docs
+    paths = {d.path for d in docs}
+    for d in docs:
+        if d.parent is not None and d.parent not in paths:
+            raise ValueError(f"{d.path}: parent {d.parent} is not in the corpus")
+    # Parents before their attachments (the database needs the parent first).
+    return sorted(docs, key=lambda d: (d.parent is not None, d.path))
 
 
-_METADATA_KEYS = ("kind", "author", "date")
+def document_metadata(doc: CorpusDoc, corpus: Sequence[CorpusDoc]) -> dict[str, object]:
+    """What a connector would store for this document (ADR-0043): folders, people, and
+    Tier 0 of the attachments whose text is loaded as its children."""
+    meta: dict[str, object] = {"corpus_path": doc.path}
+    if doc.folder:
+        meta["folders"] = [doc.folder]
+    if doc.people:
+        meta["people"] = list(doc.people)
+        meta["recipients"] = ", ".join(doc.people[1:])
+    files = [f for f in corpus if f.parent == doc.path]
+    if files:
+        meta["attachments"] = [
+            AttachmentInfo(
+                key=f"eval-{i}", name=f.title.split(" (attached to:")[0], mime="text/markdown",
+                size=len(f.body), state=AttachmentState.TEXT,
+            ).to_meta()
+            for i, f in enumerate(files)
+        ]  # fmt: skip
+    return meta
+
+
+def _folder(raw: str | None, rel: str) -> Literal["sent", "inbox"] | None:
+    if raw is None:
+        return None
+    if raw not in ("sent", "inbox"):
+        raise ValueError(f"{rel}: folder must be sent or inbox")
+    return "sent" if raw == "sent" else "inbox"
+
+
+_METADATA_KEYS = ("kind", "author", "date", "folder", "people", "parent")
 
 
 def _checksum(data: bytes, meta: dict[str, str]) -> str:

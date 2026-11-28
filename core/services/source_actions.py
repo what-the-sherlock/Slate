@@ -8,20 +8,24 @@ ownership checks. Upload sources have neither action, so they 404 here too.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from enum import StrEnum
 from typing import Protocol
 
+import structlog
+
 from core.domain.auth import Identity
-from core.domain.errors import NotFound, UpstreamUnavailable
+from core.domain.errors import AppError, NotFound, UpstreamUnavailable
 from core.domain.ids import JobId, SourceId
 from core.domain.skips import describe_skips
 from core.domain.source_status import WAITING_FOR_WORKER
 from core.ports.jobs import WorkerTrigger
 from core.ports.sources import SourceStore
 from core.services.inline import InlineOutcome, InlineRunner
+
+log = structlog.get_logger(__name__)
 
 NOT_FOUND = "This source doesn't exist."
 
@@ -60,6 +64,14 @@ class ConnectorEntry:
     name: str  # for messages: "GitHub", "Discord"
     actions: ConnectorActions
     inline: InlineRunner | None = None  # runs a manual sync right away (~90 s), else worker
+    quick: InlineRunner | None = None  # a short sync a question can wait for (ADR-0043)
+
+
+# Freshness (ADR-0043): a question about the last hours checks its sources first.
+FRESH_FOR = timedelta(minutes=10)  # synced this recently: nothing to do
+QUICK_COOLDOWN = timedelta(minutes=2)  # at most one question-driven sync per source
+MAX_QUICK_SOURCES = 2  # per question
+QUICK_TIMEOUT_S = 25.0  # hard stop; the sync's own budget is shorter (cooperative)
 
 
 class SourceActions:
@@ -132,6 +144,57 @@ class SourceActions:
             return SyncResult(job, SyncStatus.PARTIAL, run.error_summary, skipped)
         return SyncResult(job, SyncStatus.DONE, None, skipped)
 
+    async def freshen(
+        self, identity: Identity, connectors: Sequence[str], *, now: datetime, zone: tzinfo
+    ) -> tuple[str, ...]:
+        """Before answering a question about the last hours: sync this user's sources of
+        these connectors that haven't synced in ``FRESH_FOR`` (a short, cooperative sync,
+        at most ``MAX_QUICK_SOURCES``, once per source per ``QUICK_COOLDOWN``). Returns a
+        note for each source still not fresh, so the answer can say what it couldn't see.
+        Never raises: a failed refresh only means the note is shown."""
+        notes: list[str] = []
+        tried = 0
+        mine = set(identity.principals.as_list())
+        for connector in dict.fromkeys(connectors):
+            entry = self._connectors.get(connector)
+            if entry is None:
+                continue
+            for source in await self._sources.sources_by_connector(
+                identity.workspace_id, connector
+            ):
+                if source.status != "active" or not set(source.visibility) & mine:
+                    continue
+                synced = source.last_synced_at
+                if synced is not None and now - synced < FRESH_FOR:
+                    continue
+                if tried < MAX_QUICK_SOURCES and await self._quick(identity, entry, source.id, now):
+                    tried += 1
+                    fresh = await self._sources.get_source(identity.workspace_id, source.id)
+                    synced = fresh.last_synced_at if fresh is not None else synced
+                    if synced is not None and now - synced < FRESH_FOR:
+                        continue
+                notes.append(stale_note(entry.name, synced, now, zone))
+        return tuple(notes)
+
+    async def _quick(
+        self, identity: Identity, entry: ConnectorEntry, source_id: SourceId, now: datetime
+    ) -> bool:
+        """Run one quick sync; True when one ran (whatever it finished)."""
+        if entry.quick is None or not entry.actions.available:
+            return False
+        run = await self._sources.last_run(source_id)
+        if run is not None and run.started_at is not None and now - run.started_at < QUICK_COOLDOWN:
+            return False  # one is running or just ran: don't pile up syncs
+        try:
+            job = await entry.actions.sync_now(identity, source_id)
+            outcome = await entry.quick.run(job, timeout_s=QUICK_TIMEOUT_S)
+        except AppError as e:  # not allowed, rate limited, provider down: just report
+            log.info("freshen.skipped", code=e.code)
+            return False
+        if outcome is not InlineOutcome.DONE and self._trigger is not None:
+            await self._trigger.trigger("freshen")  # the worker finishes it
+        return True
+
     async def _background(self, source_id: SourceId, job: JobId) -> SyncResult:
         if await self._sources.worker_overdue(source_id):
             # Earlier work is still waiting: saying "it continues" would be a promise.
@@ -143,3 +206,20 @@ class SourceActions:
         # your data must never depend on the integration still being set up.
         entry = await self._entry(identity, source_id)
         await entry.actions.disconnect(identity, source_id)
+
+
+def stale_note(name: str, synced: datetime | None, now: datetime, zone: tzinfo) -> str:
+    """'Gmail last synced at 13:17 (48 minutes ago), so newer items may not be in Slate
+    yet.' Times in the user's zone."""
+    if synced is None:
+        return f"{name} hasn't finished its first sync, so its newest items may be missing."
+    minutes = max(int((now - synced).total_seconds() // 60), 0)
+    if minutes < 90:
+        ago = f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+    elif minutes < 48 * 60:
+        ago = f"{minutes // 60} hours ago"
+    else:
+        ago = f"{minutes // (24 * 60)} days ago"
+    local = synced.astimezone(zone)
+    when = f"{local:%H:%M}" if (now - synced) < timedelta(hours=20) else f"{local:%d %b %H:%M}"
+    return f"{name} last synced at {when} ({ago}), so newer items may not be in Slate yet."

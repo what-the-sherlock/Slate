@@ -19,6 +19,12 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import cast
 
+from core.domain.attachments import (
+    MAX_ATTACHMENTS_LISTED,
+    AttachmentBlob,
+    AttachmentInfo,
+    listing_line,
+)
 from core.domain.documents import Section
 
 BACKFILL_DAYS = 90
@@ -133,8 +139,13 @@ class Mail:
     body: str
     references: tuple[str, ...] = ()  # Message-IDs from References + In-Reply-To, root first
     gm_thread: str | None = None  # Gmail's X-GM-THRID: an exact conversation id
-    attachments: tuple[str, ...] = ()  # file names only: contents are never read
+    attachments: tuple[str, ...] = ()  # display names, for the message text
     cc: tuple[str, ...] = ()
+    # Tier 0 for each real attachment (ADR-0043), and its bytes when the adapter was asked
+    # to keep them (a sync that indexes attachment text). Never logged (repr=False).
+    files: tuple[AttachmentInfo, ...] = ()
+    blobs: tuple[AttachmentBlob, ...] = field(default=(), repr=False)
+    sent: bool = False  # in the account's Sent folder (Gmail's SENT label)
 
 
 def thread_key(mail: Mail) -> str:
@@ -193,7 +204,10 @@ def message_text(mail: Mail) -> str:
         head += " cc " + ", ".join(mail.cc[:10])
     body = strip_quoted(mail.body)[:MAX_MESSAGE_CHARS] or "(no text)"
     lines = [head + ":", body]
-    lines += [f"[attachment: {n}]" for n in mail.attachments[:20]]
+    if mail.files:
+        lines += [listing_line(f) for f in mail.files[:20]]
+    else:
+        lines += [f"[attachment: {n}]" for n in mail.attachments[:20]]
     return "\n".join(lines)
 
 
@@ -218,7 +232,9 @@ def dedupe(mails: Iterable[Mail]) -> list[Mail]:
     seen: dict[str, Mail] = {}
     for m in mails:
         key = m.message_id.strip().lower() or f"uid:{m.folder}:{m.uid}"
-        seen.setdefault(key, m)
+        first = seen.setdefault(key, m)
+        if m.sent and not first.sent:  # the Sent copy of a message also in Inbox
+            seen[key] = replace(first, sent=True)
     return sorted(seen.values(), key=lambda m: (m.date, m.message_id))
 
 
@@ -288,6 +304,9 @@ class FolderCursor:
         return self.uidvalidity == uidvalidity and self.last_uid > 0
 
 
+MAIL_CHECKPOINT_VERSION = 2  # 2: attachments are read (ADR-0043)
+
+
 @dataclass(frozen=True, slots=True)
 class MailCheckpoint:
     folders: Mapping[str, FolderCursor] = field(default_factory=dict[str, FolderCursor])
@@ -304,15 +323,18 @@ class MailCheckpoint:
 
     def as_json(self) -> dict[str, object]:
         return {
+            "v": MAIL_CHECKPOINT_VERSION,
             "folders": {
                 name: {"uidvalidity": c.uidvalidity, "last_uid": c.last_uid}
                 for name, c in self.folders.items()
-            }
+            },
         }
 
     @classmethod
     def from_json(cls, raw: object) -> MailCheckpoint:
         folders: dict[str, FolderCursor] = {}
+        if _obj(raw) and _obj(raw).get("v") != MAIL_CHECKPOINT_VERSION:
+            return cls()  # written before attachments were read (ADR-0043): re-read once
         for name, c in _obj(_obj(raw).get("folders")).items():
             data = _obj(c)
             uv, last = data.get("uidvalidity"), data.get("last_uid")
@@ -331,3 +353,67 @@ def _obj(raw: object) -> dict[str, object]:
 
 def backfill_since(now: datetime) -> datetime:
     return now - timedelta(days=BACKFILL_DAYS)
+
+
+MAX_PEOPLE = 30
+
+
+def _address_only(person: str) -> str:
+    m = re.search(r"<([^<>]+)>\s*$", person)
+    return (m.group(1) if m else person).strip().lower()
+
+
+def thread_metadata(mails: Sequence[Mail]) -> dict[str, object]:
+    """What search filters and answers need about a conversation (ADR-0043): who was in
+    it, whether the account sent or received it, and its attachments (Tier 0)."""
+    ordered = sorted(dedupe(mails), key=lambda m: m.date)
+    people: list[str] = []
+    recipients: list[str] = []
+    for m in ordered:
+        for p in (m.sender, *m.to, *m.cc):
+            if p and _address_only(p) not in {_address_only(x) for x in people}:
+                people.append(p)
+        for p in (*m.to, *m.cc):
+            if p and p not in recipients:
+                recipients.append(p)
+    folders = sorted({"sent" if m.sent else "inbox" for m in ordered})
+    files = [f for m in ordered for f in m.files][:MAX_ATTACHMENTS_LISTED]
+    meta: dict[str, object] = {
+        "kind": "email",
+        "messages": len(ordered),
+        "folders": folders,
+        "people": [p[:200] for p in people[:MAX_PEOPLE]],
+        "recipients": ", ".join(recipients[:10])[:400],
+    }
+    if files:
+        meta["attachments"] = [f.to_meta() for f in files]
+    return meta
+
+
+MAX_ATTACHMENT_BYTES_PER_RUN = 60 * 1024 * 1024
+
+
+def cap_attachment_bytes(mails: Sequence[Mail]) -> list[Mail]:
+    """Drop kept attachment bytes past the run's memory budget (newest mail first kept).
+    Dropped files stay listed (Tier 0) and are read on demand (ADR-0043)."""
+    used = 0
+    out: list[Mail] = []
+    for m in sorted(mails, key=lambda m: m.date, reverse=True):
+        kept: list[AttachmentBlob] = []
+        for b in m.blobs:
+            if used + len(b.data) <= MAX_ATTACHMENT_BYTES_PER_RUN:
+                used += len(b.data)
+                kept.append(b)
+        out.append(replace(m, blobs=tuple(kept)) if len(kept) != len(m.blobs) else m)
+    return out
+
+
+def thread_files(
+    mails: Sequence[Mail],
+) -> tuple[tuple[AttachmentInfo, ...], tuple[AttachmentBlob, ...]]:
+    """Tier 0 for every attachment in the thread, and the bytes the adapter kept."""
+    ordered = sorted(dedupe(mails), key=lambda m: m.date)
+    files = tuple(f for m in ordered for f in m.files)[:MAX_ATTACHMENTS_LISTED]
+    keys = {f.key for f in files}
+    blobs = tuple(b for m in ordered for b in m.blobs if b.info.key in keys)
+    return files, blobs

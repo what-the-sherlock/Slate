@@ -5,8 +5,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
+from core.domain.attachments import AttachmentInfo, from_meta
 from core.domain.chunking import search_context
 from core.domain.documents import (
+    AttachmentParent,
     ChunkToEmbed,
     Document,
     DocumentPreview,
@@ -18,7 +20,7 @@ from core.domain.documents import (
     Vector,
 )
 from core.domain.errors import NotFound
-from core.domain.ids import ChunkId, DocumentId, GenerationId, WorkspaceId
+from core.domain.ids import ChunkId, DocumentId, GenerationId, SourceId, WorkspaceId
 from core.domain.principals import Principals
 from core.ports.storage import PresignedUpload
 from tests.fakes.system import SequentialIds
@@ -52,21 +54,26 @@ class InMemoryIndex:
         # (sources not listed are uploads)
         self.connectors: dict[object, str] = {}
         self._next_chunk = 0
+        # ADR-0043, mirroring migration 0017: child -> parent, and each document's metadata.
+        self.parents: dict[DocumentId, DocumentId] = {}
+        self.metadata: dict[DocumentId, dict[str, object]] = {}
 
     # ---- helpers for InMemorySources (GitHub sync: checksums and pruning)
     def checksums(self, source_id: object, prefix: str) -> dict[str, str]:
-        return {
+        return {  # attachments are listed through their parent, never here (ADR-0043)
             ext: self._docs[doc_id][1].checksum
             for (src, ext), doc_id in self._by_key.items()
             if src == source_id and ext.startswith(prefix) and doc_id in self._docs
-        }
+            and doc_id not in self.parents
+        }  # fmt: skip
 
     def versions(self, source_id: object, prefix: str) -> dict[str, tuple[str, datetime | None]]:
         return {
             ext: (self._docs[doc_id][1].checksum, self._docs[doc_id][1].source_updated_at)
             for (src, ext), doc_id in self._by_key.items()
             if src == source_id and ext.startswith(prefix) and doc_id in self._docs
-        }
+            and doc_id not in self.parents
+        }  # fmt: skip
 
     def delete(self, source_id: object, external_ids: Sequence[str]) -> int:
         n = 0
@@ -74,13 +81,48 @@ class InMemoryIndex:
             doc_id = self._by_key.pop((source_id, ext), None)
             if doc_id is None:
                 continue
-            self._docs.pop(doc_id, None)
-            self._chunks = [c for c in self._chunks if c.document_id != doc_id]
+            self._drop(doc_id)
             n += 1
         return n
 
+    def _drop(self, doc_id: DocumentId) -> None:
+        """Delete a document; its attachments cascade (the FK in migration 0017)."""
+        for child in [c for c, p in self.parents.items() if p == doc_id]:
+            key = next((k for k, d in self._by_key.items() if d == child), None)
+            if key is not None:
+                del self._by_key[key]
+            self._drop(child)
+        self.parents.pop(doc_id, None)
+        self.metadata.pop(doc_id, None)
+        self._docs.pop(doc_id, None)
+        self._chunks = [c for c in self._chunks if c.document_id != doc_id]
+
+    def _parent_of(self, doc: DocumentUpsert) -> DocumentId | None:
+        if doc.parent_external_id is None:
+            return None
+        parent = self._by_key.get((doc.source_id, doc.parent_external_id))
+        if parent is None or parent in self.parents:
+            raise NotFound("attachment parent not found")
+        return parent
+
     # ---- DocumentStore
     async def upsert_document(self, ws: WorkspaceId, doc: DocumentUpsert) -> DocumentId:
+        parent = self._parent_of(doc)
+        if parent is not None:  # the trigger: a child always carries its parent's ACL
+            doc = replace(doc, acl=self._docs[parent][1].acl)
+        doc_id = await self._upsert_plain(ws, doc)
+        self.metadata[doc_id] = dict(doc.metadata)
+        if parent is not None:
+            self.parents[doc_id] = parent
+        for child, p in self.parents.items():  # and follows it when it changes
+            if p == doc_id:
+                self._docs[child] = (ws, replace(self._docs[child][1], acl=doc.acl))
+                for c in self._chunks:
+                    if c.document_id == child:
+                        c.acl = doc.acl
+        return doc_id
+
+    async def _upsert_plain(self, ws: WorkspaceId, doc: DocumentUpsert) -> DocumentId:
         key = (doc.source_id, doc.external_id)
         existing_id = self._by_key.get(key)
         if existing_id is not None:
@@ -134,6 +176,7 @@ class InMemoryIndex:
         key = (doc.source_id, doc.external_id)
         existing = self._by_key.get(key)
         if existing is not None and self._docs[existing][1].checksum == doc.checksum:
+            self.metadata[existing] = dict(doc.metadata)  # metadata is always refreshed
             return existing, False
         doc_id = await self.upsert_document(ws, doc)
         self.search_contexts[doc_id] = search_context(doc.title, doc.author, doc.metadata)
@@ -199,6 +242,17 @@ class InMemoryIndex:
                 continue
             if f.updated_before and (updated is None or updated > f.updated_before):
                 continue
+            # Conversation filters read the parent's metadata for an attachment (ADR-0043).
+            meta = self.metadata.get(self.parents.get(c.document_id, c.document_id), {})
+            if f.sent is not None:
+                folders = meta.get("folders")
+                wanted = "sent" if f.sent else "inbox"
+                if not isinstance(folders, list) or wanted not in folders:
+                    continue
+            if f.person:
+                people = " ".join(str(p) for p in meta.get("people") or [])  # pyright: ignore[reportGeneralTypeIssues]
+                if f.person.lower() not in f"{doc.author or ''} {people}".lower():
+                    continue
             out.append(c)
         return out
 
@@ -220,6 +274,8 @@ class InMemoryIndex:
             author=doc.author,
             uri=doc.uri,
             connector=self._connector(doc),
+            parent_id=self.parents.get(c.document_id),
+            attachments=tuple(from_meta(self.metadata.get(c.document_id, {}).get("attachments"))),
         )
 
     async def anchored_chunks(
@@ -252,7 +308,8 @@ class InMemoryIndex:
         epoch = datetime.min.replace(tzinfo=UTC)
         by_doc: dict[DocumentId, list[_StoredChunk]] = {}
         for c in visible:
-            by_doc.setdefault(c.document_id, []).append(c)
+            if c.document_id not in self.parents:  # attachments ride with their parent
+                by_doc.setdefault(c.document_id, []).append(c)
         newest = sorted(
             by_doc,
             key=lambda d: (self._docs[d][1].source_updated_at or epoch, str(d)),
@@ -334,6 +391,81 @@ class InMemoryIndex:
                 PreviewChunk(c.chunk.ordinal, c.chunk.content, c.chunk.heading_path) for c in chunks
             ),
         )
+
+    # ---- attachments (ADR-0043)
+    async def child_checksums(self, source_id: SourceId, parent_external_id: str) -> dict[str, str]:
+        parent = self._by_key.get((source_id, parent_external_id))
+        return {
+            ext: self._docs[d][1].checksum
+            for (src, ext), d in self._by_key.items()
+            if src == source_id and parent is not None and self.parents.get(d) == parent
+        }
+
+    async def set_attachments(
+        self, source_id: SourceId, parent_external_id: str, attachments: Sequence[AttachmentInfo]
+    ) -> None:
+        parent = self._by_key.get((source_id, parent_external_id))
+        if parent is not None:
+            meta = self.metadata.setdefault(parent, {})
+            meta["attachments"] = [a.to_meta() for a in attachments]
+
+    async def attachment_parent(
+        self, ws: WorkspaceId, principals: Principals | None, doc_id: DocumentId
+    ) -> AttachmentParent:
+        found = self._docs.get(doc_id)
+        if found is None or found[0] != ws or doc_id in self.parents:
+            raise NotFound("document not found")
+        doc = found[1]
+        if principals is not None and not set(doc.acl) & set(principals.values):
+            raise NotFound("document not found")
+        return AttachmentParent(
+            id=doc.id,
+            workspace_id=ws,
+            source_id=doc.source_id,
+            connector=self._connector(doc),
+            external_id=doc.external_id,
+            title=doc.title,
+            uri=doc.uri,
+            author=doc.author,
+            updated_at=doc.source_updated_at,
+            data_class=self.data_classes.get(doc_id, "private"),
+            acl=doc.acl,
+            attachments=tuple(from_meta(self.metadata.get(doc_id, {}).get("attachments"))),
+        )
+
+    async def chunks_without_embedding(
+        self, ws: WorkspaceId, doc_ids: Sequence[DocumentId], generation: GenerationId, limit: int
+    ) -> list[ChunkToEmbed]:
+        wanted = set(doc_ids)
+        out: list[ChunkToEmbed] = []
+        for c in sorted(self._chunks, key=lambda c: c.id):
+            if c.workspace_id != ws or generation in c.embeddings:
+                continue
+            if c.document_id not in wanted and self.parents.get(c.document_id) not in wanted:
+                continue
+            doc = self._docs[c.document_id][1]
+            out.append(
+                ChunkToEmbed(
+                    c.id, c.workspace_id, doc.title, c.chunk.heading_path, c.chunk.content,
+                    c.chunk.ordinal,
+                )
+            )  # fmt: skip
+            if len(out) == limit:
+                break
+        return out
+
+    async def attachment_children(
+        self, ws: WorkspaceId, principals: Principals, parents: Sequence[DocumentId]
+    ) -> list[tuple[DocumentId, DocumentId]]:
+        allowed = set(principals.values)
+        wanted = set(parents)
+        return [
+            (child, parent)
+            for child, parent in self.parents.items()
+            if parent in wanted
+            and self._docs[child][0] == ws
+            and allowed & set(self._docs[child][1].acl)
+        ]
 
     # ---- backfill
     async def chunks_missing_embedding(

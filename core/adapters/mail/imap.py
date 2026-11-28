@@ -20,7 +20,7 @@ from typing import TypeVar, cast
 
 import structlog
 
-from core.adapters.mail.parse import parse_mail
+from core.adapters.mail.parse import attachment_part, message_id_of, parse_mail
 from core.domain.errors import PermissionDenied, UpstreamUnavailable
 from core.domain.mail import (
     FETCH_BATCH,
@@ -199,6 +199,35 @@ class ImapSession:
             "OR", "HEADER", "Message-ID", quoted, "HEADER", "References", quoted
         )
 
+    async def attachment(self, uid: int, part: int) -> tuple[str, bytes] | None:
+        raw = await self._raw_message(uid)
+        data = attachment_part(raw, part) if raw is not None else None
+        return (message_id_of(raw), data) if raw is not None and data is not None else None
+
+    async def _raw_message(self, uid: int) -> bytes | None:
+        typ, data = await self._run(
+            lambda: self._conn.uid("FETCH", str(int(uid)), "(UID RFC822.SIZE)")
+        )
+        self._ok(typ, "read a message")
+        heads = [
+            _meta(h)
+            for i in _rows(data)
+            if isinstance(h := (i[0] if isinstance(i, tuple) else i), bytes)
+        ]
+        found = [h for h in heads if h[0] == uid]
+        if not found or (found[0][2] or 0) > MAX_RAW_MESSAGE_BYTES:
+            return None
+        typ, data = await self._run(
+            lambda: self._conn.uid("FETCH", str(int(uid)), "(UID BODY.PEEK[])")
+        )
+        self._ok(typ, "read a message")
+        for item in _rows(data):
+            if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], bytes):
+                head = item[0]
+                if isinstance(head, bytes) and _meta(head)[0] == uid:
+                    return item[1]
+        return None
+
     async def fetch(self, uids: Sequence[int]) -> list[Mail]:
         out: list[Mail] = []
         folder = self._folder or "INBOX"
@@ -240,7 +269,10 @@ class ImapSession:
                 if uid is None:
                     continue
                 thrid, when = info.get(uid, (None, None))
-                mail = parse_mail(body, uid=uid, folder=folder, gm_thread=thrid, internal_date=when)
+                mail = parse_mail(
+                    body, uid=uid, folder=folder, gm_thread=thrid, internal_date=when,
+                    keep_attachments=True,
+                )  # fmt: skip
                 if mail is not None:
                     out.append(mail)
         return out

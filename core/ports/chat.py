@@ -99,6 +99,27 @@ class ChatStore(Protocol):
 
     async def add_citations(self, message: MessageId, citations: Sequence[Citation]) -> None: ...
 
+    # Rename and delete (ADR-0044). Each returns False when the chat isn't this user's
+    # (same answer for missing and someone else's: no probing).
+    async def rename_session(
+        self, ws: WorkspaceId, user: UserId, session: ChatSessionId, title: str
+    ) -> bool: ...
+
+    async def delete_session(self, ws: WorkspaceId, user: UserId, session: ChatSessionId) -> bool:
+        """Soft delete: hidden from every read at once, restorable until purged."""
+        ...
+
+    async def restore_session(
+        self, ws: WorkspaceId, user: UserId, session: ChatSessionId, *, since: datetime
+    ) -> bool:
+        """Undo a delete made at or after ``since`` (the undo window)."""
+        ...
+
+    async def purge_deleted(self, before: datetime) -> int:
+        """System sweep: permanently delete chats deleted before ``before`` (messages,
+        citations and feedback cascade). Returns how many."""
+        ...
+
     async def save_feedback(
         self,
         ws: WorkspaceId,

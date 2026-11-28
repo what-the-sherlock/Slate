@@ -44,7 +44,7 @@ class InlineRunner:
         self._id = runner_id
         self._kinds = kinds  # the job kinds this handler understands (None: any)
 
-    async def run(self, job_id: JobId) -> InlineOutcome:
+    async def run(self, job_id: JobId, *, timeout_s: float | None = None) -> InlineOutcome:
         """Raises the handler's AppError when the failure is final (e.g. a bad file), so the
         caller can show the reason; retryable failures are handed back to the worker.
         """
@@ -54,7 +54,7 @@ class InlineRunner:
         if job is None:
             return InlineOutcome.DEFERRED  # a worker got there first
         try:
-            async with asyncio.timeout(INLINE_TIMEOUT_S):
+            async with asyncio.timeout(INLINE_TIMEOUT_S if timeout_s is None else timeout_s):
                 await self._handler(job)
         except TimeoutError:
             await self._queue.fail(job.id, self._id, "inline processing timed out", retryable=True)

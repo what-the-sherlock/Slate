@@ -5,15 +5,27 @@ broken message can't stop a sync; it becomes None and is skipped."""
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, datetime
 from email import policy
 from email.message import EmailMessage
 from email.parser import BytesParser
 from email.utils import getaddresses, parsedate_to_datetime
+from typing import cast
 
 from bs4 import BeautifulSoup
 
-from core.domain.mail import MAX_MESSAGE_CHARS, Mail
+from core.domain.attachments import (
+    MAX_ATTACHMENTS_LISTED,
+    MAX_BYTES_PER_PAGE,
+    AttachmentBlob,
+    AttachmentInfo,
+    clean_name,
+    first_pass_state,
+)
+from core.domain.attachments import key_seed as seed_of
+from core.domain.mail import MAX_MESSAGE_CHARS, Mail, message_text
 
 _MSGID = re.compile(r"<[^<>\s]{1,500}>")
 _MAX_HTML_CHARS = 2_000_000
@@ -56,18 +68,61 @@ def html_to_text(html: str) -> str:
     return re.sub(r"\n\s*\n+", "\n\n", text).strip()
 
 
-def _body(msg: EmailMessage) -> tuple[str, tuple[str, ...]]:
-    attachments: list[str] = []
+def _parts(part: EmailMessage, *, root: bool = True) -> Iterator[EmailMessage]:
+    """Leaf parts, plus attached messages as single parts: unlike ``walk()``, this never
+    descends into a forwarded message/rfc822, so its body and files stay its own."""
+    if not root and part.get_content_type() == "message/rfc822":
+        yield part
+        return
+    if part.is_multipart():
+        for sub in part.iter_parts():
+            if isinstance(sub, EmailMessage):
+                yield from _parts(sub, root=False)
+        return
+    yield part
+
+
+def _is_inline_image(part: EmailMessage) -> bool:
+    """Signature logos and pasted pictures: shown in the body, not sent as files."""
+    return (
+        part.get_content_maintype() == "image"
+        and part.get_content_disposition() != "attachment"
+        and (part.get_content_disposition() == "inline" or part.get("Content-ID") is not None)
+    )
+
+
+def _attached_message(part: EmailMessage) -> tuple[str, bytes]:
+    """A forwarded .eml as (name, text), read one level deep (its own files are only
+    listed)."""
+    inner: object = part.get_payload()
+    first = cast(list[object], inner)[0] if isinstance(inner, list) and inner else None
+    raw = first.as_bytes() if isinstance(first, EmailMessage) else b""
+    nested = parse_mail(raw, uid=0, folder="attached") if raw else None
+    if nested is None:
+        return "forwarded message.eml", b""
+    name = clean_name(f"{nested.subject or 'forwarded message'}.eml")
+    return name, message_text(nested).encode()
+
+
+def _body(msg: EmailMessage, *, key_seed: str, keep_bytes: bool) -> _Body:
+    out = _Body()
     plain: str | None = None
     html: str | None = None
-    for part in msg.walk():
-        if part.is_multipart():
-            continue
-        filename = part.get_filename()
-        if filename or part.get_content_disposition() == "attachment":
-            attachments.append(str(filename or "attachment")[:200])
-            continue
+    seed = seed_of(key_seed)
+    for j, part in enumerate(_parts(msg)):
         ctype = part.get_content_type()
+        try:
+            filename = part.get_filename()
+        except (ValueError, TypeError, IndexError):  # malformed RFC 2231 parameters
+            filename = None
+        is_file = ctype == "message/rfc822" or (
+            (filename is not None or part.get_content_disposition() == "attachment")
+            and not _is_inline_image(part)
+        )
+        if is_file:
+            if len(out.files) < MAX_ATTACHMENTS_LISTED:
+                out.add_file(part, j, seed, filename, keep_bytes=keep_bytes)
+            continue
         if ctype not in ("text/plain", "text/html"):
             continue
         try:
@@ -82,7 +137,45 @@ def _body(msg: EmailMessage) -> tuple[str, tuple[str, ...]]:
         elif ctype == "text/html" and html is None:
             html = content
     text = plain if plain and plain.strip() else (html_to_text(html) if html else "")
-    return text[: MAX_MESSAGE_CHARS * 2], tuple(attachments[:50])
+    out.text = text[: MAX_MESSAGE_CHARS * 2]
+    return out
+
+
+def _where(info: AttachmentInfo, folder: str, uid: int) -> AttachmentInfo:
+    """Where to read the file again (IMAP: folder + UID; Gmail adds its message id)."""
+    return replace(info, ref={**info.ref, "folder": folder[:200], "uid": str(uid)})
+
+
+class _Body:
+    def __init__(self) -> None:
+        self.text = ""
+        self.files: list[AttachmentInfo] = []
+        self.blobs: list[AttachmentBlob] = []
+        self._kept = 0
+
+    def add_file(
+        self, part: EmailMessage, j: int, seed: str, filename: str | None, *, keep_bytes: bool
+    ) -> None:
+        ctype = part.get_content_type()
+        if ctype == "message/rfc822":
+            name, data = _attached_message(part)
+        else:
+            name = clean_name(filename)
+            payload = part.get_payload(decode=True)
+            data = payload if isinstance(payload, bytes) else b""
+        info = AttachmentInfo(
+            key=f"{seed}-{j}", name=name, mime=ctype, size=len(data), ref={"part": str(j)}
+        )
+        position = len(self.files)
+        self.files.append(info)
+        if (
+            keep_bytes
+            and data
+            and first_pass_state(info, position=position) is None
+            and self._kept + len(data) <= MAX_BYTES_PER_PAGE
+        ):
+            self._kept += len(data)
+            self.blobs.append(AttachmentBlob(info, data))
 
 
 def parse_mail(
@@ -92,15 +185,20 @@ def parse_mail(
     folder: str,
     gm_thread: str | None = None,
     internal_date: datetime | None = None,
+    keep_attachments: bool = False,
 ) -> Mail | None:
+    """``keep_attachments`` keeps readable attachments' bytes on ``Mail.blobs`` (the
+    engine sniffs and parses them; ADR-0043). Names and sizes are always listed."""
     try:
         msg = BytesParser(policy=policy.default).parsebytes(raw)
         refs = _MSGID.findall(_header(msg, "References"))
         reply = _MSGID.findall(_header(msg, "In-Reply-To"))
         references = tuple(dict.fromkeys([*refs, *reply]))[:50]
         message_id = (_MSGID.findall(_header(msg, "Message-ID")) or [""])[0]
-        body, attachments = _body(msg)
+        body = _body(msg, key_seed=message_id or f"{folder}:{uid}", keep_bytes=keep_attachments)
         sender = _addresses(_header(msg, "From"), 1)
+        # Google Takeout labels each message; "Sent" is the account's own mail.
+        labels = {x.strip().lower() for x in _header(msg, "X-Gmail-Labels").split(",")}
         return Mail(
             uid=uid,
             folder=folder,
@@ -110,10 +208,13 @@ def parse_mail(
             to=_addresses(_header(msg, "To")),
             cc=_addresses(_header(msg, "Cc")),
             date=_date(msg, internal_date),
-            body=body,
+            body=body.text,
             references=references,
             gm_thread=gm_thread,
-            attachments=attachments,
+            attachments=tuple(f.name for f in body.files),
+            files=tuple(_where(f, folder, uid) for f in body.files),
+            blobs=tuple(AttachmentBlob(_where(b.info, folder, uid), b.data) for b in body.blobs),
+            sent="sent" in labels,
         )
     except Exception:  # untrusted bytes: skip the message, never the sync
         return None
@@ -136,8 +237,35 @@ def parse_mbox(data: bytes) -> list[Mail]:
         header_end = raw.find(b"\n\n")
         thrid = _GM_THRID.search(raw[: header_end if header_end > 0 else 65536])
         mail = parse_mail(
-            raw, uid=i + 1, folder="mbox", gm_thread=thrid.group(1).decode() if thrid else None
-        )
+            raw, uid=i + 1, folder="mbox", gm_thread=thrid.group(1).decode() if thrid else None,
+            keep_attachments=True,
+        )  # fmt: skip
         if mail is not None:
             out.append(mail)
     return out
+
+
+def message_id_of(raw: bytes) -> str:
+    """The Message-ID header (``<...>``) or empty."""
+    try:
+        msg = BytesParser(policy=policy.default).parsebytes(raw, headersonly=True)
+    except Exception:  # untrusted bytes
+        return ""
+    return (_MSGID.findall(_header(msg, "Message-ID")) or [""])[0]
+
+
+def attachment_part(raw: bytes, part_index: int) -> bytes | None:
+    """The bytes of one attachment, found again by its part number (ADR-0043 on-demand
+    reads); a forwarded message comes back as its text, like at sync. None if absent."""
+    try:
+        msg = BytesParser(policy=policy.default).parsebytes(raw)
+        for j, part in enumerate(_parts(msg)):
+            if j != part_index:
+                continue
+            if part.get_content_type() == "message/rfc822":
+                return _attached_message(part)[1] or None
+            payload = part.get_payload(decode=True)
+            return payload if isinstance(payload, bytes) and payload else None
+    except Exception:  # untrusted bytes
+        return None
+    return None

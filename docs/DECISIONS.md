@@ -581,3 +581,47 @@ A sync that the inline time limit cut off now reports `partial` ("Synced N item(
 - Writing auth events into `audit_log`. That table is scoped to a workspace, and an account is not.
 - A chart library. None is on the approved list (UI_DESIGN §12), so the two column charts are plain HTML.
 **Consequences:** Each sign-up, verification, sign-in, failed sign-in, sign-out and reset adds one small insert. The existing rate limits bound it, so nobody can fill the table quickly, and retention caps its size. The admin sees full email addresses, by the owner's choice. The user list pages by offset, which is fine at this scale; events page by `id` (keyset). There is only one admin; a second would need a new ADR.
+
+## ADR-0043: Attachments are read in tiers (reference → text → vectors), and answers degrade with a reason
+**Status:** Accepted (2026-11-28). Supersedes "attachments are never read" in ADR-0028, ADR-0033 and the Discord ADR for Gmail and Discord; the owner approved the plan.
+**Context:** Two real questions failed. "What did I send today?" abstained because the email wasn't indexed yet and was only a subject plus a PDF name. "What is the .docx about?" could only see a file name. Attachments were stored by name only. Embedding every attachment eagerly would mostly cost Neon storage (a 1024-dim halfvec is about 2 KB per chunk, more than its text), not money (about $0.0001 for a 10-page PDF).
+**Decision:**
+1. **Three tiers per attachment.**
+   - *Tier 0, reference:* name, mime, size, a provider ref and a `state`, stored in the parent's `metadata.attachments`. This is always written and costs nothing.
+   - *Tier 1, text:* a **child document** whose chunks are keyword-searchable with no embedding. It is built at sync when the bytes are already in hand (Gmail `format=raw`) and the type is supported. Otherwise it is built on demand.
+   - *Tier 2, vectors:* `chunk_embeddings` rows, written lazily the first time a child is retrieved or opened for an answer, under the ingest budget guard. Embeddings already live in their own table, so a chunk without one is a normal state.
+2. **States** are `listed | text | unsupported | too_large | encrypted | unreadable | empty | gone | denied_by_budget`. Answers use them to say exactly why a file can't be read. Whether a `text` attachment also has vectors is read from `chunk_embeddings`, not stored, so embedding never rewrites the parent.
+3. **Child documents are enforced by the database (migration 0017).**
+   - `documents.parent_document_id` has a composite FK `(parent_document_id, workspace_id, data_class) → documents(id, workspace_id, data_class) ON DELETE CASCADE`. A child is in its parent's workspace, has its parent's data class and is deleted with it.
+   - The child shares its parent's `source_id`, so disconnecting the source removes it too.
+   - Triggers copy the parent's `acl` and `deleted_at` into the child on insert, and propagate them on change. Chunks already copy the ACL from their document. So a child can never be visible when its parent isn't.
+   - External id: `<parent>#att/<index>`. The checksum is the file's SHA-256, so re-syncing is idempotent and a changed file replaces the child.
+4. **Same gate as uploads.**
+   - Type is sniffed from the bytes (`sniff_kind`). The declared mime and extension are never trusted.
+   - Only PDF, DOCX, Markdown, HTML, text and CSV are parsed, using the existing caps and a parse timeout.
+   - The size cap is 10 MB per attachment.
+   - Inline images (Content-ID) are not attachments.
+   - At most 20 attachments per message get beyond Tier 0.
+5. **Discord fetches on demand only.** Signed CDN URLs are never stored. The message is re-read by channel id and message id for a fresh URL. The download is restricted to `cdn.discordapp.com` and `media.discordapp.net`, byte-capped, follows no redirects and has a timeout. A 403 or 404 gives `gone`. When a re-synced window no longer has a file, that file's text is deleted, so a file removed in Discord stops being searchable. An existing child counts as read: files can't be edited in place, so a re-sync never causes a second download.
+6. **Answers run at most two deterministic steps.** First retrieve. Then, when the question wants content or the hits are thin, expand to the cited documents' full text and their children: ACL-checked, token-capped, doing Tier 1/2 work inside a deadline. There is no model tool calling, so retrieved text still can't trigger actions.
+7. **Freshness.** When a question's date range touches the last two hours and the source last synced more than 10 minutes ago, one inline incremental sync runs, capped at 20 s and throttled per source. Otherwise the answer says when the source last synced.
+8. **Abstention carries reasons** (`not_synced_recently`, `source_not_connected`, `attachment:<state>`, `no_match_in_range`, `budget`, `deadline`), shown with what was searched and the closest matches.
+**Alternatives:**
+- Embed every attachment at sync. Simple, but it spends storage on files nobody asks about.
+- Read everything only when asked. It saves storage, but nothing can be found by keyword, and every first question pays the download and parse latency.
+- A model-driven tool loop. Flexible, but harder to bound in time and cost, and it lets retrieved text steer actions.
+- OCR for scanned PDFs. Out of scope (needs a model or paid API), so they report `empty`.
+**Consequences:**
+- Attachment text uses Neon storage. A per-workspace cap on child-document characters keeps it bounded.
+- A first question about an unread Discord file takes a few seconds longer, or is finished by the worker if the deadline runs out.
+- Gmail messages over 10 MB are indexed (headers and body) instead of skipped, with oversized parts marked `too_large`.
+
+## ADR-0044: Deleting a chat is a soft delete with Undo, purged after 24 hours; chats can be renamed
+**Status:** Accepted (2026-11-28). The owner chose soft delete with Undo over a confirm dialog, and rename alongside it.
+**Context:** The chat history had no way to remove or rename a chat. UI_DESIGN §4.3 deferred both until the API supported them, and §3 prefers a real Undo to a confirm dialog when deletion can be reversed. Chats hold private content quoted from the user's sources, so "deleted" must really mean deleted, soon.
+**Decision:**
+1. `chat_sessions.deleted_at` (migration 0018). The store's ownership filter (`workspace_id`, `user_id`, `deleted_at IS NULL`) is shared by every read and write, so a deleted chat is gone everywhere at once: list, messages, asking in it, rename and feedback.
+2. `DELETE /chat/sessions/{id}` sets it; `POST /chat/sessions/{id}/restore` clears it within 24 hours; the worker's hourly housekeeping deletes rows deleted earlier, and messages, citations and feedback cascade. `PATCH /chat/sessions/{id}` renames (one printable line, at most 120 characters, not blank). All need the CSRF header, and someone else's chat is a 404 like a missing one.
+3. UI: a ⋯ menu per row (Rename, Delete). Delete is optimistic with an 8-second "Chat deleted · Undo" toast; the delete and undo flow lives in the history panel, not the row, because the row unmounts when its chat leaves the list. Deleting a chat that is still answering is disabled.
+**Alternatives:** A hard delete behind a confirm dialog: simpler, no migration, but an extra click every time and no undo. Keeping deleted chats indefinitely ("archive"): it would contradict what the user asked for and keep private text around.
+**Consequences:** One small partial index. A deleted chat's text stays in the database for at most about 25 hours (the window plus the hourly sweep). Bulk "delete all chats" isn't offered yet.

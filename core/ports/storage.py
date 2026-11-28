@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
+from core.domain.attachments import AttachmentInfo
 from core.domain.documents import (
+    AttachmentParent,
     ChunkToEmbed,
     Document,
     DocumentPreview,
@@ -17,7 +19,7 @@ from core.domain.documents import (
     SearchFilters,
     Vector,
 )
-from core.domain.ids import ChunkId, DocumentId, GenerationId, WorkspaceId
+from core.domain.ids import ChunkId, DocumentId, GenerationId, SourceId, WorkspaceId
 from core.domain.principals import Principals
 
 
@@ -59,6 +61,34 @@ class DocumentStore(Protocol):
 
         Returns (document id, changed). An unchanged checksum is a no-op (changed=False).
         """
+        ...
+
+    # Attachments (ADR-0043). Children are identified through their parent, never listed
+    # with the source's documents (a sync's prune would otherwise delete them).
+    async def child_checksums(self, source_id: SourceId, parent_external_id: str) -> dict[str, str]:
+        """external_id -> checksum of this parent's attachment documents."""
+        ...
+
+    async def set_attachments(
+        self, source_id: SourceId, parent_external_id: str, attachments: Sequence[AttachmentInfo]
+    ) -> None:
+        """Replace the parent's Tier 0 list (``metadata["attachments"]``); no-op if gone.
+        Never changes the checksum, so the parent is not re-embedded."""
+        ...
+
+    async def attachment_parent(
+        self, ws: WorkspaceId, principals: Principals | None, doc_id: DocumentId
+    ) -> AttachmentParent:
+        """The parent as the attachment reader needs it, if visible to ``principals``
+        (NotFound for missing and forbidden, like ``get_document``). ``None`` only for the
+        worker finishing a read that a signed-in request started."""
+        ...
+
+    async def chunks_without_embedding(
+        self, ws: WorkspaceId, doc_ids: Sequence[DocumentId], generation: GenerationId, limit: int
+    ) -> list[ChunkToEmbed]:
+        """Chunks of these documents *and their attachments* (in ``ws``) with no vector in
+        ``generation``: the lazy Tier 2 of an attachment."""
         ...
 
     # Backfill (system work across all workspaces; never user-facing, never retrieval).
@@ -130,6 +160,13 @@ class SearchIndex(Protocol):
     ) -> list[ScoredChunk]:
         """The chunks at ordinal +-1 of each (document, ordinal), under the same visibility
         rule as search (answers widen passages with them; ARCHITECTURE §8 step 6)."""
+        ...
+
+    async def attachment_children(
+        self, ws: WorkspaceId, principals: Principals, parents: Sequence[DocumentId]
+    ) -> list[tuple[DocumentId, DocumentId]]:
+        """(child id, parent id) for these documents' indexed attachments the caller may
+        see (ADR-0043)."""
         ...
 
     async def chunks_by_id(

@@ -346,7 +346,7 @@ Built on Answerline's "live feed" table and Beautiful UI's records table and tas
 - 200 px expanded, 60 px collapsed (icons only, labelled), toggled with the collapse button (`Ctrl/⌘ B` is planned). The state persists in `localStorage`. `--bg` background with a 1 px `--border` on the right (ADR-0017, §4.2).
 - **Top:** the workspace block (24 px logo tile plus workspace name 14/500). There's a single workspace, so it isn't a switcher and has no chevron. Below it, a **New chat** button (`secondary`, full width, `square-pen` icon, kbd hint `Ctrl/⌘ Shift O`).
 - **Primary nav** (items 32 px, `--radius-md`, 16 px icon, 14/500 label, the gliding highlight from §2.7): Chat, Search, Sources, Settings. Settings shows only for owners and admins. The active item has a `--bg` fill, a 1 px `--border` and `--fg` text. Inactive items use `--fg-muted`.
-- **Recent chats** (moved, 2026-11-26): they live in Chat's own history column (§4.3), not in this sidebar. The rest of this bullet describes that list: a section label in `caption` style ("Today", "Yesterday", "Previous 7 days", "Older"), then items 32 px, single line with ellipsis. The current chat is highlighted. The list loads 30, then more on scroll (cursor pagination). Rename and delete wait until the API supports them; don't show a ⋯ menu that does nothing.
+- **Recent chats** (moved, 2026-11-26): they live in Chat's own history column (§4.3), not in this sidebar. The rest of this bullet describes that list: a section label in `caption` style ("Today", "Yesterday", "Previous 7 days", "Older"), then items 32 px, single line with ellipsis. The current chat is highlighted. The list loads 30, then more on scroll (cursor pagination). Each row's ⋯ menu has Rename and Delete (ADR-0044, §4.3).
 - **Bottom:** a user button (24 px avatar, name, and role in `caption`) that opens a menu: role shown, Keyboard shortcuts, Sign out.
 - **Phone (< 768 px):** the sidebar becomes a left drawer (280 px, `--overlay` backdrop) opened from a menu icon in a 56 px top bar.
 
@@ -459,7 +459,7 @@ Loop rules (`lib/motion.ts`): the whole card pauses while hovered or focused, wh
   - **Paging:** 30 at a time, the next page on scroll (cursor).
   - **New chats:** a chat started in this tab is inserted at the top as soon as `meta` arrives. The list never polls.
   - **States:** skeleton rows while loading, an inline error with Try again, and "Your chats will appear here" when there are none.
-  - **Not yet:** rename and delete wait for the API.
+  - **Rename and delete (ADR-0044):** each row has a ⋯ button (shown on hover or focus; always on the open chat and on touch screens) opening a small menu: Rename, then Delete in danger text. Rename turns the row into an inline field (Enter or leaving it saves, Escape cancels; blank keeps the old name). Delete removes the row at once with no dialog and shows the toast "Chat deleted · **Undo**" for 8 s (real undo: the server keeps it 24 h). Deleting the open chat goes to a new chat; Undo returns to it. Delete is disabled while that chat is still answering.
   - **Open/closed:** kept in `slate.chats.open`. Below `lg` it's a 280 px drawer, opened from the chat header.
 - **Chat header** (56 px, hairline): the chat's title (it fades on change), plus Show chats and New chat buttons when the history column is hidden.
 - **Column:** max 760 px, padded 16/24.

@@ -17,6 +17,7 @@ class _Session:
     user: UserId
     info: ChatSessionInfo
     messages: list[StoredMessage] = field(default_factory=list[StoredMessage])
+    deleted_at: datetime | None = None
 
 
 class InMemoryChatStore:
@@ -32,7 +33,8 @@ class InMemoryChatStore:
 
     def _owned(self, ws: WorkspaceId, user: UserId, sid: ChatSessionId) -> _Session | None:
         s = self.sessions.get(sid)
-        return s if s is not None and s.ws == ws and s.user == user else None
+        live = s is not None and s.ws == ws and s.user == user and s.deleted_at is None
+        return s if live else None
 
     async def create_session(
         self, ws: WorkspaceId, user: UserId, title: str | None
@@ -53,7 +55,10 @@ class InMemoryChatStore:
         mine = [
             s.info
             for s in self.sessions.values()
-            if s.ws == ws and s.user == user and (before is None or s.info.created_at < before)
+            if s.ws == ws
+            and s.user == user
+            and s.deleted_at is None
+            and (before is None or s.info.created_at < before)
         ]
         return sorted(mine, key=lambda i: i.created_at, reverse=True)[:limit]
 
@@ -107,6 +112,39 @@ class InMemoryChatStore:
         )
         self.usage[mid] = message.usage
         return mid
+
+    async def rename_session(
+        self, ws: WorkspaceId, user: UserId, session: ChatSessionId, title: str
+    ) -> bool:
+        s = self._owned(ws, user, session)
+        if s is None:
+            return False
+        s.info = replace(s.info, title=title)
+        return True
+
+    async def delete_session(self, ws: WorkspaceId, user: UserId, session: ChatSessionId) -> bool:
+        s = self._owned(ws, user, session)
+        if s is None:
+            return False
+        s.deleted_at = self._clock.now()
+        return True
+
+    async def restore_session(
+        self, ws: WorkspaceId, user: UserId, session: ChatSessionId, *, since: datetime
+    ) -> bool:
+        s = self.sessions.get(session)
+        if s is None or s.ws != ws or s.user != user or s.deleted_at is None:
+            return False
+        if s.deleted_at < since:
+            return False
+        s.deleted_at = None
+        return True
+
+    async def purge_deleted(self, before: datetime) -> int:
+        gone = [k for k, s in self.sessions.items() if s.deleted_at and s.deleted_at < before]
+        for k in gone:
+            del self.sessions[k]
+        return len(gone)
 
     async def add_citations(self, message: MessageId, citations: Sequence[Citation]) -> None:
         for s in self.sessions.values():

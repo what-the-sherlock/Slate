@@ -31,6 +31,7 @@ from api.schemas.chat import (
     FeedbackBody,
     MessageOut,
     MetaEvent,
+    RenameChatBody,
     SourcesEvent,
     TokenEvent,
 )
@@ -41,6 +42,7 @@ from core.domain.errors import AppError, UpstreamUnavailable
 from core.domain.ids import ChatSessionId, MessageId, SourceId
 from core.ports.chat import Citation
 from core.services.answer import AnswerEvent, AnswerService, Cited, Done, Meta, SourcesFound, Token
+from core.services.chats import ChatHistory
 
 router = APIRouter(tags=["chat"])
 log = structlog.get_logger(__name__)
@@ -54,6 +56,15 @@ def _answers(container: Annotated[Container, Depends(get_container)]) -> AnswerS
 
 
 Answers = Annotated[AnswerService, Depends(_answers)]
+
+
+def _history(container: Annotated[Container, Depends(get_container)]) -> ChatHistory:
+    if container.chat_history is None:
+        raise UpstreamUnavailable("Chat isn't configured on this server.")
+    return container.chat_history
+
+
+History = Annotated[ChatHistory, Depends(_history)]
 
 
 def _source(s: Source) -> AnswerSourceOut:
@@ -186,6 +197,42 @@ async def sessions(
         identity.workspace_id, identity.user_id, limit=limit, before=before
     )
     return [ChatSessionOut(id=s.id, title=s.title, created_at=s.created_at) for s in found]
+
+
+@router.patch(
+    "/chat/sessions/{session_id}",
+    summary="Rename a chat",
+    response_model=ChatSessionOut,
+)
+async def rename_chat(
+    session_id: UUID, body: RenameChatBody, identity: MutatingIdentity, history: History,
+    container: Annotated[Container, Depends(get_container)],
+) -> ChatSessionOut:  # fmt: skip
+    await history.rename(identity, ChatSessionId(session_id), body.title)
+    assert container.chats is not None  # history exists only with a chat store
+    found = await container.chats.get_session(
+        identity.workspace_id, identity.user_id, ChatSessionId(session_id)
+    )
+    assert found is not None  # just renamed
+    return ChatSessionOut(id=found.id, title=found.title, created_at=found.created_at)
+
+
+@router.delete(
+    "/chat/sessions/{session_id}",
+    summary="Delete a chat (restorable for 24 hours, then purged)",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_chat(session_id: UUID, identity: MutatingIdentity, history: History) -> None:
+    await history.delete(identity, ChatSessionId(session_id))
+
+
+@router.post(
+    "/chat/sessions/{session_id}/restore",
+    summary="Undo deleting a chat",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def restore_chat(session_id: UUID, identity: MutatingIdentity, history: History) -> None:
+    await history.restore(identity, ChatSessionId(session_id))
 
 
 @router.get(

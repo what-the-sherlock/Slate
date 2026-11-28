@@ -15,7 +15,7 @@ from core.adapters.parsers.formats import FormatParser
 from core.domain.auth import Identity, Role
 from core.domain.budget import SpendLimits
 from core.domain.connected import FetchedDocument, Page
-from core.domain.documents import Section
+from core.domain.documents import SearchFilters, Section
 from core.domain.errors import (
     NotFound,
     PermissionDenied,
@@ -408,3 +408,61 @@ async def test_without_a_parser_raw_files_are_unsupported_not_dropped() -> None:
     await env.run()
     [skipped] = list(env.sources.skipped.values())
     assert skipped == {"unsupported_type:drive": 1}
+
+
+# ---------------------------------------------------------------- attachments (ADR-0043)
+
+
+def mail_doc(files: dict[str, bytes]) -> FetchedDocument:
+    from core.domain.attachments import AttachmentBlob, AttachmentInfo
+
+    infos = [
+        AttachmentInfo(key=f"seed-{i}", name=name, mime="text/plain", size=len(data))
+        for i, (name, data) in enumerate(files.items())
+    ]
+    return FetchedDocument(
+        external_id="thread:t1", title="Test", uri="https://mail.test/t1",
+        sections=(Section("Email > Test", "From me to Aashutosh: (no text)"),),
+        author="Me", updated_at=NOW,
+        metadata={"kind": "email", "attachments": [i.to_meta() for i in infos]},
+        attachments=tuple(AttachmentBlob(i, d) for i, d in zip(infos, files.values(), strict=True)),
+    )  # fmt: skip
+
+
+def with_attachments(env: Env) -> Env:
+    from core.services.attachments import AttachmentIndexer
+
+    ingest = env.engine._ingest
+    assert ingest is not None
+    env.engine._attachments = AttachmentIndexer(ingest, env.index, env.sources, FormatParser())
+    return env
+
+
+async def test_a_synced_conversations_files_become_searchable_children() -> None:
+    env = with_attachments(Env(Script(Page((mail_doc({"plan.txt": b"Launch in March"}),)))))
+    await env.connect()
+    await env.run()
+    ada, bob = Principals.for_user(ADA, WS), Principals.for_user(BOB, WS)
+    hits = await env.index.keyword_search(WS, ada, "march", 5, SearchFilters())
+    assert hits
+    assert hits[0].parent_id is not None
+    parents = [
+        h for h in await env.index.keyword_search(WS, ada, "test", 5, SearchFilters())
+        if h.parent_id is None
+    ]  # fmt: skip
+    assert [a.state.value for a in parents[0].attachments] == ["text"]
+    # Bob shares nothing with Ada's private mail, attachments included.
+    assert await env.index.keyword_search(WS, bob, "march", 5, SearchFilters()) == []
+
+
+async def test_a_file_removed_from_the_conversation_is_pruned_at_the_next_sync() -> None:
+    env = with_attachments(Env(Script(
+        Page((mail_doc({"a.txt": b"alpha", "b.txt": b"bravo"}),), checkpoint={"c": 1}),
+        Page((mail_doc({"a.txt": b"alpha"}),), checkpoint={"c": 2}),
+    )))  # fmt: skip
+    await env.connect()
+    await env.run()
+    await env.run()
+    ada = Principals.for_user(ADA, WS)
+    assert await env.index.keyword_search(WS, ada, "bravo", 5, SearchFilters()) == []
+    assert await env.index.keyword_search(WS, ada, "alpha", 5, SearchFilters())

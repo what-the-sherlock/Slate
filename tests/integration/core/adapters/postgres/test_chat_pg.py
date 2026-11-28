@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -134,3 +135,48 @@ async def test_supersede_retires_the_turn_and_later_ones_only_for_the_owner(
             await s.execute(text("SELECT count(*) FROM messages WHERE session_id = :s"), {"s": sid})
         ).scalar_one()
     assert kept == 6  # nothing deleted: superseded rows stay for feedback and audit
+
+
+# ---------------------------------------------------------------- rename / delete (ADR-0044)
+
+
+async def test_soft_delete_hides_the_chat_from_every_read_and_write(
+    uow: UnitOfWork, people: tuple[tuple[WorkspaceId, UserId], tuple[WorkspaceId, UserId]]
+) -> None:
+    (ws, me), (other_ws, other) = people
+    chats = PostgresChatStore(uow)
+    sid = await chats.create_session(ws, me, "t")
+    await chats.add_message(ws, me, sid, NewMessage(Role.USER, "hello"))
+    assert not await chats.delete_session(other_ws, other, sid)  # not theirs
+    assert await chats.rename_session(ws, me, sid, "Renamed")
+    assert await chats.delete_session(ws, me, sid)
+    assert await chats.get_session(ws, me, sid) is None
+    assert await chats.messages(ws, me, sid, limit=10) == []
+    assert all(s.id != sid for s in await chats.list_sessions(ws, me, limit=50, before=None))
+    with pytest.raises(NotFound):
+        await chats.add_message(ws, me, sid, NewMessage(Role.USER, "still there?"))
+    assert not await chats.rename_session(ws, me, sid, "x")
+    future = datetime.now(UTC) + timedelta(minutes=1)
+    assert not await chats.restore_session(ws, me, sid, since=future)  # past the window
+    assert await chats.restore_session(ws, me, sid, since=datetime.now(UTC) - timedelta(days=1))
+    info = await chats.get_session(ws, me, sid)
+    assert info is not None
+    assert info.title == "Renamed"
+    assert len(await chats.messages(ws, me, sid, limit=10)) == 1
+
+
+async def test_purge_removes_old_deletes_and_their_messages(
+    uow: UnitOfWork, people: tuple[tuple[WorkspaceId, UserId], tuple[WorkspaceId, UserId]]
+) -> None:
+    (ws, me), _ = people
+    chats = PostgresChatStore(uow)
+    sid = await chats.create_session(ws, me, "t")
+    await chats.add_message(ws, me, sid, NewMessage(Role.USER, "hello"))
+    keep = await chats.create_session(ws, me, "keep")
+    await chats.delete_session(ws, me, sid)
+    assert await chats.purge_deleted(datetime.now(UTC) + timedelta(seconds=5)) >= 1
+    async with uow() as s:
+        left = (await s.execute(text("SELECT count(*) FROM messages WHERE session_id = :s"),
+                                {"s": sid})).scalar_one()  # fmt: skip
+    assert left == 0
+    assert await chats.get_session(ws, me, keep) is not None

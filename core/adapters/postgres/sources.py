@@ -373,7 +373,7 @@ class PostgresSourceStore:
                     text(
                         "SELECT external_id, checksum, source_updated_at FROM documents"
                         " WHERE source_id = :s AND starts_with(external_id, :p)"
-                        " AND deleted_at IS NULL"
+                        " AND deleted_at IS NULL AND parent_document_id IS NULL"
                     ),
                     {"s": source_id, "p": prefix},
                 )
@@ -400,6 +400,7 @@ class PostgresSourceStore:
                     text(
                         "SELECT external_id, checksum FROM documents WHERE source_id = :s"
                         " AND starts_with(external_id, :p) AND deleted_at IS NULL"
+                        " AND parent_document_id IS NULL"
                     ),
                     {"s": source_id, "p": prefix},
                 )

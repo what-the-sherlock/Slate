@@ -217,7 +217,7 @@ def test_prompts_state_todays_date_when_given() -> None:
     grounded = build_messages("q", number_sources([passage(1)]), now=now)[0].content
     general = plain_messages(GENERAL_PROMPT, "q", now=now)[0].content
     for system in (grounded, general):
-        assert system.endswith("Today is Friday 27 November 2026 (GMT).")
+        assert system.endswith("Today is Friday 27 November 2026, 10:00 (GMT).")
     assert build_messages("q", [])[0].content == SYSTEM_PROMPT  # no clock, no date
 
 

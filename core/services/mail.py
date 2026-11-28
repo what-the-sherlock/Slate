@@ -21,12 +21,13 @@ from __future__ import annotations
 import hashlib
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from uuid import UUID
 
 import structlog
 
+from core.domain.attachments import blob_digest
 from core.domain.auth import Identity, Role
 from core.domain.data_class import DataClass
 from core.domain.documents import DocumentUpsert, Section
@@ -49,10 +50,12 @@ from core.domain.mail import (
     MAX_THREADS_PER_SYNC,
     PROVIDERS,
     FolderCursor,
+    FolderRole,
     Mail,
     MailCheckpoint,
     Provider,
     backfill_since,
+    cap_attachment_bytes,
     checksum,
     group_threads,
     is_plausible_app_password,
@@ -61,6 +64,8 @@ from core.domain.mail import (
     normalise_app_password,
     participants,
     thread_external_id,
+    thread_files,
+    thread_metadata,
     thread_sections,
     thread_title,
 )
@@ -72,6 +77,7 @@ from core.ports.rate_limit import Limit, RateLimiter
 from core.ports.sources import SourceRecord, SourceStore
 from core.ports.storage import BlobStore
 from core.ports.system import Clock
+from core.services.attachments import AttachmentIndexer, ParentRef
 from core.services.ingest import IngestService, Stage
 from core.services.sync_run import RunBoundary
 
@@ -83,6 +89,7 @@ SYNC_MAIL = "sync_mail"
 IMPORT_MBOX = "import_mbox"
 CREDENTIAL_KIND = "imap_app_password"
 INLINE_SYNC_BUDGET_S = 90.0
+QUICK_SYNC_BUDGET_S = 15.0  # a sync a question waits for (ADR-0043)
 PROGRESS_EVERY = 10  # items between live progress updates on a running run
 LOGIN_LIMIT = Limit(budget=5, window=timedelta(hours=1))
 LOGIN_DAY_LIMIT = Limit(budget=20, window=timedelta(days=1))
@@ -260,22 +267,35 @@ class _Indexer:
     run: RunId
     existing: Mapping[str, str]
     tally: _Tally = field(default_factory=_Tally)
+    # ADR-0043: reads the files that came with each conversation (None: listed only),
+    # and which folders hold the account's own sent mail.
+    attachments: AttachmentIndexer | None = None
+    sent_folders: frozenset[str] = frozenset()
 
     async def thread(self, key: str, mails: Sequence[Mail]) -> bool:
         """True when indexed, unchanged, or failed permanently (recorded: retrying would fail
         the same way, so it must not hold the cursor and make every sync re-read). False when
         it failed in a way worth retrying. BudgetExceeded propagates."""
         ext = thread_external_id(key)
+        if self.sent_folders:
+            mails = [replace(m, sent=True) if m.folder in self.sent_folders else m for m in mails]
         sections: tuple[Section, ...] = thread_sections(mails)
         title = thread_title(mails)
         self.tally.seen += 1
         if self.tally.seen % PROGRESS_EVERY == 0:
             t = self.tally
             await self.sources.progress(self.run, seen=t.seen, changed=t.changed, failed=t.failed)
+        files, blobs = thread_files(mails)
         digest = checksum(sections, title)
+        if blobs:  # a file replaced under the same name and size still counts
+            digest = hashlib.sha256((digest + blob_digest(blobs)).encode()).hexdigest()
         if not sections or self.existing.get(ext) == digest:
             return True
         ordered = sorted(mails, key=lambda m: m.date)
+        metadata = thread_metadata(mails)
+        prepared = await self.attachments.prepare(files, blobs) if self.attachments else []
+        if prepared:
+            metadata["attachments"] = [p.info.to_meta() for p in prepared]
         stage = Stage("chunk")
         try:
             result = await self.ingest.index_document(
@@ -291,7 +311,7 @@ class _Indexer:
                     author=participants(ordered),
                     source_created_at=ordered[0].date,
                     source_updated_at=ordered[-1].date,
-                    metadata={"kind": "email", "messages": len(ordered)},
+                    metadata=metadata,
                 ),
                 sections,
                 data_class=self.source.data_class,
@@ -307,6 +327,17 @@ class _Indexer:
             return not e.retryable
         if result.changed:
             self.tally.changed += 1
+            if self.attachments is not None:  # also prunes files no longer in the thread
+                await self.attachments.write(
+                    ParentRef(
+                        workspace_id=self.source.workspace_id, source_id=self.source.id,
+                        external_id=ext, title=title, uri=f"mail:{ext}",
+                        acl=self.source.visibility, data_class=self.source.data_class,
+                        author=participants(ordered), created_at=ordered[0].date,
+                        updated_at=ordered[-1].date,
+                    ),
+                    prepared,
+                )  # fmt: skip
         return True
 
 
@@ -325,7 +356,9 @@ class MailSync:
         jobs: JobQueue,
         ingest: IngestService,
         clock: Clock,
+        attachments: AttachmentIndexer | None = None,
     ) -> None:
+        self._attachments = attachments
         self._mailbox = mailbox
         self._credentials = credentials
         self._sources = sources
@@ -339,6 +372,11 @@ class MailSync:
     async def handle_inline(self, job: Job) -> None:
         await self.sync(job, deadline=time.monotonic() + INLINE_SYNC_BUDGET_S)
 
+    async def handle_quick(self, job: Job) -> None:
+        """A sync a question started (ADR-0043): a short, cooperative budget; whatever is
+        left continues in the worker from the saved checkpoint."""
+        await self.sync(job, deadline=time.monotonic() + QUICK_SYNC_BUDGET_S)
+
     async def sync(self, job: Job, *, deadline: float | None) -> None:
         source = await self._sources.get_source(job.workspace_id, _source_id(job))
         if source is None or source.connector != IMAP or source.status != "active":
@@ -347,7 +385,10 @@ class MailSync:
         cp = MailCheckpoint.from_json(source.checkpoint)
         run = await self._sources.create_run(source.id, "full" if cp.first_sync else "incremental")
         out_of_time = (lambda: False) if deadline is None else (lambda: time.monotonic() > deadline)
-        indexer = _Indexer(self._ingest, self._sources, source, run, {})
+        indexer = _Indexer(
+            self._ingest, self._sources, source, run, {},
+            attachments=self._attachments, sent_folders=_sent_folders(source),
+        )  # fmt: skip
         async with RunBoundary(
             self._sources, source.id, run, event="mail.synced",
             counts=lambda: indexer.tally, checkpoint=lambda: cp.as_json(),
@@ -428,7 +469,7 @@ class MailSync:
             if out_of_time():
                 raise _OutOfTime
             out += await session.fetch(uids[i : i + 200])
-        return out
+        return cap_attachment_bytes(out)
 
     async def _complete(
         self,
@@ -452,6 +493,18 @@ class MailSync:
                     merged[key] = [*merged[key], *extra]
                     have.update((m.folder, m.uid) for m in extra)
         return group_threads(m for ms in merged.values() for m in ms)
+
+
+def _sent_folders(source: SourceRecord) -> frozenset[str]:
+    """The folders the account sends from (role chosen at connect)."""
+    raw = source.config.get("folders")
+    out: set[str] = set()
+    for f in raw if isinstance(raw, list) else []:  # pyright: ignore[reportUnknownVariableType]
+        if isinstance(f, dict) and f.get("role") == FolderRole.SENT.value:  # pyright: ignore[reportUnknownMemberType]
+            name = f.get("name")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            if isinstance(name, str):
+                out.add(name)
+    return frozenset(out)
 
 
 def _folders(source: SourceRecord) -> list[str]:
@@ -485,7 +538,9 @@ class MboxImport:
         sources: SourceStore,
         ingest: IngestService,
         parse: Callable[[bytes], list[Mail]],
+        attachments: AttachmentIndexer | None = None,
     ) -> None:
+        self._attachments = attachments
         self._blobs = blobs
         self._sources = sources
         self._ingest = ingest
@@ -504,7 +559,9 @@ class MboxImport:
         ):
             raise ValidationFailed("Malformed job payload.")
         run = await self._sources.create_run(source.id, "import")
-        indexer = _Indexer(self._ingest, self._sources, source, run, {})
+        indexer = _Indexer(
+            self._ingest, self._sources, source, run, {}, attachments=self._attachments
+        )
         async with RunBoundary(
             self._sources, source.id, run, event="mail.imported",
             counts=lambda: indexer.tally, checkpoint=None, failed_noun="conversation(s)",
@@ -520,7 +577,7 @@ class MboxImport:
                     raise ValidationFailed("The stored file is larger than 25 MB.")
                 if hashlib.sha256(data).hexdigest() != sha:
                     raise ValidationFailed("The uploaded file changed after it was checked.")
-                mails = self._parse(data)
+                mails = cap_attachment_bytes(self._parse(data))
                 if not mails:
                     raise ValidationFailed("No emails found in this file. Export Mail as .mbox.")
                 threads = group_threads(mails)

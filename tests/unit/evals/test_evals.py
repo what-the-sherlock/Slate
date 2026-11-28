@@ -9,7 +9,15 @@ from core.domain.errors import UpstreamUnavailable
 from core.domain.ids import DocumentId, GenerationId, SourceId, WorkspaceId
 from core.domain.principals import PUBLIC, workspace_principal
 from core.services.search import VectorLane
-from evals.cases import CONNECTOR_BY_KIND, Case, check_references, load_cases, load_corpus
+from evals.cases import (
+    CONNECTOR_BY_KIND,
+    EXTERNAL_PREFIX,
+    Case,
+    check_references,
+    document_metadata,
+    load_cases,
+    load_corpus,
+)
 from evals.harness import CachingEmbedder, DegradedRun, run_cases
 from evals.metrics import mrr_at_k, ndcg_at_k, percentile, recall_at_k, unique_in_order
 from tests.fakes.models import FakeEmbedder
@@ -182,7 +190,8 @@ async def corpus_index() -> tuple[InMemoryIndex, dict[str, DocumentId], set[Docu
         index.connectors[sid] = CONNECTOR_BY_KIND[kind]  # type: ignore[index]
     ids: dict[str, DocumentId] = {}
     private: set[DocumentId] = set()
-    for doc in load_corpus():
+    corpus = load_corpus()
+    for doc in corpus:
         acl = (PUBLIC,) if doc.visibility == "public" else (workspace_principal(WS),)
         body = doc.body.decode()
         doc_id, _ = await index.write_document(
@@ -197,6 +206,8 @@ async def corpus_index() -> tuple[InMemoryIndex, dict[str, DocumentId], set[Docu
                 acl,
                 author=doc.author,
                 source_updated_at=doc.updated_at,
+                metadata=document_metadata(doc, corpus),
+                parent_external_id=EXTERNAL_PREFIX + doc.parent if doc.parent else None,
             ),
             [NewChunk(0, body, len(body.split()))],
             {},

@@ -30,6 +30,7 @@ from datetime import datetime, timedelta
 
 import structlog
 
+from core.domain.attachments import from_meta
 from core.domain.discord import (
     BACKFILL_DAYS,
     MAX_MESSAGES_PER_CHANNEL_PER_SYNC,
@@ -50,6 +51,7 @@ from core.domain.discord import (
     group_windows,
     intent_looks_off,
     is_snowflake,
+    message_files,
     message_url,
     recent_windows,
     snowflake_at,
@@ -76,6 +78,7 @@ from core.ports.discord import DiscordApi
 from core.ports.jobs import JobQueue
 from core.ports.sources import SourceRecord, SourceStore
 from core.ports.system import Clock
+from core.services.attachments import AttachmentIndexer
 from core.services.discord import CONNECTOR, SYNC_DISCORD, channel_configs, parse_source_id
 from core.services.ingest import IngestService, Stage
 from core.services.sync_run import RunBoundary
@@ -83,6 +86,7 @@ from core.services.sync_run import RunBoundary
 log = structlog.get_logger(__name__)
 
 INLINE_SYNC_BUDGET_S = 90.0
+QUICK_SYNC_BUDGET_S = 15.0  # a sync a question waits for (ADR-0043)
 PROGRESS_EVERY = (
     10  # items between live progress updates on a running run  # inside the inline runner's 120 s
 )
@@ -137,7 +141,11 @@ class DiscordSync:
         jobs: JobQueue,
         ingest: IngestService,
         clock: Clock,
+        attachments: AttachmentIndexer | None = None,
     ) -> None:
+        # Prunes the text of files removed from a message (ADR-0043); files are read on
+        # demand, never here.
+        self._attachments = attachments
         self._dc = discord
         self._sources = sources
         self._jobs = jobs
@@ -149,6 +157,11 @@ class DiscordSync:
 
     async def handle_inline(self, job: Job) -> None:
         await self.sync(job, deadline=time.monotonic() + INLINE_SYNC_BUDGET_S)
+
+    async def handle_quick(self, job: Job) -> None:
+        """A sync a question started (ADR-0043): a short, cooperative budget; whatever is
+        left continues in the worker from the saved checkpoint."""
+        await self.sync(job, deadline=time.monotonic() + QUICK_SYNC_BUDGET_S)
 
     async def sync(self, job: Job, *, deadline: float | None) -> None:
         source = await self._sources.get_source(
@@ -296,7 +309,8 @@ class DiscordSync:
                     author=authors(w.messages), created=w.messages[0].at,
                     updated=w.messages[-1].at,
                     metadata={"guild": st.guild.id, "channel": channel.id, "kind": "messages",
-                              "messages": len(w.messages)},
+                              "messages": len(w.messages),
+                              "attachments": message_files(w.messages)},
                 )  # fmt: skip
                 if not indexed:
                     stuck = True
@@ -464,7 +478,8 @@ class DiscordSync:
             author=authors(messages), created=snowflake_time(thread.id),
             updated=snowflake_time(thread.last_activity),
             metadata={"guild": st.guild.id, "channel": channel.id, "thread": thread.id,
-                      "kind": "thread", "messages": len(messages)},
+                      "kind": "thread", "messages": len(messages),
+                      "attachments": message_files(messages)},
         )  # fmt: skip
 
     # ------------------------------------------------------------------ indexing
@@ -527,6 +542,10 @@ class DiscordSync:
             return False
         if result.changed:
             st.tally.changed += 1
+            if self._attachments is not None:  # a file removed from a message (ADR-0043)
+                await self._attachments.prune(
+                    st.source.id, external_id, from_meta(metadata.get("attachments"))
+                )
         return True
 
 

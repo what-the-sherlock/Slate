@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from core.domain.answer import MAX_QUESTION_CHARS, AnswerMode
 from core.services.search import MAX_SOURCE_FILTERS
@@ -138,6 +138,12 @@ class ChatSessionOut(BaseModel):
     id: UUID
     title: str | None
     created_at: datetime
+
+
+class RenameChatBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(max_length=500, description="Trimmed to 120 printable characters")
 
 
 class CitationOut(BaseModel):
